@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>币钱袋 - 系统架构图</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #64748b;
+            margin-bottom: 40px;
+            font-size: 14px;
+        }
+        .diagram {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+        }
+        .layer {
+            margin-bottom: 30px;
+        }
+        .layer-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            padding-left: 8px;
+            border-left: 3px solid #06b6d4;
+        }
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .box {
+            background: #334155;
+            border-radius: 10px;
+            padding: 14px 18px;
+            min-width: 120px;
+            text-align: center;
+            border: 1px solid #475569;
+            transition: all 0.2s;
+        }
+        .box:hover {
+            border-color: #06b6d4;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.2);
+        }
+        .box-icon {
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+        .box-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+        .box-sub {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        .client-layer .box { background: linear-gradient(135deg, #06b6d4, #0891b2); border: none; }
+        .mobile-layer .box { background: linear-gradient(135deg, #8b5cf6, #7c3aed); border: none; }
+        .api-layer .box { background: linear-gradient(135deg, #f59e0b, #d97706); border: none; }
+        .service-layer .box { background: linear-gradient(135deg, #10b981, #059669); border: none; }
+        .data-layer .box { background: linear-gradient(135deg, #ef4444, #dc2626); border: none; }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            padding: 20px;
+            flex-wrap: wrap;
+        }
+        .flow-box {
+            background: #334155;
+            border-radius: 12px;
+            padding: 20px 24px;
+            text-align: center;
+            min-width: 140px;
+        }
+        .flow-box.primary {
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            border: none;
+        }
+        .flow-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        .flow-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .flow-desc {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        .arrow {
+            font-size: 24px;
+            color: #06b6d4;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 30px;
+        }
+        .stat-card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #334155;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #06b6d4;
+            margin-top: 8px;
+        }
+        .stat-desc {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        .tech-stack {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 12px;
+        }
+        .tech-tag {
+            background: #334155;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        .module-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .module-card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid #334155;
+        }
+        .module-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 8px;
+        }
+        .module-files {
+            font-size: 12px;
+            color: #64748b;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏦 币钱袋 (CryptoQuant) 系统架构</h1>
+        <p class="subtitle">数字货币量化交易移动应用 | 2026-04-21</p>
+
+        <!-- 技术栈 -->
+        <div class="diagram">
+            <div class="layer">
+                <div class="layer-title">技术栈</div>
+                <div class="tech-stack">
+                    <span class="tech-tag">Flutter 3.x</span>
+                    <span class="tech-tag">Riverpod</span>
+                    <span class="tech-tag">GoRouter</span>
+                    <span class="tech-tag">Dio</span>
+                    <span class="tech-tag">FastAPI</span>
+                    <span class="tech-tag">SQLAlchemy (Async)</span>
+                    <span class="tech-tag">PostgreSQL</span>
+                    <span class="tech-tag">Redis</span>
+                    <span class="tech-tag">Python 3.11+</span>
+                    <span class="tech-tag">JWT / AES-256</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统分层架构 -->
+        <div class="diagram">
+            <div class="layer-title">系统分层架构</div>
+
+            <div class="layer client-layer">
+                <div class="layer-title" style="color: #06b6d4;">客户端层 (Flutter App)</div>
+                <div class="row">
+                    <div class="box">
+                        <div class="box-icon">📊</div>
+                        <div class="box-title">首页 Dashboard</div>
+                        <div class="box-sub">资产/行情/持仓</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📈</div>
+                        <div class="box-title">策略中心</div>
+                        <div class="box-sub">模板/实例</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🔄</div>
+                        <div class="box-title">回测</div>
+                        <div class="box-sub">策略验证</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">⚙️</div>
+                        <div class="box-title">设置</div>
+                        <div class="box-sub">账户/交易所</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🔐</div>
+                        <div class="box-title">登录/注册</div>
+                        <div class="box-sub">JWT 认证</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="layer mobile-layer">
+                <div class="layer-title" style="color: #a78bfa;">移动端核心</div>
+                <div class="row">
+                    <div class="box">
+                        <div class="box-icon">🔄</div>
+                        <div class="box-title">Riverpod</div>
+                        <div class="box-sub">状态管理</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🛣️</div>
+                        <div class="box-title">GoRouter</div>
+                        <div class="box-sub">路由 + 守卫</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🌐</div>
+                        <div class="box-title">Dio</div>
+                        <div class="box-sub">HTTP Client</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🔑</div>
+                        <div class="box-title">Auth Interceptor</div>
+                        <div class="box-sub">Token 自动刷新</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="layer api-layer">
+                <div class="layer-title" style="color: #fbbf24;">API 网关层 (FastAPI)</div>
+                <div class="row">
+                    <div class="box">
+                        <div class="box-icon">🔓</div>
+                        <div class="box-title">/auth</div>
+                        <div class="box-sub">认证</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📋</div>
+                        <div class="box-title">/strategies</div>
+                        <div class="box-sub">策略管理</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📉</div>
+                        <div class="box-title">/backtest</div>
+                        <div class="box-sub">回测</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📊</div>
+                        <div class="box-title">/market</div>
+                        <div class="box-sub">行情数据</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">💰</div>
+                        <div class="box-title">/asset</div>
+                        <div class="box-sub">资产管理</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">🔄</div>
+                        <div class="box-title">/trading</div>
+                        <div class="box-sub">交易/订单</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="layer service-layer">
+                <div class="layer-title" style="color: #34d399;">服务层 (Business Logic)</div>
+                <div class="row">
+                    <div class="box">
+                        <div class="box-icon">🔐</div>
+                        <div class="box-title">AuthService</div>
+                        <div class="box-sub">注册/登录/Token</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📋</div>
+                        <div class="box-title">StrategyService</div>
+                        <div class="box-sub">策略 CRUD</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📊</div>
+                        <div class="box-title">BacktestService</div>
+                        <div class="box-sub">回测执行</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📈</div>
+                        <div class="box-title">MarketService</div>
+                        <div class="box-sub">行情 + Redis 缓存</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">📝</div>
+                        <div class="box-title">OrderService</div>
+                        <div class="box-sub">订单/持仓</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">💎</div>
+                        <div class="box-title">AssetService</div>
+                        <div class="box-sub">资产汇总</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="layer data-layer">
+                <div class="layer-title" style="color: #f87171;">数据层 (Infrastructure)</div>
+                <div class="row">
+                    <div class="box">
+                        <div class="box-icon">🗄️</div>
+                        <div class="box-title">PostgreSQL</div>
+                        <div class="box-sub">用户/订单/策略</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">⚡</div>
+                        <div class="box-title">Redis</div>
+                        <div class="box-sub">缓存/会话</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">💹</div>
+                        <div class="box-title">Binance API</div>
+                        <div class="box-sub">行情/交易</div>
+                    </div>
+                    <div class="box">
+                        <div class="box-icon">💹</div>
+                        <div class="box-title">OKX API</div>
+                        <div class="box-sub">行情/交易</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据流 -->
+        <div class="diagram">
+            <div class="layer-title">核心数据流</div>
+
+            <div class="flow-diagram">
+                <div class="flow-box primary">
+                    <div class="flow-icon">📱</div>
+                    <div class="flow-title">Flutter App</div>
+                    <div class="flow-desc">用户操作</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">🌐</div>
+                    <div class="flow-title">Dio + Auth</div>
+                    <div class="flow-desc">带 Token 请求</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box primary">
+                    <div class="flow-icon">⚡</div>
+                    <div class="flow-title">FastAPI</div>
+                    <div class="flow-desc">API 路由</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">⚙️</div>
+                    <div class="flow-title">Service</div>
+                    <div class="flow-desc">业务逻辑</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">🗄️</div>
+                    <div class="flow-title">DB / Cache</div>
+                    <div class="flow-desc">数据持久化</div>
+                </div>
+            </div>
+
+            <div class="flow-diagram" style="margin-top: 20px;">
+                <div class="flow-box">
+                    <div class="flow-icon">📊</div>
+                    <div class="flow-title">MarketService</div>
+                    <div class="flow-desc">获取行情</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">🔄</div>
+                    <div class="flow-title">Strategy Engine</div>
+                    <div class="flow-desc">分析信号</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">📝</div>
+                    <div class="flow-title">OrderService</div>
+                    <div class="flow-desc">订单执行</div>
+                </div>
+                <div class="arrow">→</div>
+                <div class="flow-box">
+                    <div class="flow-icon">🔌</div>
+                    <div class="flow-title">Exchange</div>
+                    <div class="flow-desc">交易所成交</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 后端模块结构 -->
+        <div class="diagram">
+            <div class="layer-title">后端模块结构</div>
+            <div class="module-list">
+                <div class="module-card">
+                    <div class="module-name">🏗️ core/ (核心模块)</div>
+                    <div class="module-files">
+                        • security.py - JWT + AES-256<br>
+                        • exchange_adapter.py - 交易所适配器<br>
+                        • strategy_engine.py - 策略框架<br>
+                        • exceptions.py - 异常定义<br>
+                        • schemas.py - 响应模型
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-name">📦 models/ (数据模型)</div>
+                    <div class="module-files">
+                        • user.py - 用户模型<br>
+                        • strategy.py - 策略模板/实例<br>
+                        • order.py - 订单/信号<br>
+                        • exchange.py - 账户/持仓
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-name">🗃️ repositories/ (数据访问)</div>
+                    <div class="module-files">
+                        • base.py - 泛型 BaseRepo<br>
+                        • user_repo.py - 用户仓储<br>
+                        • strategy_repo.py - 策略仓储<br>
+                        • trading_repo.py - 交易仓储
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-name">⚙️ services/ (业务服务)</div>
+                    <div class="module-files">
+                        • auth_service.py - 认证服务<br>
+                        • strategy_service.py - 策略管理<br>
+                        • backtest_service.py - 回测服务<br>
+                        • market_service.py - 行情服务<br>
+                        • order_service.py - 订单服务<br>
+                        • asset_service.py - 资产管理
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-name">🛤️ api/v1/ (API 路由)</div>
+                    <div class="module-files">
+                        • auth.py - 认证端点<br>
+                        • strategies.py - 策略端点<br>
+                        • backtest.py - 回测端点<br>
+                        • market.py - 行情端点<br>
+                        • orders.py - 订单端点<br>
+                        • asset.py - 资产端点
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-name">⚡ infrastructure/ (基础设施)</div>
+                    <div class="module-files">
+                        • main.py - FastAPI 入口<br>
+                        • config.py - 配置管理<br>
+                        • database.py - SQLAlchemy<br>
+                        • redis.py - Redis 连接池
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计数据 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">API 端点</div>
+                <div class="stat-value">33+</div>
+                <div class="stat-desc">后端接口数量</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">策略类型</div>
+                <div class="stat-value">5</div>
+                <div class="stat-desc">MA/RSI/Bollinger/Grid/Martingale</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">移动端页面</div>
+                <div class="stat-value">6</div>
+                <div class="stat-desc">Dashboard/策略/回测/设置/登录/注册</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">数据模型</div>
+                <div class="stat-value">8</div>
+                <div class="stat-desc">User/Account/Order/Signal/Position 等</div>
+            </div>
+        </div>
+
+        <p style="text-align: center; color: #64748b; margin-top: 40px; font-size: 12px;">
+            币钱袋 (CryptoQuant) 系统架构图 | 版本 1.0.0 | 2026-04-21
+        </p>
+    </div>
+</body>
+</html>

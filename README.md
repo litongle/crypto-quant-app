@@ -2,6 +2,11 @@
 
 > 面向普通加密货币投资者的量化交易 App
 
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![Flutter](https://img.shields.io/badge/Flutter-3.16+-25B8F8.svg)](https://flutter.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 ---
 
 ## 🎯 产品定位
@@ -110,29 +115,309 @@ crypto-quant-app/
 
 ## 🚀 快速启动
 
-### 后端
+### 前置要求
+
+| 组件 | 版本要求 | 说明 |
+|------|----------|------|
+| Python | 3.11+ | 后端运行环境 |
+| Flutter | 3.16+ | 移动端开发框架 |
+| PostgreSQL | 15+ | 主数据库 |
+| Redis | 7+ | 缓存和消息队列 |
+
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/litongle/crypto-quant-app.git
+cd crypto-quant-app
+```
+
+### 2. 后端安装
 
 ```bash
 cd backend
-python -m venv .venv && .venv\Scripts\activate  # Windows
+
+# 创建虚拟环境
+python -m venv .venv
+.venv\Scripts\activate     # Windows
+# source .venv/bin/activate  # Linux/Mac
+
+# 安装依赖
 pip install -e ".[dev]"
-cp .env.example .env  # 编辑 .env 填入实际配置
+
+# 配置环境变量（必填！无默认值）
+cp .env.example .env
+# 编辑 .env 填入以下必填项：
+#   - SECRET_KEY
+#   - DATABASE_URL
+#   - JWT_SECRET_KEY
+
+# 数据库迁移
+alembic upgrade head
+
+# 初始化种子数据（可选）
+python -m app.seed_data
+
+# 启动服务
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 移动端
+> ⚠️ **重要**：`SECRET_KEY`、`DATABASE_URL`、`JWT_SECRET_KEY` 必须配置，否则服务无法启动。
+
+### 3. 移动端安装
 
 ```bash
 cd mobile
+
+# 安装依赖
 flutter pub get
+
+# 启动开发服务器
 flutter run
+
+# 构建 Debug APK
+flutter build apk --debug
+
+# 构建 Release APK
+flutter build apk --release
 ```
 
-> **提示**：App 采用可选登录设计，无需后端即可浏览占位数据。首次启动会展示示例资产和行情。
+> 💡 **提示**：App 采用可选登录设计，无需后端即可浏览占位数据。首次启动会展示示例资产和行情。
 
 ---
 
-## 📊 安全审计（2026-04-21 完成）
+## 📖 使用示例
+
+### API 认证
+
+```bash
+# 注册用户
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"securepassword","username":"trader"}'
+
+# 登录获取 Token
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"securepassword"}'
+
+# 响应示例
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+```
+
+### 获取行情数据
+
+```bash
+# 获取 K 线数据
+curl -X GET "http://localhost:8000/api/v1/market/kline?symbol=BTCUSDT&interval=1h&limit=100" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# 获取账户资产
+curl -X GET "http://localhost:8000/api/v1/asset/balance" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### 策略管理
+
+```bash
+# 获取策略模板列表
+curl -X GET "http://localhost:8000/api/v1/strategies/templates" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# 创建策略实例
+curl -X POST "http://localhost:8000/api/v1/strategies/instances" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_id": 1,
+    "name": "我的 BTC 策略",
+    "symbol": "BTCUSDT",
+    "params": {
+      "ma_period": 20,
+      "rsi_period": 14,
+      "rsi_overbought": 70,
+      "rsi_oversold": 30
+    }
+  }'
+
+# 运行回测
+curl -X POST "http://localhost:8000/api/v1/backtest/run" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy_instance_id": 1,
+    "symbol": "BTCUSDT",
+    "start_date": "2024-01-01",
+    "end_date": "2024-03-01",
+    "initial_capital": 100000
+  }'
+```
+
+### API 文档
+
+启动服务后访问：
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI JSON**: http://localhost:8000/openapi.json
+
+---
+
+## 🧪 测试
+
+### 后端测试
+
+```bash
+cd backend
+
+# 运行所有测试
+pytest
+
+# 运行测试并查看覆盖率
+pytest --cov=app --cov-report=html
+
+# 运行特定测试文件
+pytest tests/test_auth.py -v
+
+# 运行带标记的测试
+pytest -m "not slow"
+```
+
+### 移动端测试
+
+```bash
+cd mobile
+
+# 运行所有测试
+flutter test
+
+# 运行特定测试文件
+flutter test test/dashboard_test.dart
+
+# 生成覆盖率报告
+flutter test --coverage
+```
+
+---
+
+## 🔧 开发指南
+
+### 代码规范
+
+#### Python (后端)
+
+```bash
+cd backend
+
+# 代码检查
+ruff check .
+
+# 自动修复
+ruff check --fix .
+
+# 类型检查
+mypy app/
+
+# 格式化
+ruff format .
+```
+
+#### Dart (移动端)
+
+```bash
+cd mobile
+
+# 代码检查
+flutter analyze
+
+# 格式化
+dart format lib/
+
+# 生成代码（freezed/json_serializable）
+dart run build_runner build
+```
+
+### Git 提交规范
+
+项目采用**约定式提交**（Conventional Commits）：
+
+```
+<type>(<scope>): <subject>
+
+# 示例
+feat(auth): 添加 refresh token 刷新机制
+fix(strategy): 修复 MA 策略计算错误
+docs(readme): 完善安装步骤
+refactor(core): 重构交易所适配器
+test(backtest): 添加回测服务单元测试
+```
+
+**Type 类型**：
+- `feat`: 新功能
+- `fix`: 错误修复
+- `docs`: 文档更新
+- `style`: 代码格式（不影响功能）
+- `refactor`: 重构
+- `perf`: 性能优化
+- `test`: 测试相关
+- `chore`: 构建/工具相关
+
+---
+
+## 🤝 贡献指南
+
+### 如何贡献
+
+1. **Fork 本仓库**
+2. **创建特性分支**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+3. **提交更改**
+   ```bash
+   git commit -m "feat(scope): 添加新功能"
+   ```
+4. **推送分支**
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+5. **创建 Pull Request**
+
+### Pull Request 规范
+
+- PR 标题使用约定式提交格式
+- 描述清楚解决的问题或添加的功能
+- 关联相关 Issue（使用 `Fixes #123`）
+- 确保所有 CI 检查通过
+- 添加必要的测试和文档
+
+### 代码审查标准
+
+详见 [docs/standards/CODE_REVIEW_PROCESS.md](docs/standards/CODE_REVIEW_PROCESS.md)
+
+### 开发环境要求
+
+- IDE: VS Code / PyCharm / Android Studio
+- Python: 3.11+
+- Flutter: 3.16+
+- Node.js: 18+ (用于前端工具链)
+
+### 本地环境设置
+
+```bash
+# 克隆后安装 pre-commit hooks
+cd backend
+pre-commit install
+
+cd ../mobile
+# Flutter 相关 hooks 已在 pubspec.yaml 中配置
+```
+
+---
+
+## 📊 安全特性（2026-04-21 完成）
 
 全量代码审计发现 27 项问题，按四级优先级全部修复：
 
@@ -144,6 +429,18 @@ flutter run
 | P3 | 1 | 更新 DECISIONS.md |
 
 详见 `DECISIONS.md` → ADR-006
+
+---
+
+## ⚠️ 关键风险
+
+| 风险 | 等级 | 说明 |
+|------|------|------|
+| 实盘下单涉及真金白银 | 🔴 高 | 必须沙盒验证，完整风控 |
+| 用户信任 App 代为下单 | 🔴 高 | 需透明化策略逻辑、风险提示 |
+| 回测 vs 实盘差距 | 🟡 中 | 行业经典难题，需滑点/手续费模拟 |
+| 零测试覆盖率 | 🟡 中 | 急需建立 pytest 测试框架 |
+| App 调试包体积大 | 🟢 低 | Debug APK ~1.35GB 正常，Release 约 30-80MB |
 
 ---
 
@@ -162,15 +459,36 @@ flutter run
 
 ---
 
-## ⚠️ 关键风险
+## 📚 相关文档
 
-| 风险 | 等级 | 说明 |
-|------|------|------|
-| 实盘下单涉及真金白银 | 🔴 高 | 必须沙盒验证，完整风控 |
-| 用户信任 App 代为下单 | 🔴 高 | 需透明化策略逻辑、风险提示 |
-| 回测 vs 实盘差距 | 🟡 中 | 行业经典难题，需滑点/手续费模拟 |
-| 零测试覆盖率 | 🟡 中 | 急需建立 pytest 测试框架 |
-| App 调试包体积大 | 🟢 低 | Debug APK ~1.35GB 正常，Release 约 30-80MB |
+| 文档 | 说明 |
+|------|------|
+| [系统架构设计文档.md](系统架构设计文档.md) | 完整技术架构设计 |
+| [后端补充接口文档.md](后端补充接口文档.md) | 移动端配套 API 定义 |
+| [DECISIONS.md](DECISIONS.md) | 架构决策记录 |
+| [Release前审查报告.md](Release前审查报告.md) | 发布前审查报告 |
+| [docs/standards/](docs/standards/) | 技术标准和代码规范 |
+| [docs/PM/](docs/PM/) | 项目管理文档 |
+
+---
+
+## 🆘 获取帮助
+
+- **问题反馈**: [GitHub Issues](https://github.com/litongle/crypto-quant-app/issues)
+- **功能请求**: [GitHub Discussions](https://github.com/litongle/crypto-quant-app/discussions)
+- **API 文档**: 启动后端后访问 `/docs`
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🙏 致谢
+
+感谢所有为币钱袋项目做出贡献的开发者！
 
 ---
 
