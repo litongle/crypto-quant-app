@@ -1,0 +1,132 @@
+"""
+数据初始化脚本 - 初始化策略模板数据
+"""
+import asyncio
+import logging
+from decimal import Decimal
+
+from app.database import async_session_maker, Base, engine
+from app.models.strategy import StrategyTemplate
+
+logger = logging.getLogger(__name__)
+
+
+# 预定义策略模板
+STRATEGY_TEMPLATES = [
+    {
+        "code": "ma_cross",
+        "name": "双均线策略",
+        "description": "短期均线上穿长期均线买入，下穿卖出。趋势跟踪策略，适合趋势明显的行情。",
+        "strategy_type": "ma",
+        "risk_level": "medium",
+        "params_schema": {
+            "params": [
+                {"key": "fastPeriod", "name": "快线周期", "type": "int", "default": 5, "min": 2, "max": 50, "step": 1},
+                {"key": "slowPeriod", "name": "慢线周期", "type": "int", "default": 20, "min": 5, "max": 200, "step": 1},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        },
+    },
+    {
+        "code": "rsi",
+        "name": "RSI策略",
+        "description": "RSI超卖时买入，超买时卖出。均值回归策略，适合震荡行情。",
+        "strategy_type": "rsi",
+        "risk_level": "medium",
+        "params_schema": {
+            "params": [
+                {"key": "period", "name": "RSI周期", "type": "int", "default": 14, "min": 5, "max": 50, "step": 1},
+                {"key": "oversold", "name": "超卖线", "type": "int", "default": 30, "min": 10, "max": 40, "step": 1},
+                {"key": "overbought", "name": "超买线", "type": "int", "default": 70, "min": 60, "max": 90, "step": 1},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+        },
+    },
+    {
+        "code": "bollinger",
+        "name": "布林带策略",
+        "description": "价格触及下轨买入，触及上轨卖出。波动率策略，适合高波动行情。",
+        "strategy_type": "bollinger",
+        "risk_level": "high",
+        "params_schema": {
+            "params": [
+                {"key": "period", "name": "周期", "type": "int", "default": 20, "min": 10, "max": 50, "step": 1},
+                {"key": "stdDev", "name": "标准差倍数", "type": "double", "default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        },
+    },
+    {
+        "code": "grid",
+        "name": "网格策略",
+        "description": "在固定价格区间内低买高卖，反复套利。适合震荡行情。",
+        "strategy_type": "grid",
+        "risk_level": "medium",
+        "params_schema": {
+            "params": [
+                {"key": "gridCount", "name": "网格数量", "type": "int", "default": 10, "min": 5, "max": 50, "step": 1},
+                {"key": "investmentPerGrid", "name": "每格投入(USDT)", "type": "double", "default": 100, "min": 10, "max": 10000, "step": 10},
+                {"key": "priceRange", "name": "价格范围(%)", "type": "double", "default": 10, "min": 1, "max": 50, "step": 1},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
+        },
+    },
+    {
+        "code": "martingale",
+        "name": "马丁格尔策略",
+        "description": "亏损后加倍下单，盈利后回归初始仓位。高风险，适合大户。",
+        "strategy_type": "martingale",
+        "risk_level": "high",
+        "params_schema": {
+            "params": [
+                {"key": "initialInvestment", "name": "初始投资(USDT)", "type": "double", "default": 100, "min": 10, "max": 1000, "step": 10},
+                {"key": "multiplier", "name": "倍数", "type": "double", "default": 2.0, "min": 1.5, "max": 3.0, "step": 0.1},
+                {"key": "maxLosses", "name": "最大连续亏损", "type": "int", "default": 5, "min": 2, "max": 10, "step": 1},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+        },
+    },
+]
+
+
+async def init_strategy_templates():
+    """初始化策略模板数据"""
+    async with async_session_maker() as session:
+        # 检查是否已有数据
+        from sqlalchemy import select
+        result = await session.execute(select(StrategyTemplate))
+        existing = result.scalars().first()
+
+        if existing:
+            logger.info("策略模板已存在，跳过初始化")
+            return
+
+        # 创建模板
+        templates = []
+        for template_data in STRATEGY_TEMPLATES:
+            template = StrategyTemplate(
+                code=template_data["code"],
+                name=template_data["name"],
+                description=template_data["description"],
+                strategy_type=template_data["strategy_type"],
+                risk_level=template_data["risk_level"],
+                params_schema=template_data["params_schema"],
+                is_active=True,
+            )
+            templates.append(template)
+            session.add(template)
+
+        await session.commit()
+        logger.info("成功初始化 %d 个策略模板", len(templates))
+
+
+async def init_db():
+    """初始化数据库"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("数据库表创建完成")
+
+
+if __name__ == "__main__":
+    asyncio.run(init_db())
+    asyncio.run(init_strategy_templates())
