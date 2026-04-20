@@ -157,24 +157,24 @@ class DashboardData extends Equatable {
     );
   }
 
-  /// 演示数据
-  factory DashboardData.demo() {
+  /// 占位数据（未登录或 API 不可用时使用）
+  factory DashboardData.placeholder() {
     return DashboardData(
       totalAsset: 12847.32,
       todayProfit: 1084.20,
       totalProfitPercent: 8.42,
       annualYield: 142.6,
-      equityCurve: _generateDemoEquityCurve(),
+      equityCurve: _generatePlaceholderEquityCurve(),
       currentSignal: '看多 BTC',
       signalConfidence: 87,
       strategyName: '双均线策略',
       strategyDays: 42,
-      marketCoins: _demoMarketCoins,
-      positions: _demoPositions,
+      marketCoins: _placeholderMarketCoins,
+      positions: _placeholderPositions,
     );
   }
 
-  static List<double> _generateDemoEquityCurve() {
+  static List<double> _generatePlaceholderEquityCurve() {
     final List<double> curve = [];
     double value = 10000;
     for (int i = 0; i < 30; i++) {
@@ -184,7 +184,7 @@ class DashboardData extends Equatable {
     return curve;
   }
 
-  static final List<MarketCoin> _demoMarketCoins = [
+  static final List<MarketCoin> _placeholderMarketCoins = [
     const MarketCoin(
       symbol: 'BTC',
       name: 'Bitcoin',
@@ -227,7 +227,7 @@ class DashboardData extends Equatable {
     ),
   ];
 
-  static final List<Position> _demoPositions = [
+  static final List<Position> _placeholderPositions = [
     const Position(
       symbol: 'BTC',
       name: 'Bitcoin',

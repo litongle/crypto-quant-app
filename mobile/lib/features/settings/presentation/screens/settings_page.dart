@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../../core/providers/auth_provider.dart';
 
 /// 交易所连接模型
 class ExchangeConnection {
@@ -25,6 +28,23 @@ final riskLimitProvider = StateProvider<double>((ref) => 5000);
 
 /// 交易所连接列表 Provider
 final exchangeConnectionsProvider = FutureProvider<List<ExchangeConnection>>((ref) async {
+  final isLoggedIn = ref.watch(authProvider).status == AuthStatus.authenticated;
+  if (!isLoggedIn) {
+    return [
+      const ExchangeConnection(
+        id: '1',
+        name: 'Binance',
+        status: 'disconnected',
+        lastSync: null,
+      ),
+      const ExchangeConnection(
+        id: '2',
+        name: 'OKX',
+        status: 'disconnected',
+        lastSync: null,
+      ),
+    ];
+  }
   await Future.delayed(const Duration(milliseconds: 500));
   return [
     ExchangeConnection(
@@ -41,6 +61,8 @@ final exchangeConnectionsProvider = FutureProvider<List<ExchangeConnection>>((re
     ),
   ];
 });
+
+
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -147,19 +169,33 @@ class SettingsPage extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // 退出登录
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _showLogoutDialog(context),
-              icon: const Icon(Icons.logout, color: Colors.red),
-              label: const Text('退出登录', style: TextStyle(color: Colors.red)),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                side: const BorderSide(color: Colors.red),
+          // 登录/退出按钮
+          if (ref.watch(authProvider).status == AuthStatus.authenticated)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showLogoutDialog(context),
+                icon: const Icon(Icons.logout, color: Colors.red),
+                label: const Text('退出登录', style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  side: const BorderSide(color: Colors.red),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => context.goNamed('login'),
+                icon: const Icon(Icons.login),
+                label: const Text('登录 / 注册'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: const Color(0xFF06B6D4),
+                ),
               ),
             ),
-          ),
 
           const SizedBox(height: 100),
         ],
@@ -168,61 +204,77 @@ class SettingsPage extends ConsumerWidget {
   }
 
   Widget _buildUserCard(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0f1a2e), Color(0xFF111827)],
+    final authState = ref.watch(authProvider);
+    final isLoggedIn = authState.status == AuthStatus.authenticated;
+    final user = authState.user;
+
+    return GestureDetector(
+      onTap: () {
+        if (!isLoggedIn) {
+          context.goNamed('login');
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0f1a2e), Color(0xFF111827)],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF1f2937)),
         ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF1f2937)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF06B6D4), Color(0xFF3B82F6)],
+        child: Row(
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isLoggedIn
+                      ? [const Color(0xFF06B6D4), const Color(0xFF3B82F6)]
+                      : [Colors.grey[700]!, Colors.grey[600]!],
+                ),
+                borderRadius: BorderRadius.circular(16),
               ),
-              borderRadius: BorderRadius.circular(16),
+              child: Icon(
+                isLoggedIn ? Icons.person : Icons.login,
+                color: Colors.white,
+                size: 32,
+              ),
             ),
-            child: const Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 32,
-            ),
-          ),
-          const SizedBox(width: 16),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '投资者小明',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isLoggedIn ? (user?.name ?? '用户') : '点击登录',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'ID: 88866688',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
+                  const SizedBox(height: 4),
+                  Text(
+                    isLoggedIn ? (user?.email ?? '') : '登录后解锁完整功能',
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 12,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.edit_outlined),
-            color: Colors.grey,
-          ),
-        ],
+            if (isLoggedIn)
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.edit_outlined),
+                color: Colors.grey,
+              )
+            else
+              const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }
@@ -455,9 +507,12 @@ class SettingsPage extends ConsumerWidget {
               child: const Text('取消'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(context);
-                // TODO: 执行退出登录
+                await ref.read(authProvider.notifier).logout();
+                if (context.mounted) {
+                  context.goNamed('login');
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,

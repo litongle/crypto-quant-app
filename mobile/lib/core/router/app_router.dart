@@ -75,15 +75,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isAuthRoute = state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
 
-      // 还在 loading / initial，不做重定向（等待检查结果）
-      if (authState.status == AuthStatus.initial ||
-          authState.status == AuthStatus.loading) {
+      // 还在 loading，不做重定向
+      if (authState.status == AuthStatus.loading) {
         return null;
-      }
-
-      // 未登录 -> 跳登录页
-      if (authState.status == AuthStatus.unauthenticated && !isAuthRoute) {
-        return '/login';
       }
 
       // 已登录在登录页 -> 跳首页
@@ -91,6 +85,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         return '/dashboard';
       }
 
+      // 未登录也不强制跳登录页，让用户自由浏览
       return null;
     },
   );

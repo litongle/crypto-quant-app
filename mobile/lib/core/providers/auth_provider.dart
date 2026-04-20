@@ -7,6 +7,12 @@ import '../network/api_client.dart';
 /// 认证状态
 enum AuthStatus { initial, authenticated, unauthenticated, loading }
 
+/// 是否已登录（便捷 getter 扩展）
+extension AuthStatusX on AuthStatus {
+  bool get isAuthenticated => this == AuthStatus.authenticated;
+  bool get isUnauthenticated => this == AuthStatus.unauthenticated;
+}
+
 /// 用户信息
 class User {
   final int id;
@@ -86,9 +92,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (isLoggedIn) {
         await _fetchCurrentUser();
       } else {
+        // 未登录是正常状态，不要阻塞页面
         state = state.copyWith(status: AuthStatus.unauthenticated);
       }
     } catch (e) {
+      // 检查失败也不阻塞，当作未登录处理
       state = state.copyWith(status: AuthStatus.unauthenticated);
     }
   }

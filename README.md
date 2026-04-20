@@ -20,7 +20,7 @@
 | 后端 API | ✅ 完成 | FastAPI 全量接口已实现（37 个 Python 文件） |
 | 移动端框架 | ✅ 完成 | Flutter + Riverpod，核心页面已实现 |
 | Dashboard 对接 | ✅ 完成 | 资产/行情/持仓/权益曲线已对接真实 API |
-| 认证流程 | ✅ 完成 | 登录注册 + JWT + Token 刷新 |
+| 认证流程 | ✅ 完成 | 可选登录 + JWT + Token 刷新（未登录可浏览占位数据） |
 | 安全审计 | ✅ 完成 | P0/P1/P2/P3 全部修复，27 项问题清零 |
 | 策略引擎 | 🚧 进行中 | MA/RSI/Bollinger 框架已有，Martingale 待完成 |
 | 交易所 WebSocket | 🚧 进行中 | Binance/OKX 框架已有，实时推送待完善 |

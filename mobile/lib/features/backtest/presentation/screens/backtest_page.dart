@@ -57,10 +57,10 @@ class BacktestTrade {
 /// 回测历史 Provider
 final backtestHistoryProvider = FutureProvider<List<BacktestResult>>((ref) async {
   await Future.delayed(const Duration(milliseconds: 500));
-  return _demoResults;
+  return _placeholderResults;
 });
 
-final _demoResults = [
+final _placeholderResults = [
   BacktestResult(
     symbol: 'BTC/USDT',
     strategy: '双均线策略',
@@ -414,7 +414,7 @@ class _BacktestPageState extends ConsumerState<BacktestPage> {
         lineTouchData: LineTouchData(
           enabled: true,
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => const Color(0xFF1F2937),
+            tooltipBgColor: const Color(0xFF1F2937),
             tooltipRoundedRadius: 8,
           ),
         ),

@@ -56,7 +56,7 @@ class DashboardPage extends ConsumerWidget {
                           Expanded(
                             child: QuickSignalCard(
                               signal: dashboard.strategyName,
-                              confidence: dashboard.strategyDays,
+                              confidence: dashboard.strategyDays.toDouble(),
                               isStrategy: true,
                             ),
                           ),
@@ -103,25 +103,39 @@ class DashboardPage extends ConsumerWidget {
             child: CircularProgressIndicator(),
           ),
           error: (error, stack) => Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '加载失败: $error',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => ref.invalidate(dashboardProvider),
-                  child: const Text('重试'),
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.cloud_off,
+                    size: 64,
+                    color: Colors.grey[600],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '暂无法连接服务器',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '已为您展示示例数据',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: () => ref.invalidate(dashboardProvider),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('重试'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF06B6D4),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

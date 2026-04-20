@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/services/strategy_service.dart';
+import '../../../../core/services/strategy_service.dart' as api;
 
 /// 策略模板本地视图模型（包装后端数据）
-class StrategyTemplate {
+class StrategyTemplateView {
   final String id;
   final String name;
   final String description;
   final String icon;
   final String suitableMarket;
-  final List<StrategyParameter> parameters;
+  final List<StrategyParameterView> parameters;
 
-  const StrategyTemplate({
+  const StrategyTemplateView({
     required this.id,
     required this.name,
     required this.description,
@@ -22,7 +22,7 @@ class StrategyTemplate {
   });
 
   /// 从后端 StrategyTemplate 转换
-  factory StrategyTemplate.fromBackend(StrategyTemplateBackend t) {
+  factory StrategyTemplateView.fromApi(api.StrategyTemplate t) {
     final icons = {
       'ma_cross': '📊',
       'rsi': '📉',
@@ -37,13 +37,13 @@ class StrategyTemplate {
       'grid': '横盘行情',
       'martingale': '高波动',
     };
-    return StrategyTemplate(
+    return StrategyTemplateView(
       id: t.id,
       name: t.name,
       description: t.description,
       icon: icons[t.id] ?? '📈',
       suitableMarket: markets[t.id] ?? '通用',
-      parameters: t.params.map((p) => StrategyParameter(
+      parameters: t.params.map((p) => StrategyParameterView(
         name: p.key,
         label: p.name,
         min: (p.min ?? 0).toDouble(),
@@ -56,7 +56,7 @@ class StrategyTemplate {
 }
 
 /// 策略参数
-class StrategyParameter {
+class StrategyParameterView {
   final String name;
   final String label;
   final double min;
@@ -64,7 +64,7 @@ class StrategyParameter {
   final double defaultValue;
   final double step;
 
-  const StrategyParameter({
+  const StrategyParameterView({
     required this.name,
     required this.label,
     required this.min,
@@ -74,52 +74,128 @@ class StrategyParameter {
   });
 }
 
-/// 策略实例
-class StrategyInstance {
+/// 策略实例视图
+class StrategyInstanceView {
   final String id;
   final String templateId;
   final String symbol;
   final String status;
-  final Map<String, double> params;
+  final double totalPnl;
   final DateTime createdAt;
 
-  const StrategyInstance({
+  const StrategyInstanceView({
     required this.id,
     required this.templateId,
     required this.symbol,
     required this.status,
-    required this.params,
+    required this.totalPnl,
     required this.createdAt,
   });
 
-  factory StrategyInstance.fromBackend(StrategyInstanceBackend i) {
-    return StrategyInstance(
+  factory StrategyInstanceView.fromApi(api.StrategyInstance i) {
+    return StrategyInstanceView(
       id: i.id,
       templateId: i.templateId,
       symbol: i.templateName,
       status: i.status,
-      params: {},
+      totalPnl: i.totalPnl,
       createdAt: i.createdAt ?? DateTime.now(),
     );
   }
 }
 
-/// 策略模板列表 Provider（来自后端）
-final strategyTemplatesProvider = FutureProvider<List<StrategyTemplate>>((ref) async {
-  final service = ref.watch(strategyServiceProvider);
-  final templates = await service.getTemplates();
-  return templates.map((t) => StrategyTemplate.fromBackend(t)).toList();
+/// 策略模板列表 Provider
+final strategyTemplatesViewProvider = FutureProvider<List<StrategyTemplateView>>((ref) async {
+  try {
+    final templates = await ref.watch(api.strategyTemplatesProvider.future);
+    return templates.map((t) => StrategyTemplateView.fromApi(t)).toList();
+  } catch (_) {
+    // API 不可用时返回占位数据
+    return _placeholderTemplates;
+  }
 });
 
-/// 策略实例列表 Provider（来自后端）
-final strategyInstancesProvider = FutureProvider<List<StrategyInstance>>((ref) async {
-  final service = ref.watch(strategyServiceProvider);
-  final instances = await service.getInstances();
-  return instances.map((i) => StrategyInstance.fromBackend(i)).toList();
+/// 策略实例列表 Provider
+final strategyInstancesViewProvider = FutureProvider<List<StrategyInstanceView>>((ref) async {
+  try {
+    final instances = await ref.watch(api.strategyInstancesProvider.future);
+    return instances.map((i) => StrategyInstanceView.fromApi(i)).toList();
+  } catch (_) {
+    return _placeholderInstances;
+  }
 });
+
+/// 占位策略模板
+const _placeholderTemplates = <StrategyTemplateView>[
+  StrategyTemplateView(
+    id: 'ma_cross',
+    name: '双均线策略',
+    description: '基于快慢均线交叉产生买卖信号',
+    icon: '📊',
+    suitableMarket: '趋势行情',
+    parameters: [
+      StrategyParameterView(name: 'fast_period', label: '快线周期', min: 5, max: 30, defaultValue: 10, step: 1),
+      StrategyParameterView(name: 'slow_period', label: '慢线周期', min: 20, max: 120, defaultValue: 30, step: 1),
+    ],
+  ),
+  StrategyTemplateView(
+    id: 'rsi',
+    name: 'RSI 超买超卖',
+    description: 'RSI 指标超买超卖反转策略',
+    icon: '📉',
+    suitableMarket: '震荡行情',
+    parameters: [
+      StrategyParameterView(name: 'period', label: 'RSI 周期', min: 5, max: 30, defaultValue: 14, step: 1),
+      StrategyParameterView(name: 'overbought', label: '超买阈值', min: 60, max: 90, defaultValue: 70, step: 1),
+      StrategyParameterView(name: 'oversold', label: '超卖阈值', min: 10, max: 40, defaultValue: 30, step: 1),
+    ],
+  ),
+  StrategyTemplateView(
+    id: 'grid',
+    name: '网格交易',
+    description: '在价格区间内自动低买高卖',
+    icon: '🟦',
+    suitableMarket: '横盘行情',
+    parameters: [
+      StrategyParameterView(name: 'grid_num', label: '网格数量', min: 3, max: 50, defaultValue: 10, step: 1),
+      StrategyParameterView(name: 'range', label: '价格范围%', min: 1, max: 30, defaultValue: 5, step: 0.5),
+    ],
+  ),
+  StrategyTemplateView(
+    id: 'martingale',
+    name: '马丁格尔',
+    description: '亏损后加倍仓位，回本即止',
+    icon: '🎰',
+    suitableMarket: '高波动',
+    parameters: [
+      StrategyParameterView(name: 'max_level', label: '最大倍投层数', min: 1, max: 10, defaultValue: 5, step: 1),
+      StrategyParameterView(name: 'multiplier', label: '倍投系数', min: 1, max: 3, defaultValue: 2, step: 0.1),
+    ],
+  ),
+];
+
+/// 占位策略实例
+final _placeholderInstances = <StrategyInstanceView>[
+  StrategyInstanceView(
+    id: '1',
+    templateId: 'ma_cross',
+    symbol: 'BTC/USDT',
+    status: 'running',
+    totalPnl: 1084.20,
+    createdAt: DateTime.now().subtract(const Duration(days: 42)),
+  ),
+  StrategyInstanceView(
+    id: '2',
+    templateId: 'grid',
+    symbol: 'ETH/USDT',
+    status: 'paused',
+    totalPnl: -56.80,
+    createdAt: DateTime.now().subtract(const Duration(days: 15)),
+  ),
+];
 
 /// 当前选中的策略模板
-final selectedTemplateProvider = StateProvider<StrategyTemplate?>((ref) => null);
+final selectedTemplateProvider = StateProvider<StrategyTemplateView?>((ref) => null);
 
 /// 策略参数状态
 final strategyParamsProvider = StateProvider<Map<String, double>>((ref) => {});
@@ -136,7 +212,7 @@ class _StrategyCenterPageState extends ConsumerState<StrategyCenterPage> {
 
   @override
   Widget build(BuildContext context) {
-    final templatesAsync = ref.watch(strategyTemplatesProvider);
+    final templatesAsync = ref.watch(strategyTemplatesViewProvider);
     final selectedTemplate = ref.watch(selectedTemplateProvider);
 
     return Scaffold(
@@ -232,7 +308,7 @@ class _StrategyCenterPageState extends ConsumerState<StrategyCenterPage> {
     );
   }
 
-  Widget _buildConfigSection(BuildContext context, StrategyTemplate template) {
+  Widget _buildConfigSection(BuildContext context, StrategyTemplateView template) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -425,7 +501,7 @@ class _StrategyCenterPageState extends ConsumerState<StrategyCenterPage> {
 }
 
 class _StrategyTemplateCard extends StatelessWidget {
-  final StrategyTemplate template;
+  final StrategyTemplateView template;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -519,7 +595,7 @@ class _StrategyTemplateCard extends StatelessWidget {
 }
 
 class _ParameterSlider extends StatelessWidget {
-  final StrategyParameter parameter;
+  final StrategyParameterView parameter;
   final double value;
   final ValueChanged<double> onChanged;
 
