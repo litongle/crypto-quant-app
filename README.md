@@ -17,11 +17,12 @@
 | 模块 | 状态 | 说明 |
 |------|------|------|
 | 产品原型 | ✅ 完成 | 单 HTML 可交互原型，5 个完整页面 |
-| 后端 API | ✅ 完成 | FastAPI 全量接口已实现（37 个 Python 文件） |
-| 移动端框架 | ✅ 完成 | Flutter + Riverpod，核心页面已实现 |
+| 后端 API | ✅ 完成 | FastAPI 全量接口已实现（37 个 Python 文件，34 个端点） |
+| 移动端框架 | ✅ 完成 | Flutter + Riverpod，35 个 Dart 文件，5 个功能模块 |
 | Dashboard 对接 | ✅ 完成 | 资产/行情/持仓/权益曲线已对接真实 API |
 | 认证流程 | ✅ 完成 | 可选登录 + JWT + Token 刷新（未登录可浏览占位数据） |
 | 安全审计 | ✅ 完成 | P0/P1/P2/P3 全部修复，27 项问题清零 |
+| Gradle 构建优化 | ✅ 完成 | 缓存+并行+Daemon+阿里云镜像，configuration-cache=false |
 | 策略引擎 | 🚧 进行中 | MA/RSI/Bollinger 框架已有，Martingale 待完成 |
 | 交易所 WebSocket | 🚧 进行中 | Binance/OKX 框架已有，实时推送待完善 |
 | 回测引擎 | 📋 待开发 | 框架搭建中 |
@@ -60,13 +61,13 @@ crypto-quant-app/
 │
 ├── mobile/                     ← Flutter 移动端
 │   └── lib/
-│       ├── core/              # 基础设施（API Client、常量、路由）
+│       ├── core/              # 基础设施（API Client、常量、路由、主题）
 │       └── features/          # 功能模块
-│           ├── auth/          # 登录注册
-│           ├── dashboard/     # 首页 Dashboard
-│           ├── strategy/      # 策略中心
-│           ├── backtest/      # 回测页面
-│           └── settings/      # 设置页面
+│           ├── auth/          # 登录注册（可选登录）
+│           ├── dashboard/     # 首页 Dashboard（资产/行情/持仓/权益曲线）
+│           ├── strategies/    # 策略中心（模板/实例/参数配置）
+│           ├── backtest/      # 回测页面（历史/绩效/收益曲线）
+│           └── settings/      # 设置页面（用户/交易所/风控）
 │
 └── docs/                       ← 项目文档
     ├── standards/             # 技术标准
@@ -91,6 +92,7 @@ crypto-quant-app/
 | 缓存 | Redis | 会话/行情缓存/消息队列 |
 | 安全 | AES-256 (Fernet) + JWT | API Key 加密存储、Token 认证 |
 | 交易所 | Binance / OKX API | 行情 + 下单对接 |
+| 构建 | Gradle + Aliyun Maven | 缓存/并行/Daemon 加速 |
 
 ---
 
@@ -125,6 +127,8 @@ cd mobile
 flutter pub get
 flutter run
 ```
+
+> **提示**：App 采用可选登录设计，无需后端即可浏览占位数据。首次启动会展示示例资产和行情。
 
 ---
 
@@ -166,7 +170,8 @@ flutter run
 | 用户信任 App 代为下单 | 🔴 高 | 需透明化策略逻辑、风险提示 |
 | 回测 vs 实盘差距 | 🟡 中 | 行业经典难题，需滑点/手续费模拟 |
 | 零测试覆盖率 | 🟡 中 | 急需建立 pytest 测试框架 |
+| App 调试包体积大 | 🟢 低 | Debug APK ~1.35GB 正常，Release 约 30-80MB |
 
 ---
 
-*最后更新：2026-04-21*
+*最后更新：2026-04-21（可选登录改造 + Gradle优化 + 文档全面同步）*

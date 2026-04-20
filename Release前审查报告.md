@@ -1,9 +1,9 @@
 # 币钱袋 - Release 前审查报告
 
-> **版本**：v1.2
+> **版本**：v1.3
 > **日期**：2026-04-21
 > **审查人**：WorkBuddy AI
-> **状态**：🟢 核心功能就绪 + 安全审计通过
+> **状态**：🟢 核心功能就绪 + 安全审计通过 + 可选登录完成
 
 ---
 
@@ -13,12 +13,13 @@
 | 模块 | 接口数 | 状态 |
 |------|--------|------|
 | 认证 Auth | 4 | ✅ 已实现 |
-| 用户 User | 2 | ✅ 已实现 |
+| 用户 User | 1 | ✅ 已实现 |
 | 资产 Asset | 3 | ✅ 已实现 |
 | 行情 Market | 5 | ✅ 已实现 |
-| 策略 Strategy | 10+ | ✅ 已实现 |
+| 策略 Strategy | 8 | ✅ 已实现 |
 | 回测 Backtest | 3 | ✅ 已实现 |
-| 交易 Trading | 8+ | ✅ 已实现 |
+| 交易 Trading | 9 | ✅ 已实现 |
+| **合计** | **33** + /health | ✅ 全部实现 |
 
 ### 移动端状态：✅ 核心功能已完成
 | 模块 | UI 状态 | API 对接 | 说明 |
@@ -64,10 +65,27 @@
    - `mobile/lib/core/constants/app_constants.dart`
    - 已配置为 `https://api.biqiandai.com`
 
+6. **可选登录改造** - 无后端可正常浏览
+   - 路由不再强制跳转登录页，未登录用户可自由浏览
+   - `DashboardData.placeholder()` 占位数据兜底，页面不空白
+   - 登录入口在设置页用户卡片（点击头像）
+   - API 失败时自动降级到占位数据
+
+7. **Gradle 构建优化** - Android 构建加速
+   - caching + parallel + daemon 三项开启
+   - configuration-cache=false（与 AGP 不兼容）
+   - Aliyun Maven 镜像（google/public/gradle-plugin）
+   - JVM: -Xmx8G -XX:MaxMetaspaceSize=4G
+
+8. **编译错误修复** - Flutter 代码适配
+   - `import as` 消除 strategy/asset/market 服务命名冲突
+   - CardTheme → CardThemeData（Flutter API 变更）
+   - fl_chart tooltipBgColor 替换 getTooltipColor
+
 ### 🔄 待完善（可延后）
 
-- 回测功能 API 对接（可继续使用模拟数据演示）
-- 策略中心 API 对接
+- 回测功能 API 对接（当前使用占位数据展示）
+- 策略中心 API 对接（当前使用占位数据展示）
 - 交易所管理 API 对接
 - WebSocket 实时行情
 
@@ -117,8 +135,8 @@
 3. ✅ API Base URL 修改为实际地址 - 已完成
 
 **可延后的功能**：
-- 回测功能（模拟数据仍可演示）
-- 交易所管理（可硬编码演示账号）
+- 回测功能（占位数据已可展示）
+- 交易所管理（可延后对接）
 - WebSocket 实时行情（轮询替代）
 
 **预计工时**：核心功能已完成 ✅
@@ -155,7 +173,7 @@
 | 后端 API | ✅ 就绪 | 全部接口已实现 |
 | 移动端框架 | ✅ 完成 | UI/交互完整 |
 | API 对接 | ✅ 完成 | Dashboard/Auth 已对接 |
-| 认证流程 | ✅ 完成 | 登录注册完整 |
+| 认证流程 | ✅ 完成 | 可选登录 + 占位数据兜底 |
 | 安全审计 | ✅ 通过 | P0-P3 全部修复，27 项清零 |
 | **Release 就绪度** | **90%** | 安全基础扎实，核心功能就绪 |
 
@@ -205,3 +223,4 @@ location /api/ {
 | v1.0 | 2026-04-21 | 初始版本，Release 前审查 |
 | v1.1 | 2026-04-21 | 完成登录注册 + Dashboard API 对接 |
 | v1.2 | 2026-04-21 | 安全审计修复：P0-P3 全部清零，Release 就绪度提升至 90% |
+| v1.3 | 2026-04-21 | 可选登录改造 + Gradle构建优化 + 编译修复 + API端点统计 + 文档全面同步 |
