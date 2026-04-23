@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>币钱袋 - 安装向导</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/web/static/css/app.css">
+<style>
+  .setup-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f172a;
+    font-family: 'Inter', sans-serif;
+  }
+  .setup-card {
+    background: rgba(30, 41, 59, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    border-radius: 20px;
+    padding: 40px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+  }
+  .setup-card h1 {
+    font-size: 28px;
+    font-weight: 800;
+    color: #f8fafc;
+    margin-bottom: 6px;
+  }
+  .setup-card .subtitle {
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 32px;
+  }
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #22d3ee;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+    margin-top: 24px;
+  }
+  .section-title:first-of-type {
+    margin-top: 0;
+  }
+  .field-group {
+    margin-bottom: 14px;
+  }
+  .field-label {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 5px;
+  }
+  .input-field {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    color: #f8fafc;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .input-field:focus {
+    border-color: #22d3ee;
+  }
+  .input-field::placeholder {
+    color: #475569;
+  }
+  select.input-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+  .btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    margin-top: 8px;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 4px;
+  }
+  .step-indicator {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  .step-dot {
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(148, 163, 184, 0.2);
+    transition: background 0.3s;
+  }
+  .step-dot.active {
+    background: #22d3ee;
+  }
+  .step-dot.done {
+    background: #10b981;
+  }
+  .error-msg {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #fca5a5;
+    margin-top: 12px;
+    display: none;
+  }
+  .success-msg {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #6ee7b7;
+    margin-top: 12px;
+    display: none;
+    text-align: center;
+  }
+  .collapsible-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  .collapsible-header .toggle-icon {
+    font-size: 11px;
+    color: #64748b;
+    transition: transform 0.2s;
+  }
+  .collapsible-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .collapsible-body.open {
+    max-height: 600px;
+  }
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #1e293b;
+    color: #f8fafc;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 13px;
+    z-index: 9999;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<div class="setup-wrap">
+  <div class="setup-card">
+    <h1>💎 币钱袋</h1>
+    <div class="subtitle">首次安装向导 · 几步完成配置</div>
+
+    <div class="step-indicator">
+      <div class="step-dot active" id="step-1"></div>
+      <div class="step-dot" id="step-2"></div>
+      <div class="step-dot" id="step-3"></div>
+    </div>
+
+    <!-- Step 1: 管理员账号 -->
+    <div id="form-step-1">
+      <div class="section-title">第一步 · 创建管理员</div>
+      <div class="field-group">
+        <div class="field-label">管理员名称</div>
+        <input type="text" class="input-field" id="admin-name" placeholder="Administrator" value="Administrator">
+      </div>
+      <div class="field-group">
+        <div class="field-label">邮箱</div>
+        <input type="email" class="input-field" id="admin-email" placeholder="admin@example.com">
+      </div>
+      <div class="field-group">
+        <div class="field-label">密码</div>
+        <input type="password" class="input-field" id="admin-password" placeholder="至少8位">
+      </div>
+      <div class="field-group">
+        <div class="field-label">确认密码</div>
+        <input type="password" class="input-field" id="admin-password-confirm" placeholder="再次输入密码">
+      </div>
+      <button class="btn-primary" onclick="goToStep(2)">下一步</button>
+    </div>
+
+    <!-- Step 2: 数据库配置 -->
+    <div id="form-step-2" style="display:none;">
+      <div class="section-title">第二步 · 数据库配置</div>
+      <div class="field-group">
+        <div class="field-label">数据库类型</div>
+        <select class="input-field" id="db-type" onchange="toggleDbType()">
+          <option value="sqlite">SQLite（开箱即用，推荐开发测试）</option>
+          <option value="postgresql">PostgreSQL（推荐生产环境）</option>
+        </select>
+      </div>
+
+      <!-- SQLite 配置 -->
+      <div id="sqlite-config">
+        <div class="hint">SQLite 无需额外配置，数据文件将保存在 ./data/crypto_quant.db</div>
+      </div>
+
+      <!-- PostgreSQL 配置 -->
+      <div id="pg-config" style="display:none;">
+        <div class="field-group">
+          <div class="field-label">主机</div>
+          <input type="text" class="input-field" id="pg-host" value="localhost">
+        </div>
+        <div class="grid-2">
+          <div class="field-group">
+            <div class="field-label">端口</div>
+            <input type="number" class="input-field" id="pg-port" value="5432">
+          </div>
+          <div class="field-group">
+            <div class="field-label">数据库名</div>
+            <input type="text" class="input-field" id="pg-dbname" value="crypto_quant">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field-group">
+            <div class="field-label">用户名</div>
+            <input type="text" class="input-field" id="pg-user" value="postgres">
+          </div>
+          <div class="field-group">
+            <div class="field-label">密码</div>
+            <input type="password" class="input-field" id="pg-password">
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group" style="margin-top:14px;">
+        <div class="field-label">Redis 地址</div>
+        <input type="text" class="input-field" id="redis-url" value="redis://localhost:6379/0">
+        <div class="hint">若未安装 Redis，可暂用默认值，部分缓存功能不可用但不影响核心</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
+        <button class="btn-primary" style="background:rgba(148,163,184,0.15);" onclick="goToStep(1)">上一步</button>
+        <button class="btn-primary" onclick="goToStep(3)">下一步</button>
+      </div>
+    </div>
+
+    <!-- Step 3: 确认 & 安装 -->
+    <div id="form-step-3" style="display:none;">
+      <div class="section-title">第三步 · 确认并安装</div>
+
+      <div style="background:rgba(15,23,42,0.5);border-radius:12px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">配置摘要</div>
+        <div id="config-summary" style="font-size:13px;color:#e2e8f0;line-height:1.8;"></div>
+      </div>
+
+      <div class="field-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="agree-check" style="accent-color:#22d3ee;">
+          <span style="font-size:12px;color:#94a3b8;">我了解量化交易的风险，本应用仅供学习研究</span>
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <button class="btn-primary" style="background:rgba(148,163,184,0.15);" onclick="goToStep(2)">上一步</button>
+        <button class="btn-primary" id="install-btn" onclick="startInstall()">🚀 开始安装</button>
+      </div>
+
+      <div class="error-msg" id="error-msg"></div>
+      <div class="success-msg" id="success-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = '/api/v1';
+
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', async () => {
+  // 检查安装状态，如果已安装则直接跳转
+  try {
+    const res = await fetch(`${API_BASE}/setup/status`);
+    const data = await res.json();
+    if (!data.setup_required) {
+      window.location.href = '/web/';
+    }
+  } catch (e) {
+    // 后端未启动等情况，忽略
+  }
+});
+
+// ===== 步骤切换 =====
+function goToStep(step) {
+  // 验证
+  if (step === 2) {
+    const name = document.getElementById('admin-name').value.trim();
+    const email = document.getElementById('admin-email').value.trim();
+    const pw = document.getElementById('admin-password').value;
+    const pw2 = document.getElementById('admin-password-confirm').value;
+    if (!name || !email || !pw) { showToast('⚠️ 请填写所有字段'); return; }
+    if (pw.length < 8) { showToast('⚠️ 密码至少8位'); return; }
+    if (pw !== pw2) { showToast('⚠️ 两次密码不一致'); return; }
+  }
+
+  // 切换显示
+  document.querySelectorAll('[id^="form-step-"]').forEach(el => el.style.display = 'none');
+  document.getElementById(`form-step-${step}`).style.display = 'block';
+
+  // 更新步骤指示器
+  document.querySelectorAll('.step-dot').forEach((dot, i) => {
+    dot.classList.remove('active', 'done');
+    if (i < step - 1) dot.classList.add('done');
+    else if (i === step - 1) dot.classList.add('active');
+  });
+
+  // Step 3 更新摘要
+  if (step === 3) updateSummary();
+}
+
+// ===== 数据库类型切换 =====
+function toggleDbType() {
+  const type = document.getElementById('db-type').value;
+  document.getElementById('sqlite-config').style.display = type === 'sqlite' ? 'block' : 'none';
+  document.getElementById('pg-config').style.display = type === 'postgresql' ? 'block' : 'none';
+}
+
+// ===== 更新配置摘要 =====
+function updateSummary() {
+  const dbType = document.getElementById('db-type').value;
+  let dbUrl = 'sqlite+aiosqlite:///./data/crypto_quant.db';
+  if (dbType === 'postgresql') {
+    const host = document.getElementById('pg-host').value;
+    const port = document.getElementById('pg-port').value;
+    const dbname = document.getElementById('pg-dbname').value;
+    const user = document.getElementById('pg-user').value;
+    const pw = document.getElementById('pg-password').value;
+    dbUrl = `postgresql+asyncpg://${user}:${pw}@${host}:${port}/${dbname}`;
+  }
+
+  const summary = `
+    <div>👤 管理员：<b>${document.getElementById('admin-name').value}</b></div>
+    <div>📧 邮箱：<b>${document.getElementById('admin-email').value}</b></div>
+    <div>🗄️ 数据库：<b>${dbType === 'sqlite' ? 'SQLite' : 'PostgreSQL'}</b></div>
+    <div style="word-break:break-all;font-size:11px;color:#64748b;">${dbUrl}</div>
+    <div>🔴 Redis：<b>${document.getElementById('redis-url').value}</b></div>
+  `;
+  document.getElementById('config-summary').innerHTML = summary;
+}
+
+// ===== 构建数据库 URL =====
+function buildDatabaseUrl() {
+  const dbType = document.getElementById('db-type').value;
+  if (dbType === 'sqlite') {
+    return 'sqlite+aiosqlite:///./data/crypto_quant.db';
+  }
+  const host = document.getElementById('pg-host').value;
+  const port = document.getElementById('pg-port').value;
+  const dbname = document.getElementById('pg-dbname').value;
+  const user = document.getElementById('pg-user').value;
+  const pw = document.getElementById('pg-password').value;
+  return `postgresql+asyncpg://${user}:${pw}@${host}:${port}/${dbname}`;
+}
+
+// ===== 开始安装 =====
+async function startInstall() {
+  if (!document.getElementById('agree-check').checked) {
+    showToast('⚠️ 请先确认风险提示');
+    return;
+  }
+
+  const btn = document.getElementById('install-btn');
+  btn.disabled = true;
+  btn.textContent = '安装中...';
+
+  const errEl = document.getElementById('error-msg');
+  const okEl = document.getElementById('success-msg');
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+
+  const body = {
+    admin_name: document.getElementById('admin-name').value.trim(),
+    admin_email: document.getElementById('admin-email').value.trim(),
+    admin_password: document.getElementById('admin-password').value,
+    database_url: buildDatabaseUrl(),
+    redis_url: document.getElementById('redis-url').value.trim(),
+    cors_origins: ['http://127.0.0.1:8000', 'http://localhost:8000'],
+    debug: false,
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/setup/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      okEl.textContent = '✅ ' + (data.message || '安装完成！');
+      okEl.style.display = 'block';
+      btn.textContent = '✅ 安装完成';
+
+      // 2秒后跳转登录
+      setTimeout(() => {
+        window.location.href = data.redirect || '/web/';
+      }, 2000);
+    } else {
+      const detail = data.detail || data.message || '安装失败';
+      errEl.textContent = '❌ ' + detail;
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = '🚀 开始安装';
+    }
+  } catch (e) {
+    errEl.textContent = '❌ 网络错误：' + e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = '🚀 开始安装';
+  }
+}
+
+// ===== Toast =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ===== Enter 键支持 =====
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const step1 = document.getElementById('form-step-1');
+    const step2 = document.getElementById('form-step-2');
+    if (step1.style.display !== 'none') goToStep(2);
+    else if (step2.style.display !== 'none') goToStep(3);
+  }
+});
+</script>
+</body>
+</html>

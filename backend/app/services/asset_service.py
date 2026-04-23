@@ -97,13 +97,13 @@ class AssetService:
         today_pnl_percent = (today_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
 
         return {
-            "totalAsset": float(total_asset + total_pnl),
-            "totalPnL": float(total_pnl),
-            "totalPnLPercent": float(total_pnl_percent),
+            "totalAssets": float(total_asset + total_pnl),
+            "totalPnl": float(total_pnl),
+            "totalPnlPercent": float(total_pnl_percent),
             "availableBalance": float(available_balance),
-            "lockedBalance": float(locked_balance),
-            "todayPnL": float(today_pnl),
-            "todayPnLPercent": float(today_pnl_percent),
+            "frozenBalance": float(locked_balance),
+            "todayPnl": float(today_pnl),
+            "todayPnlPercent": float(today_pnl_percent),
             "updatedAt": datetime.utcnow().isoformat() + "Z",
         }
 
@@ -167,8 +167,8 @@ class AssetService:
                     "quantity": float(pos.quantity),
                     "entryPrice": float(pos.entry_price),
                     "currentPrice": float(pos.current_price),
-                    "pnl": float(pnl),
-                    "pnlPercent": float(pnl_percent),
+                    "unrealizedPnl": float(pnl),
+                    "unrealizedPnlPercent": float(pnl_percent),
                     "leverage": pos.leverage,
                     "exchange": account.exchange,
                     "updatedAt": pos.updated_at.isoformat() + "Z" if pos.updated_at else datetime.utcnow().isoformat() + "Z",
@@ -213,7 +213,7 @@ class AssetService:
             points.append({
                 "date": date.strftime("%Y-%m-%d"),
                 "equity": float(current_equity),
-                "dailyPnL": float(daily_pnl),
+                "pnl": float(daily_pnl),
             })
 
         # 计算统计数据

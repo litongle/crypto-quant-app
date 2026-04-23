@@ -21,9 +21,9 @@
 
 | 检查项 | 等级 |
 |--------|------|
-| 无硬编码密钥/凭证（SECRET_KEY/JWT 等无默认值） | P0 |
+| 无硬编码密钥/凭证（安装向导生成，开发模式有占位值） | P0 |
 | API Key 加密存储（AES-256 Fernet） | P0 |
-| 所有业务端点有认证（除 /login /register /health） | P0 |
+| 所有业务端点有认证（除 /login /register /health /setup/*） | P0 |
 | Refresh Token 必须验证 token_type="refresh" | P0 |
 | 金融数值必须有范围校验（gt=0） | P0 |
 | JWT payload.sub 类型安全转换（str→int） | P1 |
@@ -46,6 +46,7 @@
 | 无跨文件重复核心逻辑 | P1 |
 | 分层正确：API → Service → Repository → Model | P1 |
 | 依赖注入规范（通过 FastAPI Depends） | P2 |
+| 禁止模块级缓存 settings（支持运行时热重载） | P1 |
 
 ### 可维护性（MNT）
 
@@ -187,6 +188,7 @@ fix(strategy): 修复 MA 策略计算错误
 | 优先级 | 问题 | 位置 |
 |--------|------|------|
 | 🔴 P0 | 零测试覆盖率 | 全项目 |
+| 🟠 P1 | 安装向导未处理 Redis 不可用情况 | setup.py |
 | 🟠 P1 | 回测使用模拟价格数据（非真实 K 线） | backtest.py |
 | 🟠 P1 | 交易所适配器 order/balance 接口未实现 | exchange_adapter.py |
 | 🟡 P2 | 移动端 23/33 端点未对接 | mobile/services |

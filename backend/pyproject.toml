@@ -20,6 +20,7 @@ dependencies = [
     # Database
     "sqlalchemy>=2.0.25,<3.0.0",
     "asyncpg>=0.29.0,<0.30.0",
+    "aiosqlite>=0.20.0,<1.0.0",
     "alembic>=1.13.0,<2.0.0",
 
     # Redis

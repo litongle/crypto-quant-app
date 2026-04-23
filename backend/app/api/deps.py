@@ -14,7 +14,6 @@ from app.database import get_db
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
 
-settings = get_settings()
 security = HTTPBearer()
 
 

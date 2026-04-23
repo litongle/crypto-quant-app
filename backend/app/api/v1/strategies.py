@@ -121,6 +121,18 @@ def _build_predefined_templates() -> list[dict]:
 
 PREDEFINED_TEMPLATES = _build_predefined_templates()
 
+# 字符串 code → 数据库整数 template_id 映射
+_STR_ID_MAP = {
+    "ma_cross": 1,
+    "rsi": 2,
+    "bollinger": 3,
+    "grid": 4,
+    "martingale": 5,
+}
+
+# 反向映射：数据库 template_id (int) → 前端 code (str)
+_TEMPLATE_ID_TO_CODE = {v: k for k, v in _STR_ID_MAP.items()}
+
 
 # ============ 路由 ============
 
@@ -147,21 +159,22 @@ async def get_user_strategies(
     # 格式化为移动端响应
     result = []
     for inst in instances:
-        # 获取模板名称
+        # 获取模板 code 和名称
+        template_code = _TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
         template_name = "未知策略"
         for t in PREDEFINED_TEMPLATES:
-            if t["id"] == inst.template_id:
+            if t["id"] == template_code:
                 template_name = t["name"]
                 break
 
         result.append({
             "id": f"inst_{inst.id}",
             "name": inst.name,
-            "templateId": inst.template_id,
+            "templateId": template_code,
             "templateName": template_name,
             "status": inst.status,
-            "totalPnL": float(inst.total_pnl or 0),
-            "totalPnLPercent": float(inst.total_pnl_percent or 0),
+            "totalPnl": float(inst.total_pnl or 0),
+            "totalPnlPercent": float(inst.total_pnl_percent or 0),
             "winRate": float(inst.win_rate or 0),
             "totalTrades": inst.total_trades or 0,
             "createdAt": inst.created_at.isoformat() + "Z" if inst.created_at else "",
@@ -186,14 +199,6 @@ async def create_strategy(
         return APIResponse(code=3001, message="策略模板不存在")
 
     # 映射 string templateId -> int template_id
-    # PREDEFINED_TEMPLATES 中 id 与 StrategyTemplate.strategy_type 对应
-    _STR_ID_MAP = {
-        "ma_cross": 1,
-        "rsi": 2,
-        "bollinger": 3,
-        "grid": 4,
-        "martingale": 5,
-    }
     template_id = _STR_ID_MAP.get(request.templateId, 1)
 
     # 创建实例
@@ -239,21 +244,22 @@ async def get_strategy(
     if instance.user_id != current_user.id:
         return APIResponse(code=1002, message="无权限访问")
 
-    # 获取模板名称
+    # 获取模板 code 和名称
+    template_code = _TEMPLATE_ID_TO_CODE.get(instance.template_id, str(instance.template_id))
     template_name = "未知策略"
     for t in PREDEFINED_TEMPLATES:
-        if t["id"] == instance.template_id:
+        if t["id"] == template_code:
             template_name = t["name"]
             break
 
     return APIResponse(data={
         "id": f"inst_{instance.id}",
         "name": instance.name,
-        "templateId": instance.template_id,
+        "templateId": template_code,
         "templateName": template_name,
         "status": instance.status,
-        "totalPnL": float(instance.total_pnl or 0),
-        "totalPnLPercent": float(instance.total_pnl_percent or 0),
+        "totalPnl": float(instance.total_pnl or 0),
+        "totalPnlPercent": float(instance.total_pnl_percent or 0),
         "winRate": float(instance.win_rate or 0),
         "totalTrades": instance.total_trades or 0,
         "createdAt": instance.created_at.isoformat() + "Z" if instance.created_at else "",

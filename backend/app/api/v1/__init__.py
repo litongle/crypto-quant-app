@@ -1,9 +1,12 @@
 """API v1 Router"""
 from fastapi import APIRouter
 
-from app.api.v1 import auth, strategies, users, market, orders, asset, backtest
+from app.api.v1 import auth, strategies, users, market, orders, asset, backtest, setup
 
 api_router = APIRouter()
+
+# 安装向导（无需认证）
+api_router.include_router(setup.router, prefix="/setup", tags=["安装向导"])
 
 # 认证
 api_router.include_router(auth.router, prefix="/auth", tags=["认证"])

@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, func
+from sqlalchemy import Boolean, DateTime, Enum, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -25,6 +25,9 @@ class User(Base):
     risk_level: Mapped[str] = mapped_column(
         Enum("conservative", "moderate", "aggressive", name="risk_level"),
         default="moderate",
+    )
+    is_superuser: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

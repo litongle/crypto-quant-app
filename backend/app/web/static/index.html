@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>币钱袋 - 量化交易控制台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/web/static/css/app.css">
+</head>
+<body>
+
+<!-- ===== 登录页 ===== -->
+<div id="login-page" class="login-wrap" style="display:none;">
+  <div class="login-card">
+    <h1>💎 币钱袋</h1>
+    <div class="subtitle">数字货币量化交易控制台</div>
+
+    <div id="login-form">
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">邮箱</div>
+        <input type="email" class="input-field" id="login-email" placeholder="you@example.com">
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">密码</div>
+        <input type="password" class="input-field" id="login-password" placeholder="输入密码">
+      </div>
+      <button class="btn-primary" style="width:100%;" onclick="handleLogin()" id="login-btn">登录</button>
+      <div style="text-align:center;margin-top:16px;">
+        <span style="font-size:12px;color:#64748b;">还没有账号？</span>
+        <span style="font-size:12px;color:#22d3ee;cursor:pointer;" onclick="showRegister()">注册</span>
+      </div>
+    </div>
+
+    <div id="register-form" style="display:none;">
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">用户名</div>
+        <input type="text" class="input-field" id="reg-name" placeholder="输入用户名">
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">邮箱</div>
+        <input type="email" class="input-field" id="reg-email" placeholder="you@example.com">
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">密码</div>
+        <input type="password" class="input-field" id="reg-password" placeholder="至少6位">
+      </div>
+      <button class="btn-primary" style="width:100%;" onclick="handleRegister()" id="reg-btn">注册</button>
+      <div style="text-align:center;margin-top:16px;">
+        <span style="font-size:12px;color:#64748b;">已有账号？</span>
+        <span style="font-size:12px;color:#22d3ee;cursor:pointer;" onclick="showLogin()">登录</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 主应用 ===== -->
+<div id="app-page" class="app-layout" style="display:none;">
+  <!-- 侧栏 -->
+  <aside class="sidebar">
+    <div class="logo">
+      <h2>💎 币钱袋</h2>
+      <span>量化交易控制台 v1.0</span>
+    </div>
+    <nav>
+      <div class="nav-link active" onclick="navigate('dashboard')" data-page="dashboard">
+        <span class="nav-emoji">🏠</span> 首页
+      </div>
+      <div class="nav-link" onclick="navigate('strategy')" data-page="strategy">
+        <span class="nav-emoji">📊</span> 策略中心
+      </div>
+      <div class="nav-link" onclick="navigate('backtest')" data-page="backtest">
+        <span class="nav-emoji">📈</span> 回测
+      </div>
+    </nav>
+    <div class="user-section">
+      <div class="user-name" id="user-name">--</div>
+      <div class="user-email" id="user-email">--</div>
+      <div class="logout-btn" onclick="handleLogout()">退出登录</div>
+    </div>
+  </aside>
+
+  <!-- 内容区 -->
+  <main class="main-content">
+
+    <!-- ===== Dashboard 页 ===== -->
+    <div class="page-view active" id="page-dashboard">
+      <div class="page-header">
+        <h1>🏠 控制台</h1>
+        <div class="sub">实时监控资产和持仓状态</div>
+      </div>
+      <div id="asset-summary">
+        <div class="grid-4">
+          <div class="card stat-card"><div class="stat-label">总资产</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
+          <div class="card stat-card"><div class="stat-label">可用余额</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
+          <div class="card stat-card"><div class="stat-label">冻结余额</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
+          <div class="card stat-card"><div class="stat-label">今日盈亏</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
+        </div>
+      </div>
+      <div style="margin-top:24px;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:12px;">权益曲线</div>
+        <div class="card" style="padding:16px;">
+          <canvas id="equityChart" height="200"></canvas>
+        </div>
+      </div>
+      <div style="margin-top:24px;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:12px;">我的持仓</div>
+        <div id="position-section"></div>
+      </div>
+    </div>
+
+    <!-- ===== 策略中心页 ===== -->
+    <div class="page-view" id="page-strategy">
+      <div class="page-header">
+        <h1>📊 策略中心</h1>
+        <div class="sub">选择模板、配置参数、创建策略实例</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+        <!-- 左侧：模板列表 -->
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">策略模板</div>
+          <div id="template-list"></div>
+        </div>
+        <!-- 右侧：创建实例 + 实例列表 -->
+        <div>
+          <div id="create-section" style="display:none;margin-bottom:20px;">
+            <div class="card">
+              <div style="font-size:13px;font-weight:700;margin-bottom:12px;">⚙️ 创建策略实例</div>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:4px;">实例名称</div>
+                <input type="text" class="input-field" id="new-strategy-name" placeholder="我的双均线策略">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                <div>
+                  <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易所</div>
+                  <select class="input-field" id="new-strategy-exchange">
+                    <option value="binance">Binance</option>
+                    <option value="okx">OKX</option>
+                    <option value="htx">HTX</option>
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易对</div>
+                  <input type="text" class="input-field" id="new-strategy-symbol" placeholder="BTCUSDT" value="BTCUSDT">
+                </div>
+              </div>
+              <div id="param-sliders" style="margin-bottom:16px;"></div>
+              <button class="btn-primary" style="width:100%;" onclick="createStrategyInstance()">创建策略</button>
+            </div>
+          </div>
+
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">运行中的策略</div>
+          <div id="instance-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 回测页 ===== -->
+    <div class="page-view" id="page-backtest">
+      <div class="page-header">
+        <h1>📈 策略回测</h1>
+        <div class="sub">验证策略在历史数据上的表现</div>
+      </div>
+      <div style="display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start;">
+        <!-- 左侧：配置 -->
+        <div class="card">
+          <div style="font-size:13px;font-weight:700;margin-bottom:14px;">📋 回测参数</div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">策略模板</div>
+            <select class="input-field" id="backtest-template-select"><option value="">加载中...</option></select>
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易对</div>
+            <input type="text" class="input-field" id="backtest-symbol" value="BTCUSDT">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">开始日期</div>
+              <input type="date" class="input-field" id="backtest-start" value="2024-01-01">
+            </div>
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">结束日期</div>
+              <input type="date" class="input-field" id="backtest-end" value="2025-12-31">
+            </div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">初始资金 (USDT)</div>
+            <input type="number" class="input-field" id="backtest-capital" value="100000">
+          </div>
+          <div id="backtest-params"></div>
+          <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="runBacktest()" id="run-backtest-btn">🚀 开始回测</button>
+        </div>
+
+        <!-- 右侧：结果 -->
+        <div id="backtest-results">
+          <div class="card" style="text-align:center;padding:60px 24px;">
+            <div style="font-size:48px;margin-bottom:12px;">📈</div>
+            <div style="font-size:15px;font-weight:600;margin-bottom:8px;">选择策略模板并运行回测</div>
+            <div style="font-size:13px;color:#64748b;">回测结果将在此处展示</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- JS -->
+<script src="/web/static/js/api.js"></script>
+<script src="/web/static/js/dashboard.js"></script>
+<script src="/web/static/js/strategy.js"></script>
+<script src="/web/static/js/backtest.js"></script>
+<script>
+// ===== 全局导航 =====
+function navigate(page) {
+  document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+
+  const pageEl = document.getElementById('page-' + page);
+  const navEl = document.querySelector(`.nav-link[data-page="${page}"]`);
+  if (pageEl) pageEl.classList.add('active');
+  if (navEl) navEl.classList.add('active');
+
+  // 按需加载页面数据
+  if (page === 'dashboard') loadDashboard();
+  else if (page === 'strategy') loadStrategyPage();
+  else if (page === 'backtest') loadBacktestPage();
+}
+
+// ===== 登录/注册 =====
+function showLogin() {
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('register-form').style.display = 'none';
+}
+
+function showRegister() {
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('register-form').style.display = 'block';
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) { showToast('⚠️ 请输入邮箱和密码'); return; }
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+
+  try {
+    await api.login(email, password);
+    enterApp();
+  } catch (err) {
+    showToast('❌ ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '登录';
+  }
+}
+
+async function handleRegister() {
+  const name = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  if (!name || !email || !password) { showToast('⚠️ 请填写所有字段'); return; }
+
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+
+  try {
+    await api.register(email, password, name);
+    showToast('✅ 注册成功！');
+    enterApp();
+  } catch (err) {
+    showToast('❌ ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '注册';
+  }
+}
+
+function handleLogout() {
+  api.logout();
+  document.getElementById('app-page').style.display = 'none';
+  document.getElementById('login-page').style.display = 'flex';
+}
+
+async function enterApp() {
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app-page').style.display = 'flex';
+
+  // 加载用户信息
+  try {
+    const user = await api.getUserInfo();
+    document.getElementById('user-name').textContent = user.name || '--';
+    document.getElementById('user-email').textContent = user.email || '--';
+  } catch {}
+
+  // 默认加载 Dashboard
+  loadDashboard();
+}
+
+// ===== Toast =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', () => {
+  if (api.isLoggedIn) {
+    // 验证 token 是否有效
+    api.getUserInfo().then(() => {
+      enterApp();
+    }).catch(() => {
+      // Token 无效，尝试刷新
+      api._refreshAccessToken().then(ok => {
+        if (ok) enterApp();
+        else {
+          api.logout();
+          document.getElementById('login-page').style.display = 'flex';
+        }
+      });
+    });
+  } else {
+    document.getElementById('login-page').style.display = 'flex';
+  }
+});
+
+// Enter 键登录
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const loginPage = document.getElementById('login-page');
+    if (loginPage.style.display !== 'none') {
+      if (document.getElementById('login-form').style.display !== 'none') handleLogin();
+      else handleRegister();
+    }
+  }
+});
+</script>
+</body>
+</html>

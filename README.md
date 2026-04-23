@@ -1,4 +1,4 @@
-# 📱 币钱袋 - 数字货币量化交易 App
+# 💎 币钱袋 - 数字货币量化交易 App
 
 > 面向普通加密货币投资者的量化交易 App — 让不懂代码的散户也能使用量化策略。
 
@@ -13,8 +13,9 @@
 | 层级 | 技术 |
 |------|------|
 | 移动端 | Flutter + Riverpod + GoRouter |
+| 网页控制台 | 原生 JS + Tailwind CSS + Chart.js |
 | 后端 | Python FastAPI（异步） |
-| 数据库 | PostgreSQL + TimescaleDB |
+| 数据库 | PostgreSQL + TimescaleDB（默认 SQLite 零配置启动） |
 | 缓存/队列 | Redis + Redis Streams |
 | 安全 | AES-256 (Fernet) + JWT |
 | 交易所 | Binance / OKX API |
@@ -32,18 +33,23 @@ crypto-quant-app/
 ├── PROGRESS.md             ← 项目进展 & 发布审查
 ├── docs/
 │   ├── PM.md               ← 项目管理规范（合并版）
-│   └── STANDARDS.md        ← 代码规范 & 审查标准（合并版）
-├── backend/                ← FastAPI 后端（37 个 Python 文件）
+│   ├── STANDARDS.md        ← 代码规范 & 审查标准（合并版）
+│   ├── 系统架构设计文档_v2.md  ← 长期演进目标
+│   └── 系统架构图.html      ← 可视化架构图
+├── backend/                ← FastAPI 后端
 │   ├── app/
 │   │   ├── main.py / config.py / database.py / redis.py
-│   │   ├── api/v1/         # auth, users, strategies, market, asset, orders, backtest
+│   │   ├── api/v1/         # auth, users, strategies, market, asset, orders, backtest, setup
 │   │   ├── core/           # security.py, exchange_adapter.py, strategy_engine.py
 │   │   ├── models/         # user, strategy, exchange, order
 │   │   ├── repositories/   # base, user_repo, strategy_repo, trading_repo
-│   │   └── services/       # auth, strategy, market, order, asset, backtest
+│   │   ├── services/       # auth, strategy, market, order, asset, backtest
+│   │   └── web/            # 网页控制台（/web 入口）
+│   │       ├── routes.py
+│   │       └── static/     # index.html, setup.html, css/, js/
 │   ├── .env.example
 │   └── pyproject.toml
-└── mobile/                 ← Flutter 移动端（35 个 Dart 文件）
+└── mobile/                 ← Flutter 移动端
     └── lib/
         ├── core/           # constants, network, providers, router, services, theme
         └── features/       # auth, dashboard, strategies, backtest, settings
@@ -56,12 +62,14 @@ crypto-quant-app/
 | 模块 | 状态 |
 |------|------|
 | 产品原型（5页） | ✅ 完成 |
-| 后端 API（33端点） | ✅ 完成 |
+| 后端 API（35端点） | ✅ 完成 |
 | 安全审计（P0~P3） | ✅ 27项全部修复 |
 | Flutter 框架（5模块） | ✅ 完成 |
 | Dashboard API 对接 | ✅ 完成 |
 | 可选登录 + 占位数据 | ✅ 完成 |
 | Gradle 构建优化 | ✅ 完成 |
+| 网页控制台 + 安装向导 | ✅ 完成 |
+| 接口契约对齐（3项修复） | ✅ 完成 |
 | 策略引擎（MA/RSI/Bollinger） | 🚧 进行中 |
 | 交易所 WebSocket | 🚧 进行中 |
 | 回测引擎 | 📋 待开发 |
@@ -73,18 +81,21 @@ crypto-quant-app/
 
 ## 🚀 快速启动
 
-### 后端
+### 后端（零配置启动）
 
 ```bash
 cd backend
-python -m venv .venv && .venv\Scripts\activate   # Windows
-pip install -e ".[dev]"
-cp .env.example .env        # 填入 SECRET_KEY / DATABASE_URL / JWT_SECRET_KEY
-alembic upgrade head
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pip install -e .                                         # 安装依赖
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000  # 启动
 ```
 
-> ⚠️ `SECRET_KEY`、`DATABASE_URL`、`JWT_SECRET_KEY` 必须配置，无默认值。
+首次启动无需 `.env` 文件，访问 `http://localhost:8000/` 自动进入安装向导：
+
+1. 创建管理员账号
+2. 选择数据库（默认 SQLite 开箱即用，可选 PostgreSQL）
+3. 确认安装 → 自动生成安全密钥、建表、跳转登录
+
+> 安装完成后配置保存在 `.env`，后续启动直接进入控制台。
 
 ### 移动端
 
@@ -94,7 +105,14 @@ flutter pub get
 flutter run                 # 无需后端，未登录时展示占位数据
 ```
 
-API 文档：启动后访问 `http://localhost:8000/docs`
+### 访问地址
+
+| 入口 | 地址 |
+|------|------|
+| 安装向导 | `http://localhost:8000/web/setup`（首次自动跳转） |
+| 网页控制台 | `http://localhost:8000/web/` |
+| API 文档 | `http://localhost:8000/docs` |
+| 健康检查 | `http://localhost:8000/health` |
 
 ---
 

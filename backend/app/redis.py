@@ -1,5 +1,7 @@
 """
 Redis 连接管理
+
+改动：不再模块级缓存 settings，改为函数内取
 """
 import asyncio
 from typing import AsyncGenerator
@@ -8,8 +10,6 @@ import redis.asyncio as redis
 from redis.asyncio import ConnectionPool, Redis
 
 from app.config import get_settings
-
-settings = get_settings()
 
 # 连接池
 _pool: ConnectionPool | None = None
@@ -24,6 +24,7 @@ async def get_redis_pool() -> ConnectionPool:
         async with _pool_lock:
             # 双重检查：获取锁后再检查一次
             if _pool is None:
+                settings = get_settings()
                 _pool = ConnectionPool.from_url(
                     settings.redis_url,
                     decode_responses=True,
@@ -48,3 +49,8 @@ async def close_redis() -> None:
     if _pool is not None:
         await _pool.disconnect()
         _pool = None
+
+
+async def reset_redis() -> None:
+    """重置 Redis 连接池（安装向导切换配置后调用）"""
+    await close_redis()

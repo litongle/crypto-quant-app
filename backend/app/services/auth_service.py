@@ -24,7 +24,6 @@ from app.core.security import (
     hash_password as _hash_password,
 )
 
-settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 

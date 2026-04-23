@@ -5,7 +5,7 @@ import asyncio
 import logging
 from decimal import Decimal
 
-from app.database import async_session_maker, Base, engine
+from app.database import get_session_maker, Base, init_db as db_init_db
 from app.models.strategy import StrategyTemplate
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,8 @@ STRATEGY_TEMPLATES = [
 
 async def init_strategy_templates():
     """初始化策略模板数据"""
-    async with async_session_maker() as session:
+    session_maker = await get_session_maker()
+    async with session_maker() as session:
         # 检查是否已有数据
         from sqlalchemy import select
         result = await session.execute(select(StrategyTemplate))
@@ -122,8 +123,7 @@ async def init_strategy_templates():
 
 async def init_db():
     """初始化数据库"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await db_init_db()
     logger.info("数据库表创建完成")
 
 

@@ -1,34 +1,44 @@
 """
 FastAPI 主入口
+
+改动：
+- 不再模块级缓存 settings，每次从 get_settings() 取
+- 根路径 / 和 /web/ 增加 setup 跳转
+- 注册安装向导 API
 """
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.config import get_settings
 from app.core.exceptions import AppException
-from app.redis import close_redis
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 启动时
-    logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+    settings = get_settings()
+    logger.info("Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment)
+    if settings.setup_required:
+        logger.info("⚠️ 首次运行，请访问 /web/setup 完成安装向导")
     yield
-    # 关闭时
+    # 关闭时清理
+    from app.redis import close_redis
     await close_redis()
+    from app.database import reset_database
+    await reset_database()
     logger.info("Shutting down...")
 
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用"""
+    settings = get_settings()
+
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -73,11 +83,22 @@ def create_app() -> FastAPI:
     # 健康检查
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "version": settings.app_version}
+        return {"status": "healthy", "version": get_settings().app_version}
+
+    # 根路径：根据安装状态跳转
+    @app.get("/")
+    async def root():
+        if get_settings().setup_required:
+            return RedirectResponse(url="/web/setup")
+        return RedirectResponse(url="/web/")
 
     # 注册路由
     from app.api.v1 import api_router
     app.include_router(api_router, prefix="/api/v1")
+
+    # Web 控制台
+    from app.web.routes import router as web_router
+    app.include_router(web_router)
 
     return app
 
@@ -88,6 +109,7 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
+    settings = get_settings()
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",

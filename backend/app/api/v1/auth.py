@@ -11,6 +11,7 @@ from app.database import get_session
 from app.models.user import User
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
+from app.core.schemas import APIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -85,19 +86,19 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=dict)
+@router.post("/refresh")
 async def refresh_token(
     request: RefreshRequest,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: AsyncSession = Depends(get_session),
 ):
     """刷新Token"""
     auth_service = AuthService(session)
     access_token, refresh_token = await auth_service.refresh_tokens(request.refresh_token)
-    return {
+    return APIResponse(data={
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-    }
+    })
 
 
 @router.get("/me", response_model=UserResponse)

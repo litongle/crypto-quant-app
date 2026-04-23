@@ -1,5 +1,7 @@
 """
 安全模块 - 认证、授权、加密
+
+改动：不再模块级缓存 settings，改为函数内取 get_settings()
 """
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,9 +11,7 @@ from passlib.context import CryptContext
 
 from app.config import get_settings
 
-settings = get_settings()
-
-# 密码加密上下文
+# 密码加密上下文（不依赖 settings，可以模块级缓存）
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -30,6 +30,7 @@ def create_access_token(
     expires_delta: timedelta | None = None,
 ) -> str:
     """创建访问令牌"""
+    settings = get_settings()
     to_encode = data.copy()
 
     if expires_delta:
@@ -56,6 +57,7 @@ def create_refresh_token(
     expires_delta: timedelta | None = None,
 ) -> str:
     """创建刷新令牌"""
+    settings = get_settings()
     to_encode = data.copy()
 
     if expires_delta:
@@ -79,6 +81,7 @@ def create_refresh_token(
 
 def decode_token(token: str) -> dict[str, Any]:
     """解码令牌"""
+    settings = get_settings()
     try:
         payload = jwt.decode(
             token,
@@ -103,15 +106,14 @@ def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
 # ============ API Key 加密存储 (AES-256) ============
 
 import base64
-import os
+import hashlib
 
 from cryptography.fernet import Fernet
-import hashlib
 
 
 def _get_encryption_key() -> bytes:
     """从 SECRET_KEY 派生 Fernet 加密密钥"""
-    # 使用 secret_key 派生 32 字节密钥，再 base64url 编码为 Fernet 格式
+    settings = get_settings()
     key_material = hashlib.sha256(settings.secret_key.encode()).digest()
     return base64.urlsafe_b64encode(key_material)
 
