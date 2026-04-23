@@ -20,8 +20,8 @@ DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT"]
 @router.get("/ticker/{symbol}")
 async def get_ticker(
     symbol: str,
-    exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
     session: Annotated[AsyncSession, Depends(get_session)],
+    exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
 ):
     """
     获取实时行情
@@ -37,10 +37,10 @@ async def get_ticker(
 @router.get("/kline/{symbol}")
 async def get_kline(
     symbol: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
     interval: str = Query(default="1h", pattern=r"^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     limit: int = Query(default=100, ge=1, le=1000),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
-    session: Annotated[AsyncSession, Depends(get_session)],
 ):
     """
     获取K线数据
@@ -59,9 +59,9 @@ async def get_kline(
 @router.get("/orderbook/{symbol}")
 async def get_orderbook(
     symbol: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
     limit: int = Query(default=20, ge=1, le=100),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
-    session: Annotated[AsyncSession, Depends(get_session)],
 ):
     """
     获取订单簿

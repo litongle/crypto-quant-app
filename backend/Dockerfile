@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir \
     sqlalchemy==2.0.25 \
     asyncpg==0.29.0 \
     pydantic==2.5.3 \
+    "pydantic[email]==2.5.3" \
     pydantic-settings==2.1.0 \
     redis==5.0.1 \
     python-jose[cryptography]==3.3.0 \

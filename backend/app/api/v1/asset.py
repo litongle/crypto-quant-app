@@ -14,9 +14,9 @@ router = APIRouter()
 
 @router.get("/summary")
 async def get_asset_summary(
-    exchange: str = Query("all", description="交易所筛选 (binance/okx/htx/all)"),
     current_user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    exchange: str = Query("all", description="交易所筛选 (binance/okx/htx/all)"),
 ) -> APIResponse:
     """
     获取资产汇总
@@ -33,10 +33,10 @@ async def get_asset_summary(
 
 @router.get("/positions")
 async def get_positions(
-    exchange: str = Query("all", description="交易所筛选"),
-    side: str = Query("all", description="方向筛选 (long/short/all)"),
     current_user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    exchange: str = Query("all", description="交易所筛选"),
+    side: str = Query("all", description="方向筛选 (long/short/all)"),
 ) -> APIResponse:
     """
     获取持仓列表
@@ -54,10 +54,10 @@ async def get_positions(
 
 @router.get("/equity-curve")
 async def get_equity_curve(
-    days: int = Query(30, description="查询天数 (7/30/90/180/365)", ge=7, le=365),
-    exchange: str = Query("all", description="交易所筛选"),
     current_user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    days: int = Query(30, description="查询天数 (7/30/90/180/365)", ge=7, le=365),
+    exchange: str = Query("all", description="交易所筛选"),
 ) -> APIResponse:
     """
     获取权益曲线数据

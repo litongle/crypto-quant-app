@@ -47,6 +47,20 @@ class BaseStrategy(ABC):
         """分析K线数据，生成交易信号"""
         pass
 
+    async def generate_signal(self, klines: list[dict]) -> dict | None:
+        """同步信号生成（回测兼容）"""
+        signal = await self.analyze(klines)
+        if signal is None:
+            return None
+        return {
+            "action": signal.action,
+            "confidence": signal.confidence,
+            "entry_price": float(signal.entry_price) if signal.entry_price else None,
+            "stop_loss_price": float(signal.stop_loss_price) if signal.stop_loss_price else None,
+            "take_profit_price": float(signal.take_profit_price) if signal.take_profit_price else None,
+            "reason": signal.reason,
+        }
+
     def calculate_pnl(
         self, entry_price: Decimal, current_price: Decimal, side: str
     ) -> tuple[Decimal, Decimal]:
@@ -280,6 +294,34 @@ class GridStrategy(BaseStrategy):
                     )
         
         return None
+
+
+class StrategyFactory:
+    """策略工厂（回测服务用）"""
+
+    def __init__(self):
+        self._strategies = {
+            "ma": MAStrategy,
+            "rsi": RSIStrategy,
+            "bollinger": BollingerStrategy,
+            "grid": GridStrategy,
+        }
+
+    def create_strategy(self, template_id: str, params: dict | None = None) -> BaseStrategy | None:
+        """根据模板ID创建策略实例（回测用简化版）"""
+        params = params or {}
+        strategy_type = template_id.lower() if isinstance(template_id, str) else "ma"
+        strategy_class = self._strategies.get(strategy_type)
+        if not strategy_class:
+            return None
+        config = StrategyConfig(
+            symbol="BTCUSDT",
+            exchange="binance",
+            direction="both",
+            params=params,
+            risk_params={"stop_loss_percent": 2.0},
+        )
+        return strategy_class(config)
 
 
 def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:

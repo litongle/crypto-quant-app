@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from app.core.strategy_engine import StrategyEngine, StrategyFactory
+from app.core.strategy_engine import StrategyFactory
 from app.models.strategy import StrategyTemplate
 
 

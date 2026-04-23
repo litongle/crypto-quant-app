@@ -325,8 +325,8 @@ async def run_backtest(
 
 @router.get("/history")
 async def get_backtest_history(
-    limit: int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser,
+    limit: int = Query(default=20, ge=1, le=100),
 ) -> APIResponse:
     """
     获取回测历史记录

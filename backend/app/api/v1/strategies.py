@@ -144,8 +144,8 @@ async def get_strategy_templates() -> APIResponse:
 
 @router.get("/instances")
 async def get_user_strategies(
-    status: str = Query("all", description="状态筛选 (running/stopped/all)"),
     current_user: Annotated[User, Depends(get_current_user)],
+    status: str = Query("all", description="状态筛选 (running/stopped/all)"),
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """获取用户的策略实例列表"""

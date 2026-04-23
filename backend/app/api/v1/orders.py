@@ -24,8 +24,8 @@ class CreateOrderRequest(BaseModel):
     symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?$")
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit"]
-    quantity: Decimal = Field(gt=0, decimal_places=8, description="数量必须大于0")
-    price: Decimal | None = Field(default=None, gt=0, decimal_places=8, description="限价单价格必须大于0")
+    quantity: Decimal = Field(gt=0, description="数量必须大于0")
+    price: Decimal | None = Field(default=None, gt=0, description="限价单价格必须大于0")
     strategy_instance_id: int | None = Field(default=None, gt=0)
 
 
@@ -137,10 +137,10 @@ async def create_order(
 @router.get("", response_model=list[OrderResponse])
 async def get_orders(
     current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     account_id: int | None = None,
     symbol: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
-    session: Annotated[AsyncSession, Depends(get_session)],
 ):
     """获取订单历史"""
     service = OrderService(session)
@@ -168,8 +168,8 @@ async def cancel_order(
 @router.get("/positions", response_model=list[PositionResponse])
 async def get_positions(
     current_user: Annotated[User, Depends(get_current_user)],
-    account_id: int | None = None,
     session: Annotated[AsyncSession, Depends(get_session)],
+    account_id: int | None = None,
 ):
     """获取持仓"""
     service = OrderService(session)
@@ -226,8 +226,8 @@ async def close_position(
 @router.post("/emergency-close-all")
 async def emergency_close_all(
     current_user: Annotated[User, Depends(get_current_user)],
-    account_id: int | None = None,
     session: Annotated[AsyncSession, Depends(get_session)],
+    account_id: int | None = None,
 ):
     """紧急一键平仓"""
     service = OrderService(session)

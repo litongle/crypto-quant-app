@@ -1,6 +1,8 @@
 """
 认证 API
 """
+from __future__ import annotations
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
@@ -24,14 +26,6 @@ class RegisterRequest(BaseModel):
     name: str
 
 
-class LoginResponse(BaseModel):
-    """登录响应"""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    user: "UserResponse"
-
-
 class UserResponse(BaseModel):
     """用户响应"""
     id: int
@@ -42,6 +36,14 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LoginResponse(BaseModel):
+    """登录响应"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserResponse
 
 
 class RefreshRequest(BaseModel):
