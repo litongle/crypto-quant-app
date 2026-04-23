@@ -107,7 +107,7 @@ class ExchangeAccount(Base):
     )
 
     # 关系
-    user: Mapped["User"] = relationship("User", back_populates="exchange_accounts")
+    user: Mapped["User"] = relationship("User", back_populates="accounts")
     positions: Mapped[list["Position"]] = relationship(
         "Position", back_populates="account", lazy="selectin"
     )
