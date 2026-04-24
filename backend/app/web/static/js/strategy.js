@@ -37,6 +37,30 @@ async function loadStrategyPage() {
     }
   }
 
+  // 加载已连接的交易所账户，动态填充交易所下拉
+  try {
+    const accounts = await api.getAccounts();
+    const exSelect = document.getElementById('new-strategy-exchange');
+    const accountSelect = document.getElementById('new-strategy-account');
+    if (exSelect) {
+      // 收集用户已连接的交易所
+      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
+      const allExchanges = [
+        { value: 'binance', label: 'Binance' },
+        { value: 'okx', label: 'OKX' },
+        { value: 'htx', label: 'HTX' },
+      ];
+      exSelect.innerHTML = allExchanges.map(ex => {
+        const connected = connectedExchanges.includes(ex.value);
+        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '（未连接）'}</option>`;
+      }).join('');
+    }
+    if (accountSelect) {
+      accountSelect.innerHTML = '<option value="">模拟模式（不下单）</option>' +
+        accounts.map(a => `<option value="${a.id}">${a.accountName || a.exchange} (${a.exchange})</option>`).join('');
+    }
+  } catch {}
+
   try {
     const [templates, instances] = await Promise.all([
       api.getStrategyTemplates().catch(() => []),
@@ -97,15 +121,31 @@ function renderInstanceList(instances) {
       ? '<span class="cq-tag cq-tag--warn">已暂停</span>'
       : '<span class="cq-tag cq-tag--neutral">已停止</span>';
 
+    const isLive = inst.isLive || inst.accountId;
+    const modeTag = isLive
+      ? '<span class="cq-tag cq-tag--profit" style="font-size:10px;padding:1px 6px;">实盘</span>'
+      : '<span class="cq-tag cq-tag--neutral" style="font-size:10px;padding:1px 6px;">模拟</span>';
+
+    const exchangeLabel = { binance: 'Binance', okx: 'OKX', htx: 'HTX' }[inst.exchange] || inst.exchange;
+
     return `
     <div class="cq-card" style="margin-bottom:var(--cq-space-3);">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div style="min-width:0;">
-          <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);">
+          <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);flex-wrap:wrap;">
             <span style="font-size:var(--cq-text-md);font-weight:600;color:var(--cq-text-primary);">${inst.name}</span>
             ${statusTag}
+            ${modeTag}
           </div>
-          <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">${inst.templateName} · ${inst.totalTrades} 笔交易</div>
+          <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);display:flex;align-items:center;gap:var(--cq-space-2);flex-wrap:wrap;">
+            <span>${inst.templateName}</span>
+            <span style="color:var(--cq-border-subtle);">·</span>
+            <span>${exchangeLabel}</span>
+            <span style="color:var(--cq-border-subtle);">·</span>
+            <span style="font-family:'JetBrains Mono',monospace;">${inst.symbol || '—'}</span>
+            <span style="color:var(--cq-border-subtle);">·</span>
+            <span>${inst.totalTrades} 笔交易</span>
+          </div>
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:var(--cq-space-4);">
           <div class="cq-num" style="font-size:var(--cq-text-md);font-weight:600;color:${inst.totalPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${inst.totalPnl >= 0 ? '+' : ''}$${inst.totalPnl.toFixed(2)}</div>
@@ -187,6 +227,8 @@ async function createStrategyInstance() {
 
   const exchange = document.getElementById('new-strategy-exchange').value;
   const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
+  const accountEl = document.getElementById('new-strategy-account');
+  const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
 
   const params = {};
   document.querySelectorAll('#param-sliders input[type="range"]').forEach(sl => {
@@ -200,6 +242,7 @@ async function createStrategyInstance() {
       templateId: selectedTemplateId,
       exchange,
       symbol,
+      accountId,
       params,
     });
     showToast('策略创建成功！', 'success');

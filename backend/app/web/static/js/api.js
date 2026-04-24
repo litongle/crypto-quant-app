@@ -142,8 +142,10 @@ class ApiClient {
     return json.data || json;
   }
 
-  async createStrategyInstance({ name, templateId, exchange, symbol, params }) {
-    const json = await this.post('/strategies/instances', { name, templateId, exchange, symbol, params });
+  async createStrategyInstance({ name, templateId, exchange, symbol, accountId, params }) {
+    const body = { name, templateId, exchange, symbol, params };
+    if (accountId) body.accountId = accountId;
+    const json = await this.post('/strategies/instances', body);
     return json.data || json;
   }
 

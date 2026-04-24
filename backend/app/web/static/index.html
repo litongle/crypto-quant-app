@@ -202,6 +202,13 @@
                   <div id="strategy-symbol-selector"></div>
                 </div>
               </div>
+              <div style="margin-bottom:var(--cq-space-3);">
+                <label class="cq-label">交易账户</label>
+                <select class="cq-input" id="new-strategy-account">
+                  <option value="">模拟模式（仅信号，不下单）</option>
+                </select>
+                <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">选择已连接的交易所账户启用实盘自动下单，留空则仅产生模拟信号</div>
+              </div>
               <div id="param-sliders" style="margin-bottom:var(--cq-space-4);"></div>
               <button class="cq-btn cq-btn--primary cq-btn--full" onclick="createStrategyInstance()">创建策略</button>
             </div>
