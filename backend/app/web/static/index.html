@@ -170,12 +170,51 @@
         <h1>策略中心</h1>
         <div class="sub">选择模板、配置参数、创建策略实例</div>
       </div>
-      <!-- 模板选择 + 创建实例（表单在选中模板下方展开） -->
-      <div style="margin-bottom:var(--cq-space-5);">
-        <div class="cq-section-title"><h3>策略模板</h3></div>
-        <div id="template-list"></div>
+      <!-- 模板+创建：左右两栏 -->
+      <div style="display:grid;grid-template-columns:340px 1fr;gap:var(--cq-space-6);align-items:start;margin-bottom:var(--cq-space-5);">
+        <!-- 左侧：模板列表 -->
+        <div>
+          <div class="cq-section-title"><h3>策略模板</h3></div>
+          <div id="template-list"></div>
+        </div>
+        <!-- 右侧：创建实例 -->
+        <div id="create-section" style="display:none;">
+          <div class="cq-card">
+            <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-3);display:flex;align-items:center;gap:var(--cq-space-2);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              创建策略实例
+            </div>
+            <div style="margin-bottom:var(--cq-space-3);">
+              <label class="cq-label">实例名称</label>
+              <input type="text" class="cq-input" id="new-strategy-name" placeholder="我的双均线策略">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
+              <div>
+                <label class="cq-label">交易所</label>
+                <select class="cq-input" id="new-strategy-exchange">
+                  <option value="binance">Binance</option>
+                  <option value="okx">OKX</option>
+                  <option value="htx">HTX</option>
+                </select>
+              </div>
+              <div>
+                <label class="cq-label">交易对</label>
+                <div id="strategy-symbol-selector"></div>
+              </div>
+            </div>
+            <div style="margin-bottom:var(--cq-space-3);">
+              <label class="cq-label">交易账户</label>
+              <select class="cq-input" id="new-strategy-account">
+                <option value="">模拟模式（仅信号，不下单）</option>
+              </select>
+              <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">选择已连接的交易所账户启用实盘自动下单，留空则仅产生模拟信号</div>
+            </div>
+            <div id="param-sliders" style="margin-bottom:var(--cq-space-4);"></div>
+            <button class="cq-btn cq-btn--primary cq-btn--full" onclick="createStrategyInstance()">创建策略</button>
+          </div>
+        </div>
       </div>
-      <!-- 策略实例列表 -->
+      <!-- 策略实例列表：全宽 -->
       <div>
         <div class="cq-section-title"><h3>策略实例</h3></div>
         <div id="instance-list"></div>
