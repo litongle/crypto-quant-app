@@ -5,13 +5,16 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models.user import User
+from app.models.order import Order
 from app.api.deps import get_current_user
 from app.services.strategy_service import StrategyService
 from app.core.schemas import APIResponse
+from app.core.performance import PerformanceCalculator, PerformanceReport
 
 router = APIRouter()
 
@@ -384,3 +387,42 @@ async def delete_strategy(
         return APIResponse(code=3001, message="策略不存在或无权限")
 
     return APIResponse(message="删除成功")
+
+
+@router.get("/instances/{instance_id}/performance")
+async def get_strategy_performance(
+    instance_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> APIResponse:
+    """获取策略绩效报告"""
+    try:
+        if instance_id.startswith("inst_"):
+            inst_id = int(instance_id.replace("inst_", ""))
+        else:
+            inst_id = int(instance_id)
+    except ValueError:
+        return APIResponse(code=3001, message="策略实例ID无效")
+
+    # 查询策略实例
+    service = StrategyService(session)
+    instance = await service.get_instance(inst_id)
+    if not instance or instance.user_id != current_user.id:
+        return APIResponse(code=3001, message="策略不存在或无权限")
+
+    # 查询该策略的所有已成交订单
+    result = await session.execute(
+        select(Order)
+        .where(
+            Order.strategy_instance_id == inst_id,
+            Order.status.in_(["filled", "partial"]),
+        )
+        .order_by(Order.created_at)
+    )
+    orders = result.scalars().all()
+
+    # 计算绩效
+    initial_capital = Decimal(str(instance.params.get("initial_capital", 100000)))
+    report = PerformanceCalculator.from_order_models(orders, initial_capital)
+
+    return APIResponse(data=report.to_dict())

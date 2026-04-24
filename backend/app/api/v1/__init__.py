@@ -1,7 +1,7 @@
 """API v1 Router"""
 from fastapi import APIRouter
 
-from app.api.v1 import auth, strategies, users, market, orders, asset, backtest, setup
+from app.api.v1 import auth, strategies, users, market, orders, asset, backtest, setup, ws_market
 
 api_router = APIRouter()
 
@@ -28,3 +28,6 @@ api_router.include_router(asset.router, prefix="/asset", tags=["资产"])
 
 # 交易/订单
 api_router.include_router(orders.router, prefix="/trading", tags=["交易"])
+
+# WebSocket 行情推送（不走 /api/v1 前缀，直接 /ws/）
+api_router.include_router(ws_market.router, prefix="/ws", tags=["WebSocket"])

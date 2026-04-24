@@ -8,9 +8,21 @@ body { font-family: 'Inter', 'PingFang SC', -apple-system, sans-serif; backgroun
 .login-card h1 { font-size: 28px; font-weight: 800; text-align: center; margin-bottom: 8px; }
 .login-card .subtitle { font-size: 13px; color: #64748b; text-align: center; margin-bottom: 32px; }
 
+/* 移动端顶栏（默认隐藏，小屏显示） */
+.mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #0f1424; border-bottom: 1px solid #1e293b; z-index: 60; align-items: center; padding: 0 16px; }
+.mobile-header .hamburger { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px; transition: background 0.2s; }
+.mobile-header .hamburger:hover { background: rgba(34,211,238,0.1); }
+.mobile-header .hamburger svg { width: 22px; height: 22px; stroke: #94a3b8; fill: none; stroke-width: 2; stroke-linecap: round; }
+.mobile-header .mobile-logo { font-size: 16px; font-weight: 800; color: #22d3ee; margin-left: 12px; }
+.mobile-header .mobile-user { margin-left: auto; font-size: 13px; font-weight: 600; color: #e2e8f0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 侧栏遮罩 */
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 45; transition: opacity 0.3s; }
+.sidebar-overlay.active { display: block; }
+
 /* 主布局 */
 .app-layout { display: flex; min-height: 100vh; }
-.sidebar { width: 220px; background: #0f1424; border-right: 1px solid #1e293b; padding: 24px 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 50; }
+.sidebar { width: 220px; background: #0f1424; border-right: 1px solid #1e293b; padding: 24px 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 50; transition: transform 0.3s ease; }
 .sidebar .logo { padding: 0 20px 24px; border-bottom: 1px solid #1e293b; margin-bottom: 8px; }
 .sidebar .logo h2 { font-size: 18px; font-weight: 800; color: #22d3ee; }
 .sidebar .logo span { font-size: 11px; color: #475569; }
@@ -62,9 +74,10 @@ body { font-family: 'Inter', 'PingFang SC', -apple-system, sans-serif; backgroun
 .stat-card .stat-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
 
 /* 表格 */
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th { text-align: left; font-size: 11px; color: #64748b; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #1f2937; }
-.data-table td { font-size: 13px; padding: 12px; border-bottom: 1px solid #1f2937; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+.data-table th { text-align: left; font-size: 11px; color: #64748b; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #1f2937; white-space: nowrap; }
+.data-table td { font-size: 13px; padding: 12px; border-bottom: 1px solid #1f2937; white-space: nowrap; }
 .data-table tr:hover td { background: rgba(34,211,238,0.03); }
 
 /* 策略卡片 */
@@ -91,7 +104,7 @@ body { font-family: 'Inter', 'PingFang SC', -apple-system, sans-serif; backgroun
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(1.4); } }
 
 /* Toast */
-.toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-10px); background: #1f2937; border: 1px solid #374151; padding: 12px 24px; border-radius: 12px; font-size: 13px; font-weight: 600; z-index: 1000; opacity: 0; transition: all 0.3s; white-space: nowrap; pointer-events: none; }
+.toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-10px); background: #1f2937; border: 1px solid #374151; padding: 12px 24px; border-radius: 12px; font-size: 13px; font-weight: 600; z-index: 1000; opacity: 0; transition: all 0.3s; white-space: nowrap; pointer-events: none; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Loading */
@@ -102,10 +115,97 @@ body { font-family: 'Inter', 'PingFang SC', -apple-system, sans-serif; backgroun
 .page-view { display: none; }
 .page-view.active { display: block; animation: fadeIn 0.3s ease; }
 
-/* 响应式 */
+/* ========== 响应式 ========== */
+
+/* 大屏平板 / 小桌面 (≤1200px) */
+@media (max-width: 1200px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 平板 (≤1024px) */
+@media (max-width: 1024px) {
+  .main-content { padding: 20px 24px; }
+  .stat-card .stat-value { font-size: 20px; }
+  /* 回测页：配置和结果上下排列 */
+  .backtest-layout { grid-template-columns: 1fr !important; }
+  .backtest-layout .backtest-config { max-width: 100%; }
+}
+
+/* 小平板 / 大手机 (≤768px) */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
-  .main-content { margin-left: 0; padding: 16px; }
-  .grid-4 { grid-template-columns: 1fr 1fr; }
-  .grid-3 { grid-template-columns: 1fr; }
+  /* 移动端顶栏显示 */
+  .mobile-header { display: flex; }
+
+  /* 侧栏改为抽屉 */
+  .sidebar { transform: translateX(-100%); width: 260px; }
+  .sidebar.open { transform: translateX(0); }
+
+  /* 内容区全宽 */
+  .main-content { margin-left: 0; padding: 72px 16px 24px; }
+
+  /* 网格降级 */
+  .grid-4 { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .grid-3 { grid-template-columns: 1fr; gap: 12px; }
+  .grid-2 { grid-template-columns: 1fr; gap: 12px; }
+
+  /* 统计卡片字号 */
+  .stat-card .stat-value { font-size: 18px; }
+  .stat-card .stat-label { font-size: 10px; }
+
+  /* 策略页两列变单列 */
+  .strategy-layout { grid-template-columns: 1fr !important; }
+
+  /* 页面标题 */
+  .page-header h1 { font-size: 20px; }
+  .page-header .sub { font-size: 12px; }
+
+  /* 按钮尺寸调整 */
+  .btn-primary { padding: 10px 18px; font-size: 13px; border-radius: 10px; }
+  .btn-danger { padding: 10px 18px; font-size: 13px; border-radius: 10px; }
+
+  /* 卡片内边距 */
+  .card { padding: 16px; border-radius: 12px; }
+
+  /* 登录卡 */
+  .login-card { padding: 32px 24px; }
+  .login-card h1 { font-size: 24px; }
+}
+
+/* 手机 (≤480px) */
+@media (max-width: 480px) {
+  .mobile-header { height: 50px; padding: 0 12px; }
+  .mobile-header .mobile-logo { font-size: 14px; }
+
+  .main-content { padding: 62px 12px 20px; }
+
+  /* 统计卡片单列 */
+  .grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card .stat-value { font-size: 16px; }
+  .stat-card .stat-label { font-size: 10px; }
+
+  /* 卡片更紧凑 */
+  .card { padding: 14px; border-radius: 10px; }
+
+  /* 表格字号更小 */
+  .data-table th { font-size: 10px; padding: 8px 6px; }
+  .data-table td { font-size: 12px; padding: 8px 6px; }
+
+  /* 策略卡片间距 */
+  .strategy-card { gap: 10px; }
+  .strategy-icon { width: 40px; height: 40px; font-size: 20px; }
+
+  /* 按钮全宽 */
+  .btn-primary, .btn-danger { width: 100%; }
+
+  /* 登录卡更紧凑 */
+  .login-card { padding: 28px 20px; border-radius: 16px; }
+  .login-card h1 { font-size: 22px; }
+
+  /* Toast */
+  .toast { font-size: 12px; padding: 10px 16px; max-width: 85vw; }
+
+  /* 账户卡片在小屏堆叠 */
+  .account-card-inner { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+  .account-card-actions { width: 100%; display: flex; justify-content: space-between; align-items: center; }
 }

@@ -26,8 +26,36 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment)
     if settings.setup_required:
         logger.info("⚠️ 首次运行，请访问 /web/setup 完成安装向导")
+
+    # 启动 WebSocket 行情代理
+    try:
+        from app.api.v1.ws_market import init_ws_proxies
+        await init_ws_proxies()
+    except Exception as exc:
+        logger.warning("WebSocket 代理初始化失败（不影响 REST API）: %s", exc)
+
+    # 启动策略运行器
+    try:
+        from app.core.strategy_runner import strategy_runner
+        from app.database import get_session_maker
+        session_maker = await get_session_maker()
+        await strategy_runner.start(session_maker)
+    except Exception as exc:
+        logger.warning("策略运行器初始化失败: %s", exc)
+
     yield
+
     # 关闭时清理
+    try:
+        from app.api.v1.ws_market import cleanup_ws_proxies
+        await cleanup_ws_proxies()
+    except Exception:
+        pass
+    try:
+        from app.core.strategy_runner import strategy_runner
+        await strategy_runner.stop()
+    except Exception:
+        pass
     from app.redis import close_redis
     await close_redis()
     from app.database import reset_database

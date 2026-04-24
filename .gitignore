@@ -58,4 +58,7 @@ logs/
 
 # WorkBuddy internal
 .workbuddy/
+
+# Screenshots (testing artifacts)
+screenshot-*.png
 dashboard-screenshot.png

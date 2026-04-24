@@ -77,6 +77,14 @@ class ExchangeAccount(Base):
     permissions: Mapped[str] = mapped_column(
         String(50), default="read,trade", comment="API权限: read,trade,withdraw"
     )
+
+    # 环境标识（明确区分模拟盘/测试网 vs 真实盘）
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="OKX模拟盘标记(x-simulated-trading)"
+    )
+    is_testnet: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="Binance测试网标记"
+    )
     
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

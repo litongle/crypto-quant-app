@@ -136,7 +136,17 @@ class StrategyService:
                 detail="策略已在运行",
             )
 
-        return await self.instance_repo.update(instance_id, status="running")
+        instance = await self.instance_repo.update(instance_id, status="running")
+
+        # 启动策略运行器
+        try:
+            from app.core.strategy_runner import strategy_runner
+            await strategy_runner.start_instance(instance_id)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("启动策略运行器失败: %s", exc)
+
+        return instance
 
     async def stop_instance(self, instance_id: int, user_id: int) -> StrategyInstance | None:
         """停止策略"""
@@ -157,7 +167,15 @@ class StrategyService:
                 detail="策略未在运行",
             )
 
-        return await self.instance_repo.update(instance_id, status="paused")
+        # 先停止策略运行器
+        try:
+            from app.core.strategy_runner import strategy_runner
+            await strategy_runner.stop_instance(instance_id)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("停止策略运行器失败: %s", exc)
+
+        return await self.instance_repo.update(instance_id, status="stopped")
 
     async def delete_instance(self, instance_id: int, user_id: int) -> bool:
         """删除策略实例"""

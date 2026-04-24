@@ -1,6 +1,6 @@
 # 币钱袋 - 代码规范 & 审查标准
 
-> v1.0 | 2026-04-21 | 整合自：CODE_REVIEW_PROCESS.md + CODE_STANDARDS.md + ARCHITECTURE_REVIEW.md
+> v1.1 | 2026-04-24 | 整合自：CODE_REVIEW_PROCESS.md + CODE_STANDARDS.md + ARCHITECTURE_REVIEW.md
 
 ---
 
@@ -37,6 +37,24 @@
 | 金融计算使用 Decimal，禁止 float | P0 |
 | Model 字段与 Service 层访问一致 | P1 |
 | 回测禁止用随机数伪造指标 | P1 |
+
+### 交易所适配器（ARC-EX）
+
+| 检查项 | 等级 |
+|--------|------|
+| 重试+限流：指数退避（1→2→4s），下单不重试，查询3次 | P1 |
+| 异常细分：RateLimitError / NetworkError / OrderRejectedError | P1 |
+| 安全 Decimal：`_safe_decimal()` / `_safe_divide()` 防数值异常 | P0 |
+| httpx.AsyncClient 单例复用（类级别 `_shared_client`） | P1 |
+
+### 策略引擎（ARC-STRAT）
+
+| 检查项 | 等级 |
+|--------|------|
+| 策略实现继承 BaseStrategy，必须实现 analyze() | P1 |
+| Signal 数据结构完整（action/confidence/entry/stop_loss/take_profit/reason） | P1 |
+| StrategyRunner 60s 防抖避免重复信号 | P2 |
+| 金融计算使用 Decimal，禁止 float | P0 |
 | 交易所 API 字段映射已验证 | P1 |
 
 ### 架构（ARC）
@@ -185,13 +203,16 @@ fix(strategy): 修复 MA 策略计算错误
 
 ## 六、已知技术债务
 
-| 优先级 | 问题 | 位置 |
-|--------|------|------|
-| 🔴 P0 | 零测试覆盖率 | 全项目 |
-| 🟠 P1 | 安装向导未处理 Redis 不可用情况 | setup.py |
-| 🟠 P1 | 回测使用模拟价格数据（非真实 K 线） | backtest.py |
-| 🟠 P1 | 交易所适配器 order/balance 接口未实现 | exchange_adapter.py |
-| 🟡 P2 | 移动端 23/33 端点未对接 | mobile/services |
+| 优先级 | 问题 | 位置 | 状态 |
+|--------|------|------|------|
+| 🔴 P0 | 零测试覆盖率 | 全项目 | ❌ 未解决 |
+| ~~🟠 P1~~ | ~~安装向导未处理 Redis 不可用情况~~ | ~~setup.py~~ | ✅ 已处理 |
+| ~~🟠 P1~~ | ~~回测使用模拟价格数据（非真实 K 线）~~ | ~~backtest.py~~ | ✅ 已用 Binance 真实 K 线 |
+| ~~🟠 P1~~ | ~~交易所适配器 order/balance 接口未实现~~ | ~~exchange_adapter.py~~ | ✅ 三大交易所(Binance/OKX/Huobi)已实现 |
+| 🟡 P2 | 移动端 23/33 端点未对接 | mobile/services | ❌ 未解决 |
+| 🟠 P1 | 自动下单未实现（StrategyRunner→OrderService） | strategy_runner.py | ❌ 需 exchange_account 关联 |
+| 🟠 P1 | 数据库迁移缺少工具 | 全项目 | ❌ 需 Alembic |
+| 🟡 P2 | Web 控制台测试覆盖 | backend/app/web | ❌ 未解决 |
 
 ---
 
@@ -208,3 +229,4 @@ fix(strategy): 修复 MA 策略计算错误
 
 ---
 *本文档整合自：CODE_REVIEW_PROCESS.md、CODE_STANDARDS.md、ARCHITECTURE_REVIEW.md*
+*最后更新：2026-04-24（技术债务清单更新 + 交易所/策略引擎审查标准新增）*

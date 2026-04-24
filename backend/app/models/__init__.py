@@ -3,6 +3,7 @@ from app.models.user import User
 from app.models.strategy import StrategyTemplate, StrategyInstance
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
+from app.models.backtest import BacktestResult
 
 __all__ = [
     # 用户
@@ -16,4 +17,6 @@ __all__ = [
     # 订单与信号
     "Order",
     "Signal",
+    # 回测结果
+    "BacktestResult",
 ]

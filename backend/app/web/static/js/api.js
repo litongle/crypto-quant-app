@@ -168,13 +168,33 @@ class ApiClient {
   }
 
   async getBacktestResults(backtestId) {
-    const json = await this.get(`/backtest/results/${backtestId}`);
+    const json = await this.get(`/backtest/${backtestId}`);
     return json.data || json;
+  }
+
+  async getBacktestHistory(limit = 20) {
+    const json = await this.get(`/backtest/history?limit=${limit}`);
+    return json.data || [];
   }
 
   async getMarketData() {
     const json = await this.get('/market/overview');
     return json.data || json;
+  }
+
+  // ===== 交易所账户管理 =====
+  async getExchangeAccounts() {
+    const json = await this.get('/trading/accounts');
+    return json.data || json || [];
+  }
+
+  async createExchangeAccount(data) {
+    const json = await this.post('/trading/accounts', data);
+    return json.data || json;
+  }
+
+  async deleteExchangeAccount(accountId) {
+    return this.del(`/trading/accounts/${accountId}`);
   }
 
   async getUserInfo() {

@@ -1,6 +1,7 @@
 """
 订单服务
 """
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
@@ -8,7 +9,13 @@ from typing import Literal
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException
+from app.core.exceptions import (
+    AppException,
+    ExchangeAPIError,
+    NetworkError,
+    OrderRejectedError,
+    RateLimitError,
+)
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order
 from app.models.strategy import StrategyInstance
@@ -18,6 +25,8 @@ from app.repositories.trading_repo import (
     OrderRepository,
 )
 from app.repositories.strategy_repo import StrategyInstanceRepository
+
+logger = logging.getLogger(__name__)
 
 
 class OrderService:
@@ -118,6 +127,15 @@ class OrderService:
                 api_key=account.get_api_key(),
                 secret_key=account.get_secret_key(),
                 passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                testnet=account.is_testnet,
+                is_demo=account.is_demo,
+            )
+
+            logger.info(
+                "[OrderService] 提交订单: order_id=%d, symbol=%s, side=%s, "
+                "exchange=%s, demo=%s, testnet=%s",
+                order_id, order.symbol, order.side,
+                account.exchange, account.is_demo, account.is_testnet,
             )
 
             result = await adapter.create_order(
@@ -143,9 +161,69 @@ class OrderService:
             if result.status == "filled":
                 order.filled_at = datetime.now(timezone.utc)
 
+            logger.info(
+                "[OrderService] 订单提交成功: order_id=%d, exchange_order_id=%s, status=%s",
+                order_id, result.exchange_order_id, result.status,
+            )
+
             await self.session.commit()
             await self.session.refresh(order)
             return order
+
+        except OrderRejectedError as exc:
+            # 交易所明确拒绝（余额不足/风控/参数错误）→ 标记 rejected
+            order.status = "rejected"
+            order.error_message = f"订单被拒: {exc.message}"
+            await self.session.commit()
+            await self.session.refresh(order)
+            logger.warning(
+                "[OrderService] 订单被拒: order_id=%d, exchange=%s, code=%s, msg=%s",
+                order_id, exc.exchange, exc.detail_code, exc.message,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"订单被交易所拒绝: {exc.message}",
+            )
+
+        except RateLimitError as exc:
+            # 限流 → 不改状态，让前端可重试
+            logger.warning(
+                "[OrderService] 交易所限流: order_id=%d, exchange=%s",
+                order_id, exc.exchange,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"交易所请求频率超限，请稍后重试",
+            )
+
+        except NetworkError as exc:
+            # 网络异常 → 标记 pending（可能已提交但未确认）
+            order.error_message = f"网络异常: {exc.message}"
+            await self.session.commit()
+            await self.session.refresh(order)
+            logger.error(
+                "[OrderService] 网络异常: order_id=%d, exchange=%s, msg=%s",
+                order_id, exc.exchange, exc.message,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"交易所网络异常，请检查订单状态: {exc.message}",
+            )
+
+        except ExchangeAPIError as exc:
+            # 其他交易所错误 → 标记 rejected
+            order.status = "rejected"
+            order.error_message = f"交易所错误: {exc.message}"
+            await self.session.commit()
+            await self.session.refresh(order)
+            logger.error(
+                "[OrderService] 交易所API错误: order_id=%d, exchange=%s, code=%s, retryable=%s",
+                order_id, exc.exchange, exc.detail_code, exc.retryable,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"交易所下单失败: {exc.message}",
+            )
 
         except AppException:
             raise
@@ -154,6 +232,9 @@ class OrderService:
             order.error_message = f"下单失败: {str(e)}"
             await self.session.commit()
             await self.session.refresh(order)
+            logger.exception(
+                "[OrderService] 下单未知异常: order_id=%d", order_id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"交易所下单失败: {str(e)}",
@@ -191,13 +272,49 @@ class OrderService:
                     api_key=account.get_api_key(),
                     secret_key=account.get_secret_key(),
                     passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                    testnet=account.is_testnet,
+                    is_demo=account.is_demo,
                 )
+
+                logger.info(
+                    "[OrderService] 撤单: order_id=%d, exchange_order_id=%s, symbol=%s",
+                    order_id, order.exchange_order_id, order.symbol,
+                )
+
                 success = await adapter.cancel_order(order.exchange_order_id, order.symbol)
                 if not success:
+                    logger.warning(
+                        "[OrderService] 撤单未成功: order_id=%d, exchange_order_id=%s",
+                        order_id, order.exchange_order_id,
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail="交易所撤单失败",
                     )
+            except OrderRejectedError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"撤单被拒: {exc.message}",
+                )
+            except RateLimitError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="交易所请求频率超限，请稍后重试",
+                )
+            except NetworkError as exc:
+                logger.error(
+                    "[OrderService] 撤单网络异常: order_id=%d, msg=%s",
+                    order_id, exc.message,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"交易所网络异常: {exc.message}",
+                )
+            except ExchangeAPIError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"交易所撤单失败: {exc.message}",
+                )
             except AppException:
                 raise
             except Exception as e:

@@ -106,8 +106,65 @@ class OrderError(AppException):
 
 
 class ExchangeAPIError(OrderError):
-    """交易所 API 错误"""
+    """交易所 API 错误
 
-    def __init__(self, exchange: str, message: str):
+    Attributes:
+        exchange: 交易所名称
+        retryable: 是否可重试（429限流、网络超时等）
+        status_code: HTTP 状态码（如果有）
+        detail_code: 交易所错误码（如果有）
+    """
+
+    def __init__(
+        self,
+        exchange: str,
+        message: str,
+        retryable: bool = False,
+        status_code: int | None = None,
+        detail_code: str | None = None,
+    ):
         super().__init__(f"{exchange}: {message}", exchange=exchange)
         self.code = "EXCHANGE_API_ERROR"
+        self.retryable = retryable
+        self.status_code = status_code
+        self.detail_code = detail_code
+
+
+class RateLimitError(ExchangeAPIError):
+    """交易所限流错误（429）— 可重试"""
+
+    def __init__(self, exchange: str, message: str = "请求频率超限"):
+        super().__init__(
+            exchange, message,
+            retryable=True,
+            status_code=429,
+        )
+        self.code = "RATE_LIMIT_ERROR"
+
+
+class NetworkError(ExchangeAPIError):
+    """网络连接错误（超时/DNS/连接重置）— 可重试"""
+
+    def __init__(self, exchange: str, message: str = "网络连接异常"):
+        super().__init__(
+            exchange, message,
+            retryable=True,
+        )
+        self.code = "NETWORK_ERROR"
+
+
+class OrderRejectedError(ExchangeAPIError):
+    """订单被交易所拒绝（余额不足/风控/参数错误）— 不可重试"""
+
+    def __init__(
+        self,
+        exchange: str,
+        message: str,
+        detail_code: str | None = None,
+    ):
+        super().__init__(
+            exchange, message,
+            retryable=False,
+            detail_code=detail_code,
+        )
+        self.code = "ORDER_REJECTED"

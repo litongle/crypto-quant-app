@@ -2,13 +2,19 @@
  * 回测页面逻辑
  */
 async function loadBacktestPage() {
-  const container = document.getElementById('backtest-content');
   // 加载策略模板供选择
   try {
     const templates = await api.getStrategyTemplates();
     renderBacktestTemplateSelect(templates);
   } catch {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
+  }
+  // 加载回测历史
+  try {
+    const history = await api.getBacktestHistory(10);
+    renderBacktestHistory(history);
+  } catch {
+    // 静默失败
   }
 }
 
@@ -168,3 +174,73 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+/**
+ * 渲染回测历史列表
+ */
+function renderBacktestHistory(history) {
+  if (!history || history.length === 0) return;
+
+  // 在回测结果区域下方添加历史记录
+  const resultsEl = document.getElementById('backtest-results');
+  const parentEl = resultsEl.parentElement;
+
+  // 检查是否已有历史区域
+  let historyEl = document.getElementById('backtest-history');
+  if (!historyEl) {
+    historyEl = document.createElement('div');
+    historyEl.id = 'backtest-history';
+    historyEl.style.cssText = 'grid-column:1/-1;margin-top:16px;';
+    parentEl.appendChild(historyEl);
+  }
+
+  historyEl.innerHTML = `
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:#e2e8f0;">📋 最近回测记录</div>
+      <div class="table-wrap">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
+        <thead>
+          <tr style="border-bottom:1px solid #1f2937;">
+            <th style="text-align:left;padding:8px 4px;color:#64748b;">策略</th>
+            <th style="text-align:left;padding:8px 4px;color:#64748b;">交易对</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">收益率</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">夏普</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">回撤</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">胜率</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">交易数</th>
+            <th style="text-align:right;padding:8px 4px;color:#64748b;">时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${history.map(h => `
+            <tr style="border-bottom:1px solid #111827;cursor:pointer;" onclick="viewBacktestDetail(${h.id})"
+                onmouseenter="this.style.background='#111827'" onmouseleave="this.style.background=''">
+              <td style="padding:8px 4px;color:#e2e8f0;">${h.templateId}</td>
+              <td style="padding:8px 4px;color:#94a3b8;">${h.symbol}</td>
+              <td style="padding:8px 4px;text-align:right;color:${h.totalReturnPercent >= 0 ? '#22c55e' : '#ef4444'};">${h.totalReturnPercent >= 0 ? '+' : ''}${h.totalReturnPercent.toFixed(2)}%</td>
+              <td style="padding:8px 4px;text-align:right;color:#22d3ee;">${h.sharpeRatio.toFixed(2)}</td>
+              <td style="padding:8px 4px;text-align:right;color:#ef4444;">${h.maxDrawdown.toFixed(2)}%</td>
+              <td style="padding:8px 4px;text-align:right;color:#22c55e;">${h.winRate.toFixed(1)}%</td>
+              <td style="padding:8px 4px;text-align:right;color:#94a3b8;">${h.totalTrades}</td>
+              <td style="padding:8px 4px;text-align:right;color:#64748b;">${h.createdAt ? h.createdAt.substring(0, 10) : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 查看回测详情
+ */
+async function viewBacktestDetail(id) {
+  try {
+    const result = await api.getBacktestResults(id);
+    renderBacktestResults(result);
+    document.getElementById('backtest-results').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    showToast('❌ 加载回测详情失败');
+  }
+}

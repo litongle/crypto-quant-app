@@ -296,6 +296,162 @@ class GridStrategy(BaseStrategy):
         return None
 
 
+class MartingaleStrategy(BaseStrategy):
+    """马丁格尔策略
+
+    核心逻辑：
+    - 亏损后加倍下单（multiplier 倍），期望一次翻本
+    - 盈利后回归初始仓位
+    - 连续亏损次数达到 max_losses 后停止，防止爆仓
+    - 止损：当前价格低于入场价 stop_loss_percent% 时触发
+    - 止盈：当前价格高于入场价 take_profit_percent% 时触发
+
+    风险极高，适合资金量大的用户
+    """
+
+    name = "马丁格尔策略"
+    strategy_type = "martingale"
+
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self.consecutive_losses = 0
+        self.current_multiplier = Decimal("1.0")
+        self.last_entry_price: Decimal | None = None
+        self.last_side: str | None = None
+
+    async def analyze(self, klines: list[dict]) -> Signal | None:
+        """马丁格尔分析"""
+        if len(klines) < 20:
+            return None
+
+        initial_investment = Decimal(str(self.config.params.get("initial_investment", 100)))
+        multiplier = Decimal(str(self.config.params.get("multiplier", 2.0)))
+        max_losses = self.config.params.get("max_losses", 5)
+        stop_loss_percent = Decimal(str(self.config.risk_params.get("stop_loss_percent", 5.0)))
+        take_profit_percent = Decimal(str(self.config.risk_params.get("take_profit_percent", 3.0)))
+
+        closes = np.array([float(k["close"]) for k in klines])
+        current_price = Decimal(str(closes[-1]))
+
+        # 如果有持仓，检查止损止盈
+        if self.last_entry_price and self.last_side:
+            if self.last_side == "long":
+                pnl_pct = (current_price - self.last_entry_price) / self.last_entry_price * 100
+                if pnl_pct <= -stop_loss_percent:
+                    # 止损 → 记录亏损，下次加倍
+                    self.consecutive_losses += 1
+                    self.current_multiplier *= multiplier
+                    self.last_entry_price = None
+                    self.last_side = None
+                    if self.consecutive_losses >= max_losses:
+                        return None  # 达到最大连续亏损，暂停
+                    # 止损后立即反手或继续同方向
+                    return Signal(
+                        action="sell",
+                        confidence=0.5,
+                        entry_price=current_price,
+                        stop_loss_price=current_price * (1 - stop_loss_percent / 100),
+                        take_profit_price=current_price * (1 + take_profit_percent / 100),
+                        reason=f"马丁格尔止损，连续亏损 {self.consecutive_losses} 次",
+                        timestamp=datetime.utcnow(),
+                    )
+                elif pnl_pct >= take_profit_percent:
+                    # 止盈 → 重置倍数
+                    self.consecutive_losses = 0
+                    self.current_multiplier = Decimal("1.0")
+                    self.last_entry_price = None
+                    self.last_side = None
+                    return Signal(
+                        action="sell",
+                        confidence=0.7,
+                        entry_price=current_price,
+                        stop_loss_price=current_price * (1 - stop_loss_percent / 100),
+                        take_profit_price=current_price * (1 + take_profit_percent / 100),
+                        reason="马丁格尔止盈，重置仓位",
+                        timestamp=datetime.utcnow(),
+                    )
+            elif self.last_side == "short":
+                pnl_pct = (self.last_entry_price - current_price) / self.last_entry_price * 100
+                if pnl_pct <= -stop_loss_percent:
+                    self.consecutive_losses += 1
+                    self.current_multiplier *= multiplier
+                    self.last_entry_price = None
+                    self.last_side = None
+                    if self.consecutive_losses >= max_losses:
+                        return None
+                    return Signal(
+                        action="buy",
+                        confidence=0.5,
+                        entry_price=current_price,
+                        stop_loss_price=current_price * (1 + stop_loss_percent / 100),
+                        take_profit_price=current_price * (1 - take_profit_percent / 100),
+                        reason=f"马丁格尔止损，连续亏损 {self.consecutive_losses} 次",
+                        timestamp=datetime.utcnow(),
+                    )
+                elif pnl_pct >= take_profit_percent:
+                    self.consecutive_losses = 0
+                    self.current_multiplier = Decimal("1.0")
+                    self.last_entry_price = None
+                    self.last_side = None
+                    return Signal(
+                        action="buy",
+                        confidence=0.7,
+                        entry_price=current_price,
+                        stop_loss_price=current_price * (1 + stop_loss_percent / 100),
+                        take_profit_price=current_price * (1 - take_profit_percent / 100),
+                        reason="马丁格尔止盈，重置仓位",
+                        timestamp=datetime.utcnow(),
+                    )
+
+        # 没有持仓 → 寻找入场点
+        # 使用短期均线判断趋势方向
+        sma5 = self._sma(closes[-20:], 5)
+        sma10 = self._sma(closes[-20:], 10)
+
+        if len(sma5) < 2 or len(sma10) < 2:
+            return None
+
+        # 达到最大连续亏损 → 暂停
+        if self.consecutive_losses >= max_losses:
+            return None
+
+        investment = initial_investment * self.current_multiplier
+
+        # 短期均线上穿长期均线 → 做多
+        if sma5[-2] <= sma10[-2] and sma5[-1] > sma10[-1]:
+            if self.config.direction in ["long", "both"]:
+                signal = Signal(
+                    action="buy",
+                    confidence=max(0.3, 0.7 - self.consecutive_losses * 0.1),
+                    entry_price=current_price,
+                    stop_loss_price=current_price * (1 - stop_loss_percent / 100),
+                    take_profit_price=current_price * (1 + take_profit_percent / 100),
+                    reason=f"马丁格尔做多 (x{self.current_multiplier}, 连亏{self.consecutive_losses})",
+                    timestamp=datetime.utcnow(),
+                )
+                self.last_entry_price = current_price
+                self.last_side = "long"
+                return signal
+
+        # 短期均线下穿长期均线 → 做空
+        if sma5[-2] >= sma10[-2] and sma5[-1] < sma10[-1]:
+            if self.config.direction in ["short", "both"]:
+                signal = Signal(
+                    action="sell",
+                    confidence=max(0.3, 0.7 - self.consecutive_losses * 0.1),
+                    entry_price=current_price,
+                    stop_loss_price=current_price * (1 + stop_loss_percent / 100),
+                    take_profit_price=current_price * (1 - take_profit_percent / 100),
+                    reason=f"马丁格尔做空 (x{self.current_multiplier}, 连亏{self.consecutive_losses})",
+                    timestamp=datetime.utcnow(),
+                )
+                self.last_entry_price = current_price
+                self.last_side = "short"
+                return signal
+
+        return None
+
+
 class StrategyFactory:
     """策略工厂（回测服务用）"""
 
@@ -305,6 +461,7 @@ class StrategyFactory:
             "rsi": RSIStrategy,
             "bollinger": BollingerStrategy,
             "grid": GridStrategy,
+            "martingale": MartingaleStrategy,
         }
 
     def create_strategy(self, template_id: str, params: dict | None = None) -> BaseStrategy | None:
@@ -331,6 +488,7 @@ def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
         "rsi": RSIStrategy,
         "bollinger": BollingerStrategy,
         "grid": GridStrategy,
+        "martingale": MartingaleStrategy,
     }
     strategy_class = strategies.get(strategy_type.lower())
     if not strategy_class:

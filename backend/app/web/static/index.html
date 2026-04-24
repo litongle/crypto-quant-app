@@ -58,8 +58,20 @@
 
 <!-- ===== 主应用 ===== -->
 <div id="app-page" class="app-layout" style="display:none;">
+  <!-- 移动端顶栏 -->
+  <header class="mobile-header">
+    <div class="hamburger" onclick="toggleSidebar()">
+      <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </div>
+    <div class="mobile-logo">💎 币钱袋</div>
+    <div class="mobile-user" id="mobile-user-name">--</div>
+  </header>
+
+  <!-- 侧栏遮罩 -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
   <!-- 侧栏 -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="logo">
       <h2>💎 币钱袋</h2>
       <span>量化交易控制台 v1.0</span>
@@ -73,6 +85,9 @@
       </div>
       <div class="nav-link" onclick="navigate('backtest')" data-page="backtest">
         <span class="nav-emoji">📈</span> 回测
+      </div>
+      <div class="nav-link" onclick="navigate('accounts')" data-page="accounts">
+        <span class="nav-emoji">🔐</span> 交易所账户
       </div>
     </nav>
     <div class="user-section">
@@ -117,7 +132,7 @@
         <h1>📊 策略中心</h1>
         <div class="sub">选择模板、配置参数、创建策略实例</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+      <div class="strategy-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
         <!-- 左侧：模板列表 -->
         <div>
           <div style="font-size:13px;font-weight:700;margin-bottom:10px;">策略模板</div>
@@ -163,9 +178,9 @@
         <h1>📈 策略回测</h1>
         <div class="sub">验证策略在历史数据上的表现</div>
       </div>
-      <div style="display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start;">
+      <div class="backtest-layout" style="display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start;">
         <!-- 左侧：配置 -->
-        <div class="card">
+        <div class="card backtest-config">
           <div style="font-size:13px;font-weight:700;margin-bottom:14px;">📋 回测参数</div>
           <div style="margin-bottom:12px;">
             <div style="font-size:11px;color:#64748b;margin-bottom:4px;">策略模板</div>
@@ -204,6 +219,17 @@
       </div>
     </div>
 
+    <!-- ===== 交易所账户页 ===== -->
+    <div class="page-view" id="page-accounts">
+      <div class="page-header">
+        <h1>🔐 交易所账户</h1>
+        <div class="sub">管理你的交易所 API 账户</div>
+      </div>
+      <div id="accounts-content">
+        <!-- 动态渲染 -->
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -215,7 +241,18 @@
 <script src="/web/static/js/dashboard.js"></script>
 <script src="/web/static/js/strategy.js"></script>
 <script src="/web/static/js/backtest.js"></script>
+<script src="/web/static/js/accounts.js"></script>
 <script>
+// ===== 侧栏切换（移动端） =====
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('active');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
+}
+
 // ===== 全局导航 =====
 function navigate(page) {
   document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
@@ -226,10 +263,14 @@ function navigate(page) {
   if (pageEl) pageEl.classList.add('active');
   if (navEl) navEl.classList.add('active');
 
+  // 移动端关闭侧栏
+  closeSidebar();
+
   // 按需加载页面数据
   if (page === 'dashboard') loadDashboard();
   else if (page === 'strategy') loadStrategyPage();
   else if (page === 'backtest') loadBacktestPage();
+  else if (page === 'accounts') loadAccountsPage();
 }
 
 // ===== 登录/注册 =====
@@ -300,6 +341,7 @@ async function enterApp() {
     const user = await api.getUserInfo();
     document.getElementById('user-name').textContent = user.name || '--';
     document.getElementById('user-email').textContent = user.email || '--';
+    document.getElementById('mobile-user-name').textContent = user.name || '--';
   } catch {}
 
   // 默认加载 Dashboard

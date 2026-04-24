@@ -2,27 +2,43 @@
  * Dashboard 页面逻辑
  */
 async function loadDashboard() {
-  const container = document.getElementById('dashboard-content');
-  container.innerHTML = '<div class="skeleton" style="height:200px;margin-bottom:16px;"></div><div class="grid-4"><div class="skeleton" style="height:80px;"></div><div class="skeleton" style="height:80px;"></div><div class="skeleton" style="height:80px;"></div><div class="skeleton" style="height:80px;"></div></div>';
+  // 加载数据
+  const [summary, positions, equity] = await Promise.all([
+    api.getAssetSummary().catch(() => null),
+    api.getPositions().catch(() => null),
+    api.getEquityCurve(30).catch(() => null),
+  ]);
 
-  try {
-    const [summary, positions, equity] = await Promise.all([
-      api.getAssetSummary().catch(() => null),
-      api.getPositions().catch(() => []),
-      api.getEquityCurve(30).catch(() => null),
-    ]);
-
-    renderAssetSummary(summary);
-    renderPositionTable(positions);
-    if (equity) renderEquityCurveChart(equity);
-  } catch (err) {
-    container.innerHTML = `<div class="card" style="text-align:center;padding:40px;"><div style="font-size:36px;margin-bottom:12px;">📡</div><div style="font-size:15px;font-weight:600;margin-bottom:8px;">数据加载失败</div><div style="font-size:13px;color:#64748b;">${err.message}</div><button class="btn-secondary" style="margin-top:16px;" onclick="loadDashboard()">重试</button></div>`;
+  renderAssetSummary(summary);
+  renderPositionTable(positions);
+  if (equity && equity.points && equity.points.length > 0) {
+    renderEquityCurveChart(equity);
+  } else {
+    // 无权益数据时显示空状态
+    const chartEl = document.getElementById('equityChart');
+    if (chartEl) {
+      chartEl.parentElement.innerHTML = '<div class="card" style="text-align:center;padding:40px;color:#475569;font-size:13px;">暂无权益曲线数据</div>';
+    }
   }
 }
 
 function renderAssetSummary(summary) {
-  if (!summary) {
-    document.getElementById('asset-summary').innerHTML = '<div class="stat-card"><div class="stat-label">总资产</div><div class="stat-value" style="color:#64748b;">--</div></div>';
+  const el = document.getElementById('asset-summary');
+  if (!summary || (summary.totalAssets === 0 && !summary.totalPnl)) {
+    // 空状态：没有账户或账户余额为0
+    el.innerHTML = `
+      <div class="card" style="text-align:center;padding:40px 24px;margin-bottom:16px;background:linear-gradient(135deg,#0f172a 0%,#1a2235 100%);border:1px solid #1e293b;">
+        <div style="font-size:32px;margin-bottom:12px;">💼</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">还没有添加交易所账户</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:16px;">添加交易所账户后，在此查看资产和持仓</div>
+        <button class="btn-primary" style="font-size:13px;" onclick="navigate('accounts')">前往添加账户 →</button>
+      </div>
+      <div class="grid-4">
+        <div class="card stat-card"><div class="stat-label">总资产 (USDT)</div><div class="stat-value" style="color:#64748b;">--</div></div>
+        <div class="card stat-card"><div class="stat-label">可用余额</div><div class="stat-value" style="color:#64748b;">--</div></div>
+        <div class="card stat-card"><div class="stat-label">冻结余额</div><div class="stat-value" style="color:#64748b;">--</div></div>
+        <div class="card stat-card"><div class="stat-label">今日盈亏</div><div class="stat-value" style="color:#64748b;">--</div></div>
+      </div>`;
     return;
   }
 
@@ -55,12 +71,13 @@ function renderAssetSummary(summary) {
 function renderPositionTable(positions) {
   const el = document.getElementById('position-section');
   if (!positions || positions.length === 0) {
-    el.innerHTML = `<div class="card" style="text-align:center;padding:32px;"><div style="font-size:28px;margin-bottom:8px;">📊</div><div style="font-size:13px;color:#64748b;">暂无持仓</div></div>`;
+    el.innerHTML = `<div class="card" style="text-align:center;padding:32px;"><div style="font-size:28px;margin-bottom:8px;">📊</div><div style="font-size:13px;color:#64748b;">暂无持仓，运行策略后将在此展示</div></div>`;
     return;
   }
 
   el.innerHTML = `
     <div class="card" style="padding:0;overflow:hidden;">
+      <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
@@ -87,6 +104,7 @@ function renderPositionTable(positions) {
           `).join('')}
         </tbody>
       </table>
+      </div>
     </div>
   `;
 }
