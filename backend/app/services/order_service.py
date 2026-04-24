@@ -1,7 +1,7 @@
 """
 订单服务
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
@@ -94,7 +94,7 @@ class OrderService:
         return await self.order_repo.create(order)
 
     async def submit_order(self, order_id: int, user_id: int) -> Order:
-        """提交订单到交易所（模拟实现）"""
+        """提交订单到交易所（真实下单）"""
         order = await self.order_repo.get_by_id(order_id)
         if not order:
             raise HTTPException(
@@ -109,13 +109,58 @@ class OrderService:
                 detail="无权操作此订单",
             )
 
-        order.status = "submitted"
-        order.submitted_at = datetime.utcnow()
-        await self.session.commit()
-        return order
+        # 调用真实交易所 API
+        try:
+            from app.core.exchange_adapter import get_exchange_adapter
+
+            adapter = get_exchange_adapter(
+                exchange=account.exchange,
+                api_key=account.get_api_key(),
+                secret_key=account.get_secret_key(),
+                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+            )
+
+            result = await adapter.create_order(
+                symbol=order.symbol,
+                side=order.side,
+                order_type=order.order_type,
+                quantity=order.quantity,
+                price=order.price,
+            )
+
+            # 更新订单状态
+            order.exchange_order_id = result.exchange_order_id
+            order.status = result.status
+            order.submitted_at = datetime.now(timezone.utc)
+
+            # 市价单直接用交易所返回值更新成交
+            if result.filled_quantity > 0:
+                order.filled_quantity = result.filled_quantity
+                order.avg_fill_price = result.avg_fill_price
+                if result.avg_fill_price and result.filled_quantity:
+                    order.order_value = result.avg_fill_price * result.filled_quantity
+
+            if result.status == "filled":
+                order.filled_at = datetime.now(timezone.utc)
+
+            await self.session.commit()
+            await self.session.refresh(order)
+            return order
+
+        except AppException:
+            raise
+        except Exception as e:
+            order.status = "rejected"
+            order.error_message = f"下单失败: {str(e)}"
+            await self.session.commit()
+            await self.session.refresh(order)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"交易所下单失败: {str(e)}",
+            )
 
     async def cancel_order(self, order_id: int, user_id: int) -> Order:
-        """取消订单"""
+        """取消订单（真实撤单）"""
         order = await self.order_repo.get_by_id(order_id)
         if not order:
             raise HTTPException(
@@ -136,9 +181,35 @@ class OrderService:
                 detail=f"订单状态{order.status}无法取消",
             )
 
+        # 调用交易所撤单
+        if order.exchange_order_id:
+            try:
+                from app.core.exchange_adapter import get_exchange_adapter
+
+                adapter = get_exchange_adapter(
+                    exchange=account.exchange,
+                    api_key=account.get_api_key(),
+                    secret_key=account.get_secret_key(),
+                    passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                )
+                success = await adapter.cancel_order(order.exchange_order_id, order.symbol)
+                if not success:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="交易所撤单失败",
+                    )
+            except AppException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"交易所撤单失败: {str(e)}",
+                )
+
         order.status = "cancelled"
-        order.cancelled_at = datetime.utcnow()
+        order.cancelled_at = datetime.now(timezone.utc)
         await self.session.commit()
+        await self.session.refresh(order)
         return order
 
     async def get_order_history(
