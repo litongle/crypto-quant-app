@@ -49,45 +49,10 @@ async function loadStrategyPage() {
   const container = document.getElementById('instance-list');
   container.innerHTML = '<div class="cq-skeleton" style="height:80px;margin-bottom:var(--cq-space-3);"></div><div class="cq-skeleton" style="height:60px;"></div>';
 
-  // 初始化交易对选择器（只创建一次）
-  if (!window._strategySymbolSel) {
-    const selEl = document.getElementById('strategy-symbol-selector');
-    if (selEl) {
-      window._strategySymbolSel = new SymbolSelector({
-        containerId: 'strategy-symbol-selector',
-        value: 'BTCUSDT',
-        exchangeFilter: 'new-strategy-exchange',
-      });
-    }
-  }
-
-  // 加载已连接的交易所账户，动态填充交易所下拉
+  // 预加载账户数据到全局缓存
   try {
-    const accounts = await api.getExchangeAccounts();
-    // 缓存账户数据到全局，供联动使用
-    window._connectedAccounts = accounts;
-
-    const exSelect = document.getElementById('new-strategy-exchange');
-    const accountSelect = document.getElementById('new-strategy-account');
-    if (exSelect) {
-      // 收集用户已连接的交易所
-      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
-      const allExchanges = [
-        { value: 'binance', label: 'Binance' },
-        { value: 'okx', label: 'OKX' },
-        { value: 'htx', label: 'HTX' },
-      ];
-      exSelect.innerHTML = allExchanges.map(ex => {
-        const connected = connectedExchanges.includes(ex.value);
-        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '（未连接）'}</option>`;
-      }).join('');
-
-      // 交易所切换时联动账户下拉
-      exSelect.addEventListener('change', () => filterAccountsByExchange());
-    }
-    // 初始化账户下拉（根据当前选中的交易所过滤）
-    filterAccountsByExchange();
-  } catch (e) { console.warn('加载交易所账户失败:', e); }
+    window._connectedAccounts = await api.getExchangeAccounts();
+  } catch (e) { console.warn('预加载交易所账户失败:', e); }
 
   try {
     const [templates, instances] = await Promise.all([
@@ -204,6 +169,10 @@ function renderInstanceList(instances) {
 async function selectTemplate(id) {
   selectedTemplateId = id;
 
+  // 移除旧创建表单
+  const oldForm = document.getElementById('create-section');
+  if (oldForm) oldForm.remove();
+
   document.querySelectorAll('.cq-strategy-card').forEach(c => {
     c.classList.remove('is-selected');
     const checkEl = c.querySelector('[id^="check-"]');
@@ -216,8 +185,79 @@ async function selectTemplate(id) {
   const check = document.getElementById('check-' + id);
   if (check) check.style.display = 'block';
 
-  document.getElementById('create-section').style.display = 'block';
+  // 在选中模板卡片后面插入创建表单
+  const formHtml = `
+  <div id="create-section" style="margin-top:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
+    <div class="cq-card" style="border-left:3px solid var(--cq-color-primary);">
+      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-3);display:flex;align-items:center;gap:var(--cq-space-2);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        创建策略实例
+      </div>
+      <div style="margin-bottom:var(--cq-space-3);">
+        <label class="cq-label">实例名称</label>
+        <input type="text" class="cq-input" id="new-strategy-name" placeholder="我的双均线策略">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
+        <div>
+          <label class="cq-label">交易所</label>
+          <select class="cq-input" id="new-strategy-exchange">
+            <option value="binance">Binance</option>
+            <option value="okx">OKX</option>
+            <option value="htx">HTX</option>
+          </select>
+        </div>
+        <div>
+          <label class="cq-label">交易对</label>
+          <div id="strategy-symbol-selector"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:var(--cq-space-3);">
+        <label class="cq-label">交易账户</label>
+        <select class="cq-input" id="new-strategy-account">
+          <option value="">模拟模式（仅信号，不下单）</option>
+        </select>
+        <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">选择已连接的交易所账户启用实盘自动下单，留空则仅产生模拟信号</div>
+      </div>
+      <div id="param-sliders" style="margin-bottom:var(--cq-space-4);"></div>
+      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="createStrategyInstance()">创建策略</button>
+    </div>
+  </div>`;
+  card.insertAdjacentHTML('afterend', formHtml);
 
+  // 重新初始化交易对选择器和账户联动
+  window._strategySymbolSel = null;
+  const selEl = document.getElementById('strategy-symbol-selector');
+  if (selEl) {
+    window._strategySymbolSel = new SymbolSelector({
+      containerId: 'strategy-symbol-selector',
+      value: 'BTCUSDT',
+      exchangeFilter: 'new-strategy-exchange',
+    });
+  }
+
+  // 加载交易所账户
+  try {
+    const accounts = await api.getExchangeAccounts();
+    window._connectedAccounts = accounts;
+    const exSelect = document.getElementById('new-strategy-exchange');
+    const accountSelect = document.getElementById('new-strategy-account');
+    if (exSelect) {
+      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
+      const allExchanges = [
+        { value: 'binance', label: 'Binance' },
+        { value: 'okx', label: 'OKX' },
+        { value: 'htx', label: 'HTX' },
+      ];
+      exSelect.innerHTML = allExchanges.map(ex => {
+        const connected = connectedExchanges.includes(ex.value);
+        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '（未连接）'}</option>`;
+      }).join('');
+      exSelect.addEventListener('change', () => filterAccountsByExchange());
+    }
+    filterAccountsByExchange();
+  } catch (e) { console.warn('加载交易所账户失败:', e); }
+
+  // 加载参数滑块
   try {
     const templates = await api.getStrategyTemplates();
     const tmpl = templates.find(t => t.id === id);
