@@ -39,7 +39,7 @@ async function loadStrategyPage() {
 
   // 加载已连接的交易所账户，动态填充交易所下拉
   try {
-    const accounts = await api.getAccounts();
+    const accounts = await api.getExchangeAccounts();
     const exSelect = document.getElementById('new-strategy-exchange');
     const accountSelect = document.getElementById('new-strategy-account');
     if (exSelect) {
@@ -57,9 +57,9 @@ async function loadStrategyPage() {
     }
     if (accountSelect) {
       accountSelect.innerHTML = '<option value="">模拟模式（不下单）</option>' +
-        accounts.map(a => `<option value="${a.id}">${a.accountName || a.exchange} (${a.exchange})</option>`).join('');
+        accounts.map(a => `<option value="${a.id}">${a.account_name || a.exchange} (${a.exchange})</option>`).join('');
     }
-  } catch {}
+  } catch (e) { console.warn('加载交易所账户失败:', e); }
 
   try {
     const [templates, instances] = await Promise.all([
