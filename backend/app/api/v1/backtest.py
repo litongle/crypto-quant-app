@@ -55,6 +55,15 @@ async def run_backtest(
     # 解析日期
     end_date = request.endDate or datetime.now().strftime("%Y-%m-%d")
 
+    # 日期校验
+    today = datetime.now().strftime("%Y-%m-%d")
+    if request.startDate > today:
+        return APIResponse(code=4001, message="开始日期不能是未来日期")
+    if end_date > today:
+        return APIResponse(code=4001, message="结束日期不能是未来日期")
+    if request.startDate > end_date:
+        return APIResponse(code=4001, message="开始日期不能晚于结束日期")
+
     # 执行回测
     service = BacktestService()
     result = await service.execute_backtest(
@@ -256,3 +265,18 @@ async def _save_backtest_history(
 
     session.add(record)
     await session.commit()
+
+    # 自动清理：每用户最多保留50条回测记录，超出删最老的
+    _MAX_BACKTEST_PER_USER = 50
+    count_result = await session.execute(
+        select(BacktestResult.id)
+        .where(BacktestResult.user_id == user_id)
+        .order_by(desc(BacktestResult.created_at))
+        .offset(_MAX_BACKTEST_PER_USER)
+    )
+    old_ids = [row[0] for row in count_result.all()]
+    if old_ids:
+        await session.execute(
+            BacktestResult.__table__.delete().where(BacktestResult.id.in_(old_ids))
+        )
+        await session.commit()

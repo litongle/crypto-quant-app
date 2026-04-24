@@ -62,3 +62,5 @@ logs/
 # Screenshots (testing artifacts)
 screenshot-*.png
 dashboard-screenshot.png
+backend/test_ws.py
+backend/test_ws_ticker.py

@@ -135,7 +135,7 @@ function renderAccounts() {
         errorHtml = `
         <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--cq-radius-md);padding:var(--cq-space-2) var(--cq-space-3);margin-top:var(--cq-space-2);font-size:var(--cq-text-xs);color:var(--cq-color-loss);display:flex;align-items:flex-start;gap:var(--cq-space-2);">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          <span>${acc.error_message}</span>
+          <span>${escapeHtml(acc.error_message)}</span>
         </div>`;
       }
 
@@ -146,7 +146,7 @@ function renderAccounts() {
             <div style="width:44px;height:44px;border-radius:var(--cq-radius-lg);background:var(--cq-bg-l2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:${meta.color};flex-shrink:0;border:1px solid var(--cq-border-default);">${meta.letter}</div>
             <div style="min-width:0;">
               <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);">
-                <span style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-text-primary);">${acc.account_name || meta.label}</span>
+                <span style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-text-primary);">${escapeHtml(acc.account_name || meta.label)}</span>
                 <span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--cq-text-xs);padding:2px 8px;border-radius:999px;background:${statusInfo.bg};color:${statusInfo.color};font-weight:500;">
                   <span style="width:6px;height:6px;border-radius:50%;background:${statusInfo.color};"></span>
                   ${statusInfo.label}
@@ -255,22 +255,21 @@ async function submitAddAccount() {
     }
 
     showAddForm = false;
-    accounts = await api.getExchangeAccounts();
-    renderAccounts();
   } catch (err) {
     // 区分账户创建成功但同步失败 vs 完全失败
     const msg = err.message || '添加失败';
     if (msg.includes('余额同步失败')) {
       showToast('账户已添加，但余额同步失败，请检查 API Key 后点击同步', 'warn');
       showAddForm = false;
-      accounts = await api.getExchangeAccounts();
-      renderAccounts();
     } else {
       showToast(msg, 'error');
     }
   } finally {
+    // 先恢复按钮再重渲染
     btn.disabled = false;
     btn.innerHTML = origText;
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
   }
 }
 
@@ -278,23 +277,21 @@ async function syncAccount(accountId) {
   const btn = document.getElementById(`sync-btn-${accountId}`);
   if (!btn) return;
 
-  const origHtml = btn.innerHTML;
   btn.disabled = true;
+  const origHtml = btn.innerHTML;
   btn.innerHTML = '<span class="cq-spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(99,102,241,0.3);border-top-color:var(--cq-color-primary);border-radius:50%;"></span>';
 
   try {
     await api.syncExchangeAccount(accountId);
     showToast('余额同步成功', 'success');
-    accounts = await api.getExchangeAccounts();
-    renderAccounts();
   } catch (err) {
     showToast(err.message || '同步失败，请检查 API Key 和网络', 'error');
-    // 刷新列表以显示错误状态
-    accounts = await api.getExchangeAccounts();
-    renderAccounts();
   } finally {
+    // 先恢复按钮，再重渲染（重渲染会销毁当前DOM节点）
     btn.disabled = false;
     btn.innerHTML = origHtml;
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
   }
 }
 

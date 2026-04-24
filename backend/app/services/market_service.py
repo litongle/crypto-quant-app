@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,11 +66,14 @@ class MarketService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 if exchange == "binance":
-                    url = f"https://api.binance.com/api/v3/ticker/24hr"
+                    url = "https://api.binance.com/api/v3/ticker/24hr"
                     params = {"symbol": symbol}
                 elif exchange == "okx":
-                    url = f"https://www.okx.com/api/v5/market/ticker"
-                    params = {"instId": f"{symbol[:-4]}-{symbol[-4:]}"}
+                    url = "https://www.okx.com/api/v5/market/ticker"
+                    params = {"instId": self._to_okx_inst_id(symbol)}
+                elif exchange == "huobi":
+                    url = "https://api.huobi.pro/market/detail/merged"
+                    params = {"symbol": symbol.lower()}
                 else:
                     raise AppException(
                         code="UNSUPPORTED_EXCHANGE",
@@ -80,6 +83,9 @@ class MarketService:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
+
+                # OKX / Huobi: 检查 API 层错误码
+                self._check_api_error(data, exchange)
 
                 # 统一格式化
                 result = self._format_ticker(data, exchange, symbol)
@@ -142,18 +148,25 @@ class MarketService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 if exchange == "binance":
-                    url = f"https://api.binance.com/api/v3/klines"
+                    url = "https://api.binance.com/api/v3/klines"
                     params = {
                         "symbol": symbol,
                         "interval": interval,
                         "limit": limit,
                     }
                 elif exchange == "okx":
-                    url = f"https://www.okx.com/api/v5/market/candles"
+                    url = "https://www.okx.com/api/v5/market/candles"
                     params = {
-                        "instId": f"{symbol[:-4]}-{symbol[-4:]}",
-                        "bar": interval,
+                        "instId": self._to_okx_inst_id(symbol),
+                        "bar": self._to_okx_bar(interval),
                         "limit": str(limit),
+                    }
+                elif exchange == "huobi":
+                    url = "https://api.huobi.pro/market/history/kline"
+                    params = {
+                        "symbol": symbol.lower(),
+                        "period": self._to_huobi_period(interval),
+                        "size": limit,
                     }
                 else:
                     raise AppException(
@@ -164,6 +177,9 @@ class MarketService:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
+
+                # OKX / Huobi: 检查 API 层错误码
+                self._check_api_error(data, exchange)
 
                 return self._format_klines(data, exchange)
 
@@ -182,11 +198,14 @@ class MarketService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 if exchange == "binance":
-                    url = f"https://api.binance.com/api/v3/depth"
+                    url = "https://api.binance.com/api/v3/depth"
                     params = {"symbol": symbol, "limit": limit}
                 elif exchange == "okx":
-                    url = f"https://www.okx.com/api/v5/market/books"
-                    params = {"instId": f"{symbol[:-4]}-{symbol[-4:]}", "sz": str(limit)}
+                    url = "https://www.okx.com/api/v5/market/books"
+                    params = {"instId": self._to_okx_inst_id(symbol), "sz": str(limit)}
+                elif exchange == "huobi":
+                    url = "https://api.huobi.pro/market/depth"
+                    params = {"symbol": symbol.lower(), "type": "step0", "depth": limit}
                 else:
                     raise AppException(
                         code="UNSUPPORTED_EXCHANGE",
@@ -196,6 +215,8 @@ class MarketService:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
+
+                self._check_api_error(data, exchange)
 
                 return self._format_orderbook(data, exchange)
 
@@ -222,15 +243,18 @@ class MarketService:
                 "timestamp": datetime.fromtimestamp(data["closeTime"] / 1000),
             }
         elif exchange == "okx":
-            ticker = data["data"][0]
+            items = data.get("data", [])
+            if not items:
+                raise AppException(code="EXTERNAL_API_ERROR", message=f"OKX 未返回 {symbol} 行情数据")
+            ticker = items[0]
+            last = Decimal(ticker["last"])
+            open24h = Decimal(ticker["open24h"])
             return {
                 "symbol": symbol,
-                "price": Decimal(ticker["last"]),
-                "price_change": Decimal(ticker["last"]) - Decimal(ticker["open24h"]),
+                "price": last,
+                "price_change": last - open24h,
                 "price_change_percent": (
-                    (Decimal(ticker["last"]) - Decimal(ticker["open24h"]))
-                    / Decimal(ticker["open24h"])
-                    * 100
+                    (last - open24h) / open24h * 100 if open24h else Decimal("0")
                 ),
                 "high_24h": Decimal(ticker["high24h"]),
                 "low_24h": Decimal(ticker["low24h"]),
@@ -238,12 +262,31 @@ class MarketService:
                 "quote_volume_24h": Decimal(ticker["volCcy24h"]),
                 "timestamp": datetime.fromtimestamp(int(ticker["ts"]) / 1000),
             }
+        elif exchange == "huobi":
+            tick = data.get("tick", {})
+            close = Decimal(str(tick.get("close", 0)))
+            open_price = Decimal(str(tick.get("open", 0)))
+            # 火币: ts 在顶层, vol=成交额(USDT), amount=成交量(币)
+            ts_ms = data.get("ts", tick.get("version", 0))
+            return {
+                "symbol": symbol,
+                "price": close,
+                "price_change": close - open_price,
+                "price_change_percent": (
+                    (close - open_price) / open_price * 100 if open_price else Decimal("0")
+                ),
+                "high_24h": Decimal(str(tick.get("high", 0))),
+                "low_24h": Decimal(str(tick.get("low", 0))),
+                "volume_24h": Decimal(str(tick.get("amount", 0))),
+                "quote_volume_24h": Decimal(str(tick.get("vol", 0))),
+                "timestamp": datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now(),
+            }
 
-    def _format_klines(self, data: list, exchange: str) -> list[dict]:
+    def _format_klines(self, data: Any, exchange: str) -> list[dict]:
         """格式化K线数据"""
         result = []
-        for k in data:
-            if exchange == "binance":
+        if exchange == "binance":
+            for k in data:
                 result.append({
                     "timestamp": datetime.fromtimestamp(k[0] / 1000),
                     "open": Decimal(k[1]),
@@ -253,15 +296,31 @@ class MarketService:
                     "volume": Decimal(k[5]),
                     "close_time": datetime.fromtimestamp(k[6] / 1000),
                 })
-            elif exchange == "okx":
+        elif exchange == "okx":
+            # OKX K线数据是倒序（最新在前），需反转为时间正序
+            candles = data.get("data", []) if isinstance(data, dict) else data
+            for k in reversed(candles):
                 result.append({
                     "timestamp": datetime.fromtimestamp(int(k[0]) / 1000),
-                    "open": Decimal(k[1]),
-                    "high": Decimal(k[2]),
-                    "low": Decimal(k[3]),
-                    "close": Decimal(k[4]),
-                    "volume": Decimal(k[5]),
-                    "close_time": datetime.fromtimestamp(int(k[6]) / 1000),
+                    "open": Decimal(str(k[1])),
+                    "high": Decimal(str(k[2])),
+                    "low": Decimal(str(k[3])),
+                    "close": Decimal(str(k[4])),
+                    "volume": Decimal(str(k[5])),
+                    "close_time": datetime.fromtimestamp(int(k[0]) / 1000),
+                })
+        elif exchange == "huobi":
+            items = data.get("data", []) if isinstance(data, dict) else data
+            # 火币K线已是时间正序; id=时间戳秒, vol=成交额, amount=成交量
+            for k in items:
+                result.append({
+                    "timestamp": datetime.fromtimestamp(k["id"]),
+                    "open": Decimal(str(k["open"])),
+                    "high": Decimal(str(k["high"])),
+                    "low": Decimal(str(k["low"])),
+                    "close": Decimal(str(k["close"])),
+                    "volume": Decimal(str(k.get("amount", k.get("vol", 0)))),
+                    "close_time": datetime.fromtimestamp(k["id"]),
                 })
         return result
 
@@ -279,14 +338,79 @@ class MarketService:
                 ],
             }
         elif exchange == "okx":
-            books = data["data"][0]
+            items = data.get("data", [])
+            if not items:
+                return {"bids": [], "asks": []}
+            books = items[0]
             return {
                 "bids": [
-                    {"price": Decimal(p), "quantity": Decimal(q)}
-                    for p, q, _, _ in books.get("bids", [])
+                    {"price": Decimal(str(p)), "quantity": Decimal(str(q))}
+                    for p, q, *_ in books.get("bids", [])
                 ],
                 "asks": [
-                    {"price": Decimal(p), "quantity": Decimal(q)}
-                    for p, q, _, _ in books.get("asks", [])
+                    {"price": Decimal(str(p)), "quantity": Decimal(str(q))}
+                    for p, q, *_ in books.get("asks", [])
                 ],
             }
+        elif exchange == "huobi":
+            tick = data.get("tick", {})
+            return {
+                "bids": [
+                    {"price": Decimal(str(p)), "quantity": Decimal(str(q))}
+                    for p, q in tick.get("bids", [])
+                ],
+                "asks": [
+                    {"price": Decimal(str(p)), "quantity": Decimal(str(q))}
+                    for p, q in tick.get("asks", [])
+                ],
+            }
+
+    # ==================== 交易所辅助方法 ====================
+
+    @staticmethod
+    def _to_okx_inst_id(symbol: str) -> str:
+        """BTCUSDT → BTC-USDT (OKX instId 格式)"""
+        stablecoins = ("USDT", "USDC", "BUSD")
+        for sc in stablecoins:
+            if symbol.endswith(sc):
+                base = symbol[:-len(sc)]
+                return f"{base}-{sc}"
+        return symbol
+
+    @staticmethod
+    def _to_okx_bar(interval: str) -> str:
+        """OKX K线周期映射: 1h→1H, 4h→4H, 1d→1D, 1w→1W, 其他保持"""
+        mapping = {
+            "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W",
+        }
+        return mapping.get(interval, interval)
+
+    @staticmethod
+    def _to_huobi_period(interval: str) -> str:
+        """K线周期映射: 1m→1min, 1h→60min, 1d→1day, ..."""
+        mapping = {
+            "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
+            "1h": "60min", "4h": "4hour", "1d": "1day", "1w": "1week",
+        }
+        return mapping.get(interval, "60min")
+
+    @staticmethod
+    def _check_api_error(data: dict, exchange: str) -> None:
+        """检查交易所 API 层面的错误码（HTTP 200 但业务报错）"""
+        if exchange == "okx":
+            code = str(data.get("code", "0"))
+            if code != "0":
+                msg = data.get("msg", "未知错误")
+                raise AppException(
+                    code="EXTERNAL_API_ERROR",
+                    message=f"OKX API 错误 ({code}): {msg}",
+                )
+        elif exchange == "huobi":
+            status = data.get("status", "")
+            if status == "error":
+                err_code = data.get("err-code", "unknown")
+                err_msg = data.get("err-msg", "未知错误")
+                raise AppException(
+                    code="EXTERNAL_API_ERROR",
+                    message=f"火币 API 错误 ({err_code}): {err_msg}",
+                )

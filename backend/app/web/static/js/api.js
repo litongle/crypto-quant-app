@@ -178,9 +178,30 @@ class ApiClient {
     return json.data || [];
   }
 
-  async getMarketData() {
-    const json = await this.get('/market/overview');
+  // ===== 行情数据 =====
+  async getTicker(symbol, exchange = 'binance') {
+    const json = await this.get(`/market/ticker/${symbol}?exchange=${exchange}`);
     return json.data || json;
+  }
+
+  async getKline(symbol, interval = '1h', limit = 100, exchange = 'binance') {
+    const json = await this.get(`/market/kline/${symbol}?interval=${interval}&limit=${limit}&exchange=${exchange}`);
+    return json.data || json;
+  }
+
+  async getOrderbook(symbol, limit = 20, exchange = 'binance') {
+    const json = await this.get(`/market/orderbook/${symbol}?limit=${limit}&exchange=${exchange}`);
+    return json.data || json;
+  }
+
+  async getSymbols() {
+    const json = await this.get('/market/symbols');
+    return json.data || json;
+  }
+
+  async getBatchTickers(symbols = 'BTC,ETH,SOL,BNB,DOGE') {
+    const json = await this.get(`/market/tickers?symbols=${symbols}`);
+    return json.data || json || [];
   }
 
   // ===== 交易所账户管理 =====
@@ -268,6 +289,22 @@ class ApiClient {
 
   async getUserInfo() {
     const json = await this.get('/auth/me');
+    return json.data || json;
+  }
+
+  // ===== 策略详情/绩效/编辑 =====
+  async getStrategyDetail(instanceId) {
+    const json = await this.get(`/strategies/instances/${instanceId}`);
+    return json.data || json;
+  }
+
+  async getStrategyPerformance(instanceId) {
+    const json = await this.get(`/strategies/instances/${instanceId}/performance`);
+    return json.data || json;
+  }
+
+  async updateStrategy(instanceId, data) {
+    const json = await this.put(`/strategies/instances/${instanceId}`, data);
     return json.data || json;
   }
 }

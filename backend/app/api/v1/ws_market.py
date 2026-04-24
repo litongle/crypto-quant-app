@@ -404,6 +404,127 @@ class OKXWSProxy(ExchangeWSProxy):
         return None
 
 
+class HuobiWSProxy(ExchangeWSProxy):
+    """Huobi WebSocket 代理
+
+    火币 WebSocket:
+    - wss://api.huobi.pro/ws
+    - 订阅: {"sub": "market.btcusdt.ticker"}
+    - 数据是 gzip 压缩的，需要解压
+    """
+
+    EXCHANGE = "huobi"
+    WS_URL = "wss://api.huobi.pro/ws"
+
+    async def _run_stream(self, channel: str, symbol: str) -> None:
+        symbol_lower = symbol.lower()
+        if channel == "ticker":
+            sub_topic = f"market.{symbol_lower}.detail"
+        elif channel == "kline":
+            sub_topic = f"market.{symbol_lower}.kline.1min"
+        elif channel == "orderbook":
+            sub_topic = f"market.{symbol_lower}.depth.step0"
+        else:
+            return
+
+        sub_msg = json.dumps({"sub": sub_topic, "id": f"sub-{symbol_lower}"})
+
+        try:
+            import websockets
+            import gzip
+            async with websockets.connect(self.WS_URL, ping_interval=20) as ws:
+                await ws.send(sub_msg)
+                async for raw in ws:
+                    try:
+                        # 火币 WS 返回 gzip 压缩数据
+                        if isinstance(raw, bytes):
+                            decompressed = gzip.decompress(raw).decode("utf-8")
+                        else:
+                            decompressed = raw
+
+                        data = json.loads(decompressed)
+
+                        # 心跳响应
+                        if "ping" in data:
+                            pong = {"pong": data["ping"]}
+                            await ws.send(json.dumps(pong))
+                            continue
+
+                        # 订阅确认
+                        if "subbed" in data:
+                            logger.info("[HuobiWS] 订阅成功: %s", data.get("subbed"))
+                            continue
+
+                        if "ch" in data:
+                            msg = self._parse_message(data, channel, symbol)
+                            if msg:
+                                await self._broadcast(msg)
+                    except json.JSONDecodeError:
+                        pass
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.debug("[HuobiWS] 解析异常: %s", exc)
+        except asyncio.CancelledError:
+            logger.info("[HuobiWS] 连接关闭: %s/%s", channel, symbol)
+        except Exception as exc:
+            logger.warning("[HuobiWS] 连接异常: %s/%s: %s", channel, symbol, exc)
+            await asyncio.sleep(5)
+            if self._manager.has_subscribers(channel, symbol):
+                key = f"{channel}:{symbol}"
+                self._tasks.pop(key, None)
+                await self.start_if_needed(channel, symbol)
+
+    def _parse_message(self, data: dict, channel: str, symbol: str) -> WSMessage | None:
+        ch = data.get("ch", "")
+        tick = data.get("tick", {})
+
+        if not tick:
+            return None
+
+        if "detail" in ch or channel == "ticker":
+            return WSMessage(
+                type="ticker",
+                exchange="huobi",
+                symbol=symbol,
+                data={
+                    "symbol": symbol,
+                    "price": str(tick.get("close", "0")),
+                    "price_change_percent": str(tick.get("change", "0")),
+                    "high_24h": str(tick.get("high", "0")),
+                    "low_24h": str(tick.get("low", "0")),
+                    "volume_24h": str(tick.get("vol", "0")),
+                    "quote_volume_24h": str(tick.get("amount", "0")),
+                },
+            )
+        elif "kline" in ch or channel == "kline":
+            k = tick
+            return WSMessage(
+                type="kline",
+                exchange="huobi",
+                symbol=symbol,
+                data={
+                    "symbol": symbol,
+                    "open": str(k.get("open", "0")),
+                    "high": str(k.get("high", "0")),
+                    "low": str(k.get("low", "0")),
+                    "close": str(k.get("close", "0")),
+                    "volume": str(k.get("vol", "0")),
+                },
+            )
+        elif "depth" in ch or channel == "orderbook":
+            return WSMessage(
+                type="orderbook",
+                exchange="huobi",
+                symbol=symbol,
+                data={
+                    "bids": [{"price": p, "quantity": q} for p, q in tick.get("bids", [])[:20]],
+                    "asks": [{"price": p, "quantity": q} for p, q in tick.get("asks", [])[:20]],
+                },
+            )
+        return None
+
+
 # ==================== 轮询降级模式 ====================
 
 class PollingFallback:
@@ -485,7 +606,7 @@ async def ws_market(websocket: WebSocket):
     """WebSocket 行情推送端点
 
     协议:
-    - 连接: ws://localhost:8000/api/v1/ws/market
+    - 连接: ws://localhost:8000/api/v1/ws/market?symbol=BTCUSDT&exchange=binance
     - 订阅: {"action": "subscribe", "channels": ["ticker"], "symbols": ["BTCUSDT"]}
     - 取消: {"action": "unsubscribe", "channels": ["ticker"], "symbols": ["BTCUSDT"]}
     - 心跳: {"action": "ping"}
@@ -494,12 +615,38 @@ async def ws_market(websocket: WebSocket):
     conn_id = f"conn-{id(websocket)}-{int(time.time()*1000)}"
     manager.register(conn_id, websocket)
 
+    # 从 query params 读取初始订阅
+    initial_symbol = websocket.query_params.get("symbol", "BTCUSDT").upper()
+    initial_exchange = websocket.query_params.get("exchange", "binance").lower()
+
+    # 自动订阅 ticker
+    manager.subscribe(conn_id, ["ticker"], [initial_symbol])
+
+    # 启动对应的 WS 代理
+    proxy = manager._proxies.get(initial_exchange)
+    if proxy:
+        await proxy.start_if_needed("ticker", initial_symbol)
+
     try:
         # 发送欢迎消息
         await websocket.send_text(WSMessage(
             type="connected",
-            data={"connection_id": conn_id},
+            data={"connection_id": conn_id, "subscribed": initial_symbol, "exchange": initial_exchange},
         ).model_dump_json())
+
+        # 立即推送一次 REST ticker 数据，避免等待 WS 代理启动期间价格显示 $--
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                ticker_data = await _fetch_initial_ticker(client, initial_symbol, initial_exchange)
+                if ticker_data:
+                    await websocket.send_text(WSMessage(
+                        type="ticker",
+                        exchange=initial_exchange,
+                        symbol=initial_symbol,
+                        data=ticker_data,
+                    ).model_dump_json())
+        except Exception as exc:
+            logger.debug("[WS] 初始 ticker 推送失败: %s", exc)
 
         while True:
             raw = await websocket.receive_text()
@@ -521,11 +668,11 @@ async def ws_market(websocket: WebSocket):
                 channels = cmd.get("channels", ["ticker"])
                 symbols = cmd.get("symbols", [])
                 if not symbols:
-                    symbols = ["BTCUSDT"]
+                    symbols = [initial_symbol]
+                exchange = cmd.get("exchange", initial_exchange)
                 manager.subscribe(conn_id, channels, symbols)
 
                 # 检查是否有 WS 代理可用，否则启用轮询降级
-                exchange = cmd.get("exchange", "binance")
                 proxy = manager._proxies.get(exchange)
                 if proxy:
                     for ch in channels:
@@ -567,6 +714,75 @@ async def ws_market(websocket: WebSocket):
         manager.unregister(conn_id)
 
 
+# ==================== 初始 Ticker 推送辅助 ====================
+
+async def _fetch_initial_ticker(
+    client: httpx.AsyncClient, symbol: str, exchange: str
+) -> dict | None:
+    """通过 REST API 获取初始 ticker 数据，用于 WS 连接后立即推送"""
+    try:
+        if exchange == "binance":
+            url = "https://api.binance.com/api/v3/ticker/24hr"
+            params = {"symbol": symbol}
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            d = resp.json()
+            return {
+                "symbol": symbol,
+                "price": d.get("lastPrice", "0"),
+                "price_change": d.get("priceChange", "0"),
+                "price_change_percent": d.get("priceChangePercent", "0"),
+                "high_24h": d.get("highPrice", "0"),
+                "low_24h": d.get("lowPrice", "0"),
+                "volume_24h": d.get("volume", "0"),
+            }
+        elif exchange == "okx":
+            # BTCUSDT → BTC-USDT
+            inst_id = BinanceWSProxy.__bases__[0]._to_inst_id(None, symbol) if hasattr(BinanceWSProxy, '__bases__') else symbol
+            # 简单转换
+            for sc in ("USDT", "USDC", "BUSD"):
+                if symbol.endswith(sc):
+                    inst_id = f"{symbol[:-len(sc)]}-{sc}"
+                    break
+            url = "https://www.okx.com/api/v5/market/ticker"
+            params = {"instId": inst_id}
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("data", [])
+            if not items:
+                return None
+            t = items[0]
+            return {
+                "symbol": symbol,
+                "price": t.get("last", "0"),
+                "price_change_percent": t.get("changeUtc24h", "0"),
+                "high_24h": t.get("high24h", "0"),
+                "low_24h": t.get("low24h", "0"),
+                "volume_24h": t.get("vol24h", "0"),
+            }
+        elif exchange == "huobi":
+            url = "https://api.huobi.pro/market/detail/merged"
+            params = {"symbol": symbol.lower()}
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            tick = data.get("tick", {})
+            close = tick.get("close", 0)
+            open_price = tick.get("open", 0)
+            change_pct = ((close - open_price) / open_price * 100) if open_price else 0
+            return {
+                "symbol": symbol,
+                "price": str(close),
+                "price_change_percent": str(change_pct),
+                "high_24h": str(tick.get("high", 0)),
+                "low_24h": str(tick.get("low", 0)),
+                "volume_24h": str(tick.get("amount", 0)),
+            }
+    except Exception:
+        return None
+
+
 # ==================== 启动时初始化代理 ====================
 
 async def init_ws_proxies() -> None:
@@ -575,9 +791,11 @@ async def init_ws_proxies() -> None:
         import websockets  # noqa: F401
         binance_proxy = BinanceWSProxy(manager)
         okx_proxy = OKXWSProxy(manager)
+        huobi_proxy = HuobiWSProxy(manager)
         manager.register_proxy("binance", binance_proxy)
         manager.register_proxy("okx", okx_proxy)
-        logger.info("[WS] 代理初始化完成: binance, okx")
+        manager.register_proxy("huobi", huobi_proxy)
+        logger.info("[WS] 代理初始化完成: binance, okx, huobi")
     except ImportError:
         logger.warning("[WS] websockets 库未安装，使用轮询降级模式")
         polling = PollingFallback(manager)

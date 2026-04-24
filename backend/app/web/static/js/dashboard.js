@@ -30,6 +30,31 @@ async function loadDashboard() {
   }
 }
 
+/* ── 权益曲线天数切换 ── */
+async function changeEquityDays(days) {
+  // 更新选中态
+  document.querySelectorAll('.cq-day-pill').forEach(b => b.classList.remove('is-active'));
+  const active = document.querySelector(`.cq-day-pill[data-days="${days}"]`);
+  if (active) active.classList.add('is-active');
+
+  try {
+    const equity = await api.getEquityCurve(days);
+    if (equity && equity.points && equity.points.length > 0) {
+      renderEquityCurveChart(equity);
+    } else {
+      const chartEl = document.getElementById('equityChart');
+      if (chartEl) {
+        chartEl.parentElement.innerHTML = `
+          <div class="cq-card" style="text-align:center;padding:var(--cq-space-10) var(--cq-space-6);">
+            <div style="color:var(--cq-text-tertiary);font-size:var(--cq-text-base);">暂无权益曲线数据</div>
+          </div>`;
+      }
+    }
+  } catch {
+    showToast('加载权益曲线失败', 'error');
+  }
+}
+
 function renderAssetSummary(summary) {
   const el = document.getElementById('asset-summary');
   if (!summary || (summary.totalAssets === 0 && !summary.totalPnl)) {
@@ -104,7 +129,7 @@ function renderPositionTable(positions) {
         <tbody>
           ${positions.map(p => `
             <tr>
-              <td style="font-weight:600;color:var(--cq-text-primary);">${p.symbol}</td>
+              <td style="font-weight:600;color:var(--cq-text-primary);">${escapeHtml(p.symbol)}</td>
               <td><span class="cq-tag ${p.side === 'long' ? 'cq-tag--profit' : 'cq-tag--loss'}">${p.side === 'long' ? '多' : '空'}</span></td>
               <td class="cq-num">${p.quantity}</td>
               <td class="cq-num">$${formatNum(p.entryPrice)}</td>
@@ -123,9 +148,14 @@ function renderEquityCurveChart(equity) {
   const canvas = document.getElementById('equityChart');
   if (!canvas || !equity.points) return;
 
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--cq-color-primary').trim() || '#6366F1';
+  const gridColor = isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.06)';
+  const tickColor = isDark ? '#6E7681' : '#94A3B8';
+
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-  gradient.addColorStop(0, 'rgba(99,102,241,0.15)');
+  gradient.addColorStop(0, isDark ? 'rgba(99,102,241,0.15)' : 'rgba(79,70,229,0.10)');
   gradient.addColorStop(1, 'rgba(99,102,241,0)');
 
   if (window._equityChart) window._equityChart.destroy();
@@ -137,15 +167,15 @@ function renderEquityCurveChart(equity) {
       datasets: [{
         label: '权益 (USDT)',
         data: equity.points.map(p => p.equity),
-        borderColor: '#6366F1',
+        borderColor: primaryColor,
         backgroundColor: gradient,
         borderWidth: 2,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 4,
-        pointHoverBackgroundColor: '#6366F1',
-        pointHoverBorderColor: '#fff',
+        pointHoverBackgroundColor: primaryColor,
+        pointHoverBorderColor: isDark ? '#fff' : '#0F172A',
         pointHoverBorderWidth: 2,
       }]
     },
@@ -154,8 +184,8 @@ function renderEquityCurveChart(equity) {
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'Inter', sans-serif" }, maxTicksLimit: 8 } },
-        y: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: v => '$' + (v/1000).toFixed(1) + 'k' } }
+        x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'Geist', sans-serif" }, maxTicksLimit: 8 } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: formatAxisValue } }
       }
     }
   });
@@ -164,4 +194,25 @@ function renderEquityCurveChart(equity) {
 function formatNum(n) {
   if (n == null || isNaN(n)) return '--';
   return Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** Chart.js Y轴自适应刻度：大额显示$k，小额显示原值 */
+function formatAxisValue(v) {
+  if (Math.abs(v) >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1000) return '$' + (v / 1000).toFixed(1) + 'k';
+  return '$' + v.toFixed(0);
+}
+
+/** HTML转义，防止XSS */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** 获取本地日期 YYYY-MM-DD（避免 toISOString 的 UTC 时区偏差） */
+function localDate(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
