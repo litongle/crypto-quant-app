@@ -97,6 +97,8 @@ async function loadStrategyPage() {
 
     renderTemplateList(templates);
     renderInstanceList(instances);
+    // 缓存实例数据供删除时判断运行状态
+    window._strategyInstances = instances;
   } catch (err) {
     container.innerHTML = `
       <div class="cq-card cq-empty-state">
@@ -292,8 +294,20 @@ async function toggleStrategy(instanceId, action) {
 }
 
 async function deleteStrategyInst(instanceId) {
-  if (!confirm('确认删除此策略？此操作不可撤销。')) return;
+  // 找到该实例的当前状态
+  const inst = window._strategyInstances?.find(i => i.id === instanceId);
+  const isRunning = inst && inst.status === 'running';
+
+  const msg = isRunning
+    ? '该策略正在运行，将先停止再删除。确认删除？'
+    : '确认删除此策略？此操作不可撤销。';
+  if (!confirm(msg)) return;
+
   try {
+    // 如果正在运行，先停止
+    if (isRunning) {
+      await api.stopStrategy(instanceId);
+    }
     await api.deleteStrategy(instanceId);
     showToast('策略已删除', 'success');
     loadStrategyPage();
