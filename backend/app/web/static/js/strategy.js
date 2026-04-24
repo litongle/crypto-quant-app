@@ -115,20 +115,20 @@ function renderTemplateList(templates) {
     return;
   }
 
-  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--cq-space-3);">
-    ${templates.map(t => `
-    <div class="cq-card cq-strategy-card" id="tmpl-${t.id}" onclick="selectTemplate('${t.id}')" style="cursor:pointer;">
-      <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);">
-        <div class="cq-strategy-icon" style="width:28px;height:28px;font-size:12px;">${getStrategyIcon(t.id)}</div>
-        <span style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-text-primary);">${t.name}</span>
+  el.innerHTML = templates.map(t => `
+    <div class="cq-card cq-strategy-card" id="tmpl-${t.id}" onclick="selectTemplate('${t.id}')" style="margin-bottom:var(--cq-space-3);">
+      <div class="cq-strategy-icon">${getStrategyIcon(t.id)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);">
+          <span style="font-size:var(--cq-text-md);font-weight:600;color:var(--cq-text-primary);">${t.name}</span>
+        </div>
+        <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.description}</div>
       </div>
-      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.description}</div>
       <div style="flex-shrink:0;display:none;" id="check-${t.id}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
       </div>
     </div>
-  `).join('')}
-  </div>`;
+  `).join('');
 }
 
 function renderInstanceList(instances) {
