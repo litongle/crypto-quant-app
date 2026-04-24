@@ -150,6 +150,7 @@ class BacktestService:
                     klines=klines,
                     initial_capital=Decimal(str(initial_capital)),
                     interval_label=interval_label,
+                    data_source=data_source,
                 ),
                 timeout=_BACKTEST_TIMEOUT,
             )
@@ -172,6 +173,7 @@ class BacktestService:
         klines: list[dict],
         initial_capital: Decimal,
         interval_label: str = "",
+        data_source: str = "mock",
     ) -> dict:
         """回测引擎核心 v2 — 内存优化版
 
