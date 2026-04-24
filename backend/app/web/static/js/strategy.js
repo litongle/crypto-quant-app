@@ -21,6 +21,30 @@ function getStrategyIcon(templateId) {
   return STRATEGY_ICONS.default;
 }
 
+/** 根据当前选中的交易所过滤账户下拉 */
+function filterAccountsByExchange() {
+  const exSelect = document.getElementById('new-strategy-exchange');
+  const accountSelect = document.getElementById('new-strategy-account');
+  if (!exSelect || !accountSelect) return;
+
+  const selectedExchange = exSelect.value;
+  const accounts = window._connectedAccounts || [];
+
+  // 只显示当前交易所的账户
+  const filtered = accounts.filter(a => a.exchange === selectedExchange);
+
+  accountSelect.innerHTML = '<option value="">模拟模式（不下单）</option>' +
+    filtered.map(a => `<option value="${a.id}">${a.account_name || a.exchange} (${a.exchange})</option>`).join('');
+
+  // 如果该交易所没有已连接账户，显示提示
+  if (filtered.length === 0) {
+    const opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = '— 该交易所暂无已连接账户 —';
+    accountSelect.appendChild(opt);
+  }
+}
+
 async function loadStrategyPage() {
   const container = document.getElementById('instance-list');
   container.innerHTML = '<div class="cq-skeleton" style="height:80px;margin-bottom:var(--cq-space-3);"></div><div class="cq-skeleton" style="height:60px;"></div>';
@@ -40,6 +64,9 @@ async function loadStrategyPage() {
   // 加载已连接的交易所账户，动态填充交易所下拉
   try {
     const accounts = await api.getExchangeAccounts();
+    // 缓存账户数据到全局，供联动使用
+    window._connectedAccounts = accounts;
+
     const exSelect = document.getElementById('new-strategy-exchange');
     const accountSelect = document.getElementById('new-strategy-account');
     if (exSelect) {
@@ -54,11 +81,12 @@ async function loadStrategyPage() {
         const connected = connectedExchanges.includes(ex.value);
         return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '（未连接）'}</option>`;
       }).join('');
+
+      // 交易所切换时联动账户下拉
+      exSelect.addEventListener('change', () => filterAccountsByExchange());
     }
-    if (accountSelect) {
-      accountSelect.innerHTML = '<option value="">模拟模式（不下单）</option>' +
-        accounts.map(a => `<option value="${a.id}">${a.account_name || a.exchange} (${a.exchange})</option>`).join('');
-    }
+    // 初始化账户下拉（根据当前选中的交易所过滤）
+    filterAccountsByExchange();
   } catch (e) { console.warn('加载交易所账户失败:', e); }
 
   try {
