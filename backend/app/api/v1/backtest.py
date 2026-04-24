@@ -117,10 +117,15 @@ async def get_backtest_history(
     records = result.scalars().all()
 
     history = []
+    # 策略代码→中文名映射
+    from app.seed_data import STRATEGY_TEMPLATES
+    _name_map = {t["code"]: t["name"] for t in STRATEGY_TEMPLATES}
+
     for r in records:
         history.append({
             "id": r.id,
             "templateId": r.template_id,
+            "templateName": _name_map.get(r.template_id, r.template_id),
             "symbol": r.symbol,
             "exchange": r.exchange,
             "startDate": r.start_date,

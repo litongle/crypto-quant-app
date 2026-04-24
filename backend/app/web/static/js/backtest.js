@@ -223,7 +223,7 @@ function renderBacktestHistory(history) {
         <tbody>
           ${history.map(h => `
             <tr style="cursor:pointer;" onclick="viewBacktestDetail(${h.id})">
-              <td style="color:var(--cq-text-primary);font-weight:500;">${h.templateId}</td>
+              <td style="color:var(--cq-text-primary);font-weight:500;">${h.templateName || h.templateId}</td>
               <td style="color:var(--cq-text-secondary);">${h.symbol}</td>
               <td class="cq-num" style="text-align:right;color:${h.totalReturnPercent >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${h.totalReturnPercent >= 0 ? '+' : ''}${h.totalReturnPercent.toFixed(2)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-color-primary-hover);">${h.sharpeRatio.toFixed(2)}</td>
