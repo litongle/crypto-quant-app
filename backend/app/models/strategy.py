@@ -12,6 +12,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.exchange import ExchangeAccount
 
 
 class StrategyTemplate(Base):
@@ -49,6 +50,10 @@ class StrategyInstance(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     template_id: Mapped[int] = mapped_column(ForeignKey("strategy_templates.id"))
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exchange_accounts.id"), nullable=True, index=True,
+        comment="绑定的交易所账户，自动下单时使用",
+    )
     name: Mapped[str] = mapped_column(String(100))
     symbol: Mapped[str] = mapped_column(String(20), index=True)
     exchange: Mapped[str] = mapped_column(String(20))
@@ -86,6 +91,7 @@ class StrategyInstance(Base):
     # 关系
     user: Mapped["User"] = relationship("User", back_populates="strategies")
     template: Mapped["StrategyTemplate"] = relationship()
+    account: Mapped["ExchangeAccount | None"] = relationship()
 
     def __repr__(self) -> str:
         return f"<StrategyInstance(id={self.id}, name={self.name}, status={self.status})>"

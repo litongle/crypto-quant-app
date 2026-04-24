@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>币钱袋 - 量化交易控制台</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="/web/static/css/app.css">
 </head>
@@ -15,42 +15,54 @@
 <!-- ===== 登录页 ===== -->
 <div id="login-page" class="login-wrap" style="display:none;">
   <div class="login-card">
-    <h1>💎 币钱袋</h1>
+    <div class="cq-logo">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="36" height="36" rx="8" fill="#6366F1"/>
+        <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="cq-logo-text">币钱袋</span>
+    </div>
     <div class="subtitle">数字货币量化交易控制台</div>
 
     <div id="login-form">
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">邮箱</div>
-        <input type="email" class="input-field" id="login-email" placeholder="you@example.com">
+      <div style="margin-bottom:var(--cq-space-4);">
+        <label class="cq-label">邮箱</label>
+        <input type="email" class="cq-input" id="login-email" placeholder="you@example.com">
       </div>
-      <div style="margin-bottom:20px;">
-        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">密码</div>
-        <input type="password" class="input-field" id="login-password" placeholder="输入密码">
+      <div style="margin-bottom:var(--cq-space-5);">
+        <label class="cq-label">密码</label>
+        <input type="password" class="cq-input" id="login-password" placeholder="输入密码">
       </div>
-      <button class="btn-primary" style="width:100%;" onclick="handleLogin()" id="login-btn">登录</button>
-      <div style="text-align:center;margin-top:16px;">
-        <span style="font-size:12px;color:#64748b;">还没有账号？</span>
-        <span style="font-size:12px;color:#22d3ee;cursor:pointer;" onclick="showRegister()">注册</span>
+      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="handleLogin()" id="login-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        登录
+      </button>
+      <div style="text-align:center;margin-top:var(--cq-space-4);">
+        <span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">还没有账号？</span>
+        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="showRegister()">注册</span>
       </div>
     </div>
 
     <div id="register-form" style="display:none;">
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">用户名</div>
-        <input type="text" class="input-field" id="reg-name" placeholder="输入用户名">
+      <div style="margin-bottom:var(--cq-space-3);">
+        <label class="cq-label">用户名</label>
+        <input type="text" class="cq-input" id="reg-name" placeholder="输入用户名">
       </div>
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">邮箱</div>
-        <input type="email" class="input-field" id="reg-email" placeholder="you@example.com">
+      <div style="margin-bottom:var(--cq-space-3);">
+        <label class="cq-label">邮箱</label>
+        <input type="email" class="cq-input" id="reg-email" placeholder="you@example.com">
       </div>
-      <div style="margin-bottom:20px;">
-        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">密码</div>
-        <input type="password" class="input-field" id="reg-password" placeholder="至少6位">
+      <div style="margin-bottom:var(--cq-space-5);">
+        <label class="cq-label">密码</label>
+        <input type="password" class="cq-input" id="reg-password" placeholder="至少6位">
       </div>
-      <button class="btn-primary" style="width:100%;" onclick="handleRegister()" id="reg-btn">注册</button>
-      <div style="text-align:center;margin-top:16px;">
-        <span style="font-size:12px;color:#64748b;">已有账号？</span>
-        <span style="font-size:12px;color:#22d3ee;cursor:pointer;" onclick="showLogin()">登录</span>
+      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="handleRegister()" id="reg-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        注册
+      </button>
+      <div style="text-align:center;margin-top:var(--cq-space-4);">
+        <span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">已有账号？</span>
+        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="showLogin()">登录</span>
       </div>
     </div>
   </div>
@@ -61,9 +73,15 @@
   <!-- 移动端顶栏 -->
   <header class="mobile-header">
     <div class="hamburger" onclick="toggleSidebar()">
-      <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </div>
-    <div class="mobile-logo">💎 币钱袋</div>
+    <div class="mobile-logo">
+      <svg width="22" height="22" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="36" height="36" rx="8" fill="#6366F1"/>
+        <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      币钱袋
+    </div>
     <div class="mobile-user" id="mobile-user-name">--</div>
   </header>
 
@@ -73,27 +91,41 @@
   <!-- 侧栏 -->
   <aside class="sidebar" id="sidebar">
     <div class="logo">
-      <h2>💎 币钱袋</h2>
-      <span>量化交易控制台 v1.0</span>
+      <div class="cq-logo-icon">
+        <svg width="20" height="20" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="logo-info">
+        <h2>币钱袋</h2>
+        <span>量化交易控制台 v1.0</span>
+      </div>
     </div>
     <nav>
       <div class="nav-link active" onclick="navigate('dashboard')" data-page="dashboard">
-        <span class="nav-emoji">🏠</span> 首页
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        控制台
       </div>
       <div class="nav-link" onclick="navigate('strategy')" data-page="strategy">
-        <span class="nav-emoji">📊</span> 策略中心
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
+        策略中心
       </div>
       <div class="nav-link" onclick="navigate('backtest')" data-page="backtest">
-        <span class="nav-emoji">📈</span> 回测
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        回测
       </div>
       <div class="nav-link" onclick="navigate('accounts')" data-page="accounts">
-        <span class="nav-emoji">🔐</span> 交易所账户
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        交易所账户
       </div>
     </nav>
     <div class="user-section">
       <div class="user-name" id="user-name">--</div>
       <div class="user-email" id="user-email">--</div>
-      <div class="logout-btn" onclick="handleLogout()">退出登录</div>
+      <div class="logout-btn" onclick="handleLogout()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        退出登录
+      </div>
     </div>
   </aside>
 
@@ -103,25 +135,29 @@
     <!-- ===== Dashboard 页 ===== -->
     <div class="page-view active" id="page-dashboard">
       <div class="page-header">
-        <h1>🏠 控制台</h1>
+        <h1>控制台</h1>
         <div class="sub">实时监控资产和持仓状态</div>
       </div>
       <div id="asset-summary">
-        <div class="grid-4">
-          <div class="card stat-card"><div class="stat-label">总资产</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
-          <div class="card stat-card"><div class="stat-label">可用余额</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
-          <div class="card stat-card"><div class="stat-label">冻结余额</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
-          <div class="card stat-card"><div class="stat-label">今日盈亏</div><div class="skeleton" style="height:32px;width:80px;margin:8px auto;"></div></div>
+        <div class="cq-grid-4">
+          <div class="cq-card stat-card"><div class="stat-label">总资产</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
+          <div class="cq-card stat-card"><div class="stat-label">可用余额</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
+          <div class="cq-card stat-card"><div class="stat-label">冻结余额</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
+          <div class="cq-card stat-card"><div class="stat-label">今日盈亏</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
         </div>
       </div>
-      <div style="margin-top:24px;">
-        <div style="font-size:14px;font-weight:700;margin-bottom:12px;">权益曲线</div>
-        <div class="card" style="padding:16px;">
+      <div style="margin-top:var(--cq-space-6);">
+        <div class="cq-section-title">
+          <h3>权益曲线</h3>
+        </div>
+        <div class="cq-card" style="padding:var(--cq-space-4);">
           <canvas id="equityChart" height="200"></canvas>
         </div>
       </div>
-      <div style="margin-top:24px;">
-        <div style="font-size:14px;font-weight:700;margin-bottom:12px;">我的持仓</div>
+      <div style="margin-top:var(--cq-space-6);">
+        <div class="cq-section-title">
+          <h3>我的持仓</h3>
+        </div>
         <div id="position-section"></div>
       </div>
     </div>
@@ -129,44 +165,47 @@
     <!-- ===== 策略中心页 ===== -->
     <div class="page-view" id="page-strategy">
       <div class="page-header">
-        <h1>📊 策略中心</h1>
+        <h1>策略中心</h1>
         <div class="sub">选择模板、配置参数、创建策略实例</div>
       </div>
-      <div class="strategy-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+      <div class="strategy-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-6);align-items:start;">
         <!-- 左侧：模板列表 -->
         <div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">策略模板</div>
+          <div class="cq-section-title"><h3>策略模板</h3></div>
           <div id="template-list"></div>
         </div>
         <!-- 右侧：创建实例 + 实例列表 -->
         <div>
-          <div id="create-section" style="display:none;margin-bottom:20px;">
-            <div class="card">
-              <div style="font-size:13px;font-weight:700;margin-bottom:12px;">⚙️ 创建策略实例</div>
-              <div style="margin-bottom:12px;">
-                <div style="font-size:11px;color:#64748b;margin-bottom:4px;">实例名称</div>
-                <input type="text" class="input-field" id="new-strategy-name" placeholder="我的双均线策略">
+          <div id="create-section" style="display:none;margin-bottom:var(--cq-space-5);">
+            <div class="cq-card">
+              <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-3);display:flex;align-items:center;gap:var(--cq-space-2);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                创建策略实例
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+              <div style="margin-bottom:var(--cq-space-3);">
+                <label class="cq-label">实例名称</label>
+                <input type="text" class="cq-input" id="new-strategy-name" placeholder="我的双均线策略">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
                 <div>
-                  <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易所</div>
-                  <select class="input-field" id="new-strategy-exchange">
+                  <label class="cq-label">交易所</label>
+                  <select class="cq-input" id="new-strategy-exchange">
                     <option value="binance">Binance</option>
                     <option value="okx">OKX</option>
                     <option value="htx">HTX</option>
                   </select>
                 </div>
                 <div>
-                  <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易对</div>
-                  <input type="text" class="input-field" id="new-strategy-symbol" placeholder="BTCUSDT" value="BTCUSDT">
+                  <label class="cq-label">交易对</label>
+                  <input type="text" class="cq-input" id="new-strategy-symbol" placeholder="BTCUSDT" value="BTCUSDT">
                 </div>
               </div>
-              <div id="param-sliders" style="margin-bottom:16px;"></div>
-              <button class="btn-primary" style="width:100%;" onclick="createStrategyInstance()">创建策略</button>
+              <div id="param-sliders" style="margin-bottom:var(--cq-space-4);"></div>
+              <button class="cq-btn cq-btn--primary cq-btn--full" onclick="createStrategyInstance()">创建策略</button>
             </div>
           </div>
 
-          <div style="font-size:13px;font-weight:700;margin-bottom:10px;">运行中的策略</div>
+          <div class="cq-section-title"><h3>运行中的策略</h3></div>
           <div id="instance-list"></div>
         </div>
       </div>
@@ -175,45 +214,51 @@
     <!-- ===== 回测页 ===== -->
     <div class="page-view" id="page-backtest">
       <div class="page-header">
-        <h1>📈 策略回测</h1>
+        <h1>策略回测</h1>
         <div class="sub">验证策略在历史数据上的表现</div>
       </div>
-      <div class="backtest-layout" style="display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start;">
+      <div class="backtest-layout" style="display:grid;grid-template-columns:380px 1fr;gap:var(--cq-space-6);align-items:start;">
         <!-- 左侧：配置 -->
-        <div class="card backtest-config">
-          <div style="font-size:13px;font-weight:700;margin-bottom:14px;">📋 回测参数</div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">策略模板</div>
-            <select class="input-field" id="backtest-template-select"><option value="">加载中...</option></select>
+        <div class="cq-card backtest-config">
+          <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-4);display:flex;align-items:center;gap:var(--cq-space-2);">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            回测参数
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">交易对</div>
-            <input type="text" class="input-field" id="backtest-symbol" value="BTCUSDT">
+          <div style="margin-bottom:var(--cq-space-3);">
+            <label class="cq-label">策略模板</label>
+            <select class="cq-input" id="backtest-template-select"><option value="">加载中...</option></select>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div style="margin-bottom:var(--cq-space-3);">
+            <label class="cq-label">交易对</label>
+            <input type="text" class="cq-input" id="backtest-symbol" value="BTCUSDT">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
             <div>
-              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">开始日期</div>
-              <input type="date" class="input-field" id="backtest-start" value="2024-01-01">
+              <label class="cq-label">开始日期</label>
+              <input type="date" class="cq-input" id="backtest-start" value="2024-01-01">
             </div>
             <div>
-              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">结束日期</div>
-              <input type="date" class="input-field" id="backtest-end" value="2025-12-31">
+              <label class="cq-label">结束日期</label>
+              <input type="date" class="cq-input" id="backtest-end" value="2025-12-31">
             </div>
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">初始资金 (USDT)</div>
-            <input type="number" class="input-field" id="backtest-capital" value="100000">
+          <div style="margin-bottom:var(--cq-space-3);">
+            <label class="cq-label">初始资金 (USDT)</label>
+            <input type="number" class="cq-input" id="backtest-capital" value="100000">
           </div>
           <div id="backtest-params"></div>
-          <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="runBacktest()" id="run-backtest-btn">🚀 开始回测</button>
+          <button class="cq-btn cq-btn--primary cq-btn--full" style="margin-top:var(--cq-space-3);" onclick="runBacktest()" id="run-backtest-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            开始回测
+          </button>
         </div>
 
         <!-- 右侧：结果 -->
         <div id="backtest-results">
-          <div class="card" style="text-align:center;padding:60px 24px;">
-            <div style="font-size:48px;margin-bottom:12px;">📈</div>
-            <div style="font-size:15px;font-weight:600;margin-bottom:8px;">选择策略模板并运行回测</div>
-            <div style="font-size:13px;color:#64748b;">回测结果将在此处展示</div>
+          <div class="cq-empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <h3>选择策略模板并运行回测</h3>
+            <p>回测结果将在此处展示</p>
           </div>
         </div>
       </div>
@@ -222,7 +267,7 @@
     <!-- ===== 交易所账户页 ===== -->
     <div class="page-view" id="page-accounts">
       <div class="page-header">
-        <h1>🔐 交易所账户</h1>
+        <h1>交易所账户</h1>
         <div class="sub">管理你的交易所 API 账户</div>
       </div>
       <div id="accounts-content">
@@ -234,7 +279,7 @@
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="cq-toast" id="toast"></div>
 
 <!-- JS -->
 <script src="/web/static/js/api.js"></script>
@@ -263,10 +308,8 @@ function navigate(page) {
   if (pageEl) pageEl.classList.add('active');
   if (navEl) navEl.classList.add('active');
 
-  // 移动端关闭侧栏
   closeSidebar();
 
-  // 按需加载页面数据
   if (page === 'dashboard') loadDashboard();
   else if (page === 'strategy') loadStrategyPage();
   else if (page === 'backtest') loadBacktestPage();
@@ -278,7 +321,6 @@ function showLogin() {
   document.getElementById('login-form').style.display = 'block';
   document.getElementById('register-form').style.display = 'none';
 }
-
 function showRegister() {
   document.getElementById('login-form').style.display = 'none';
   document.getElementById('register-form').style.display = 'block';
@@ -287,20 +329,20 @@ function showRegister() {
 async function handleLogin() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
-  if (!email || !password) { showToast('⚠️ 请输入邮箱和密码'); return; }
+  if (!email || !password) { showToast('请输入邮箱和密码', 'warn'); return; }
 
   const btn = document.getElementById('login-btn');
   btn.disabled = true;
-  btn.textContent = '登录中...';
+  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 登录中...';
 
   try {
     await api.login(email, password);
     enterApp();
   } catch (err) {
-    showToast('❌ ' + err.message);
+    showToast(err.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '登录';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> 登录';
   }
 }
 
@@ -308,21 +350,21 @@ async function handleRegister() {
   const name = document.getElementById('reg-name').value.trim();
   const email = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
-  if (!name || !email || !password) { showToast('⚠️ 请填写所有字段'); return; }
+  if (!name || !email || !password) { showToast('请填写所有字段', 'warn'); return; }
 
   const btn = document.getElementById('reg-btn');
   btn.disabled = true;
-  btn.textContent = '注册中...';
+  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 注册中...';
 
   try {
     await api.register(email, password, name);
-    showToast('✅ 注册成功！');
+    showToast('注册成功！', 'success');
     enterApp();
   } catch (err) {
-    showToast('❌ ' + err.message);
+    showToast(err.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '注册';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> 注册';
   }
 }
 
@@ -336,7 +378,6 @@ async function enterApp() {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app-page').style.display = 'flex';
 
-  // 加载用户信息
   try {
     const user = await api.getUserInfo();
     document.getElementById('user-name').textContent = user.name || '--';
@@ -344,26 +385,35 @@ async function enterApp() {
     document.getElementById('mobile-user-name').textContent = user.name || '--';
   } catch {}
 
-  // 默认加载 Dashboard
   loadDashboard();
 }
 
-// ===== Toast =====
-function showToast(msg) {
+// ===== Toast (v2 — 支持类型图标) =====
+function showToast(msg, type = 'info') {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2500);
+  const icons = {
+    success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-profit)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    error:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warn:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+  t.innerHTML = (icons[type] || icons.info) + '<span>' + msg + '</span>';
+  t.classList.add('is-visible');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2500);
 }
+
+// ===== CSS spinner animation =====
+const styleEl = document.createElement('style');
+styleEl.textContent = '@keyframes cq-spin{to{transform:rotate(360deg)}}.cq-spin{animation:cq-spin .7s linear infinite}';
+document.head.appendChild(styleEl);
 
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', () => {
   if (api.isLoggedIn) {
-    // 验证 token 是否有效
     api.getUserInfo().then(() => {
       enterApp();
     }).catch(() => {
-      // Token 无效，尝试刷新
       api._refreshAccessToken().then(ok => {
         if (ok) enterApp();
         else {
@@ -377,7 +427,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Enter 键登录
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const loginPage = document.getElementById('login-page');

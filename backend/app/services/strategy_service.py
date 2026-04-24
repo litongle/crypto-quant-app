@@ -59,11 +59,13 @@ class StrategyService:
         params: dict,
         risk_params: dict,
         direction: str = "both",
+        account_id: int | None = None,
     ) -> StrategyInstance:
         """创建策略实例
 
         Args:
             template_id: 模板ID（可以是int或字符串code）
+            account_id: 绑定的交易所账户ID，自动下单时使用
         """
         # 解析模板ID（支持int或字符串）
         template: StrategyTemplate | None = None
@@ -78,6 +80,24 @@ class StrategyService:
                 detail="策略模板不存在",
             )
 
+        # 验证 account_id（如果指定）
+        if account_id:
+            from app.models.exchange import ExchangeAccount
+            from sqlalchemy import select
+            result = await self.session.execute(
+                select(ExchangeAccount).where(
+                    ExchangeAccount.id == account_id,
+                    ExchangeAccount.user_id == user.id,
+                    ExchangeAccount.is_active == True,
+                )
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="交易所账户不存在或不可用",
+                )
+
         # 创建实例
         instance = StrategyInstance(
             user_id=user.id,
@@ -88,6 +108,7 @@ class StrategyService:
             direction=direction,
             params=params,
             risk_params=risk_params,
+            account_id=account_id,
             status="running",  # 移动端创建即运行
         )
         return await self.instance_repo.create(instance)
@@ -112,7 +133,7 @@ class StrategyService:
             )
 
         # 更新字段
-        allowed_fields = ["name", "symbol", "params", "risk_params", "direction"]
+        allowed_fields = ["name", "symbol", "params", "risk_params", "direction", "account_id"]
         update_dict = {k: v for k, v in updates.items() if k in allowed_fields}
 
         return await self.instance_repo.update(instance_id, **update_dict)

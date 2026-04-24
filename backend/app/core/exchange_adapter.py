@@ -683,6 +683,10 @@ class OKXAdapter(BaseExchangeAdapter):
     # OKX 限流：20 requests/2s (trade)
     RATE_LIMIT_INTERVAL = 0.1
 
+    # 服务器时间偏移（毫秒），首次请求前同步
+    _time_offset_ms: int = 0
+    _time_synced: bool = False
+
     def __init__(
         self,
         api_key: str,
@@ -692,6 +696,12 @@ class OKXAdapter(BaseExchangeAdapter):
     ):
         super().__init__(api_key, secret_key, passphrase)
         self.is_demo = is_demo
+        # OKX 要求 passphrase 必须与创建 API Key 时一致
+        if not self.passphrase:
+            logger.warning(
+                "[OKXAdapter] passphrase 为空！OKX 认证将失败（错误码 50113）。"
+                "请在添加账户时填写创建 API Key 时设置的 Passphrase。"
+            )
 
     def _to_inst_id(self, symbol: str) -> str:
         """转换 symbol 为 OKX instId 格式
@@ -708,8 +718,33 @@ class OKXAdapter(BaseExchangeAdapter):
         return symbol
 
     def _okx_timestamp(self) -> str:
-        """OKX 要求的 ISO 8601 时间戳（毫秒级）"""
-        return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        """OKX 要求的 ISO 8601 时间戳（毫秒级，已校准服务器偏移）"""
+        from datetime import timedelta
+        adjusted = datetime.now(timezone.utc) + timedelta(milliseconds=self._time_offset_ms)
+        return adjusted.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    async def _sync_server_time(self) -> None:
+        """同步 OKX 服务器时间，计算本机与服务器的时间偏移
+
+        OKX 要求时间戳与服务器偏差不超过 30 秒，否则返回错误码 50102。
+        首次请求前调用此方法校准，避免因系统时钟偏差导致认证失败。
+        """
+        try:
+            client = await self.get_shared_client()
+            resp = await client.get(f"{self.BASE_URL}/api/v5/public/time")
+            resp.raise_for_status()
+            data = resp.json()
+            server_ts = int(data["data"][0]["ts"])  # 服务器毫秒时间戳
+            local_ts = int(time.time() * 1000)
+            self._time_offset_ms = server_ts - local_ts
+            self._time_synced = True
+            logger.info(
+                "[OKXAdapter] 服务器时间同步完成，偏移: %dms",
+                self._time_offset_ms,
+            )
+        except Exception as exc:
+            logger.warning("[OKXAdapter] 服务器时间同步失败: %s", exc)
+            # 同步失败不阻塞，用本机时间继续
 
     def _sign(self, method: str, path: str, body: str = "") -> dict[str, str]:
         """OKX HMAC SHA256 签名
@@ -730,9 +765,20 @@ class OKXAdapter(BaseExchangeAdapter):
             "OK-ACCESS-PASSPHRASE": self.passphrase or "",
             "Content-Type": "application/json",
         }
+        # OKX 要求 passphrase 不能为空，空字符串会导致 50113 错误
+        if not self.passphrase:
+            logger.error(
+                "[OKXAdapter] OK-ACCESS-PASSPHRASE 为空字符串，"
+                "OKX 认证必定失败。请确保添加 OKX 账户时填写了 Passphrase。"
+            )
         if self.is_demo:
             headers["x-simulated-trading"] = "1"
         return headers
+
+    async def _ensure_time_synced(self) -> None:
+        """确保已与 OKX 服务器同步时间（仅首次调用时执行）"""
+        if not self._time_synced:
+            await self._sync_server_time()
 
     def _check_okx_response(self, data: dict) -> None:
         """检查 OKX 响应，code != 0 为错误
@@ -840,6 +886,7 @@ class OKXAdapter(BaseExchangeAdapter):
 
     async def get_balance(self) -> list[Balance]:
         """获取账户余额"""
+        await self._ensure_time_synced()
         path = "/api/v5/account/balance"
 
         async def _do():
@@ -867,6 +914,7 @@ class OKXAdapter(BaseExchangeAdapter):
 
     async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
         """获取持仓（合约用，现货返回空列表）"""
+        await self._ensure_time_synced()
         path = "/api/v5/account/positions"
         params = {}
         if symbol:
@@ -912,6 +960,7 @@ class OKXAdapter(BaseExchangeAdapter):
         - ordType: market / limit / post_only / fok / ioc
         """
         inst_id = self._to_inst_id(symbol)
+        await self._ensure_time_synced()
         path = "/api/v5/trade/order"
         body_dict: dict[str, Any] = {
             "instId": inst_id,
@@ -966,6 +1015,7 @@ class OKXAdapter(BaseExchangeAdapter):
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """取消订单"""
         inst_id = self._to_inst_id(symbol)
+        await self._ensure_time_synced()
         path = "/api/v5/trade/cancel-order"
         body_dict = {"instId": inst_id, "ordId": order_id}
         body_json = json.dumps(body_dict)
@@ -992,6 +1042,7 @@ class OKXAdapter(BaseExchangeAdapter):
 
     async def get_order(self, order_id: str, symbol: str) -> OrderResult:
         """查询订单状态"""
+        await self._ensure_time_synced()
         inst_id = self._to_inst_id(symbol)
         path = f"/api/v5/trade/order?instId={inst_id}&ordId={order_id}"
 

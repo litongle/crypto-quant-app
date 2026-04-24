@@ -43,6 +43,75 @@ class OrderService:
         """获取用户的交易所账户"""
         return await self.account_repo.get_active_by_user(user_id)
 
+    async def sync_account_balance(self, account_id: int) -> ExchangeAccount:
+        """从交易所同步账户真实余额
+
+        调用交易所 get_balance() API，将 USDT 余额写回 ExchangeAccount。
+        """
+        account = await self.account_repo.get_by_id(account_id)
+        if not account:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账户不存在",
+            )
+
+        try:
+            from app.core.exchange_adapter import get_exchange_adapter
+
+            adapter = get_exchange_adapter(
+                exchange=account.exchange,
+                api_key=account.get_api_key(),
+                secret_key=account.get_secret_key(),
+                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                testnet=account.is_testnet,
+                is_demo=account.is_demo,
+            )
+
+            balances = await adapter.get_balance()
+
+            # 提取 USDT 余额
+            for b in balances:
+                if b.asset.upper() == "USDT":
+                    account.balance = b.free
+                    account.frozen_balance = b.locked
+                    break
+            else:
+                # 没有 USDT 余额，尝试取第一个非零资产折算
+                if balances:
+                    account.balance = balances[0].free
+                    account.frozen_balance = balances[0].locked
+
+            from datetime import datetime, timezone
+            account.last_sync_at = datetime.now(timezone.utc)
+            account.status = "active"
+            account.error_message = None
+
+            await self.session.commit()
+            await self.session.refresh(account)
+
+            logger.info(
+                "[OrderService] 余额同步成功: account_id=%d, exchange=%s, "
+                "balance=%.4f USDT, frozen=%.4f",
+                account_id, account.exchange,
+                float(account.balance), float(account.frozen_balance),
+            )
+            return account
+
+        except Exception as exc:
+            account.status = "error"
+            account.error_message = f"余额同步失败: {str(exc)[:200]}"
+            await self.session.commit()
+            await self.session.refresh(account)
+
+            logger.error(
+                "[OrderService] 余额同步失败: account_id=%d, exchange=%s, error=%s",
+                account_id, account.exchange, str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"余额同步失败: {str(exc)}",
+            )
+
     async def create_order(
         self,
         user_id: int,
@@ -394,7 +463,7 @@ class OrderService:
             )
 
         side = "sell" if position.side == "long" else "buy"
-        await self.create_order(
+        order = await self.create_order(
             user_id=user_id,
             account_id=position.account_id,
             symbol=position.symbol,
@@ -404,8 +473,11 @@ class OrderService:
             strategy_instance_id=position.strategy_instance_id,
         )
 
+        # 提交到交易所执行平仓
+        await self.submit_order(order.id, user_id)
+
         position.status = "closed"
-        position.closed_at = datetime.utcnow()
+        position.closed_at = datetime.now(timezone.utc)
         await self.session.commit()
         await self.session.refresh(position)
         return position

@@ -1,21 +1,17 @@
 /**
- * 回测页面逻辑
+ * 回测页面逻辑 v2 — 使用设计令牌
  */
 async function loadBacktestPage() {
-  // 加载策略模板供选择
   try {
     const templates = await api.getStrategyTemplates();
     renderBacktestTemplateSelect(templates);
   } catch {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
   }
-  // 加载回测历史
   try {
     const history = await api.getBacktestHistory(10);
     renderBacktestHistory(history);
-  } catch {
-    // 静默失败
-  }
+  } catch {}
 }
 
 function renderBacktestTemplateSelect(templates) {
@@ -26,14 +22,13 @@ function renderBacktestTemplateSelect(templates) {
 
 async function runBacktest() {
   const templateId = document.getElementById('backtest-template-select').value;
-  if (!templateId) { showToast('⚠️ 请选择策略模板'); return; }
+  if (!templateId) { showToast('请选择策略模板', 'warn'); return; }
 
   const symbol = document.getElementById('backtest-symbol').value.trim() || 'BTCUSDT';
   const startDate = document.getElementById('backtest-start').value || '2024-01-01';
   const endDate = document.getElementById('backtest-end').value || '2025-12-31';
   const initialCapital = parseFloat(document.getElementById('backtest-capital').value) || 100000;
 
-  // 收集参数
   const params = {};
   document.querySelectorAll('#backtest-params input[type="range"]').forEach(sl => {
     const key = sl.id.replace('sl-bt-', '');
@@ -42,7 +37,7 @@ async function runBacktest() {
 
   const btn = document.getElementById('run-backtest-btn');
   btn.disabled = true;
-  btn.textContent = '⏳ 回测运行中...';
+  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 回测运行中...';
 
   try {
     const result = await api.runBacktest({
@@ -55,20 +50,23 @@ async function runBacktest() {
     });
 
     renderBacktestResults(result);
-    showToast('✅ 回测完成！');
+    showToast('回测完成！', 'success');
   } catch (err) {
-    showToast('❌ 回测失败: ' + err.message);
-    document.getElementById('backtest-results').innerHTML = `<div class="card" style="text-align:center;padding:32px;color:#64748b;">${err.message}</div>`;
+    showToast('回测失败: ' + err.message, 'error');
+    document.getElementById('backtest-results').innerHTML = `
+      <div class="cq-card cq-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        <h3>${err.message}</h3>
+      </div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = '🚀 开始回测';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> 开始回测';
   }
 }
 
 function renderBacktestResults(result) {
   const el = document.getElementById('backtest-results');
 
-  // 如果后端返回的是简化数据，做兜底
   const metrics = result.metrics || result;
   const totalReturn = metrics.totalReturn ?? metrics.total_return ?? 0;
   const maxDrawdown = metrics.maxDrawdown ?? metrics.max_drawdown ?? 0;
@@ -78,46 +76,46 @@ function renderBacktestResults(result) {
   const profitFactor = metrics.profitFactor ?? metrics.profit_factor ?? 0;
 
   el.innerHTML = `
-    <div class="grid-3" style="margin-bottom:24px;">
-      <div class="card stat-card">
+    <div class="cq-grid-3" style="margin-bottom:var(--cq-space-6);">
+      <div class="cq-card stat-card">
         <div class="stat-label">总收益率</div>
-        <div class="stat-value" style="color:${totalReturn >= 0 ? '#22c55e' : '#ef4444'};">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
+        <div class="stat-value cq-num" style="color:${totalReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">夏普比率</div>
-        <div class="stat-value" style="color:#22d3ee;">${sharpeRatio.toFixed(2)}</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-primary-hover);">${sharpeRatio.toFixed(2)}</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">最大回撤</div>
-        <div class="stat-value" style="color:#ef4444;">${maxDrawdown.toFixed(2)}%</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-loss);">${maxDrawdown.toFixed(2)}%</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">胜率</div>
-        <div class="stat-value" style="color:#22c55e;">${winRate.toFixed(1)}%</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-profit);">${winRate.toFixed(1)}%</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">盈亏比</div>
-        <div class="stat-value">${profitFactor.toFixed(2)}</div>
+        <div class="stat-value cq-num">${profitFactor.toFixed(2)}</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">总交易次数</div>
-        <div class="stat-value">${totalTrades} 笔</div>
+        <div class="stat-value cq-num">${totalTrades} 笔</div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:16px;">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:#e2e8f0;">收益曲线</div>
+    <div class="cq-card" style="margin-bottom:var(--cq-space-4);">
+      <div class="cq-section-title" style="margin-bottom:var(--cq-space-3);">
+        <h3>收益曲线</h3>
+      </div>
       <canvas id="backtestResultChart" height="200"></canvas>
-    </div>
-  `;
+    </div>`;
 
-  // 绘制曲线
   const points = result.equityCurve || result.points || [];
   if (points.length > 0) {
     const canvas = document.getElementById('backtestResultChart');
     const ctx = canvas.getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-    gradient.addColorStop(0, 'rgba(34,211,238,0.15)');
-    gradient.addColorStop(1, 'rgba(34,211,238,0)');
+    gradient.addColorStop(0, 'rgba(99,102,241,0.12)');
+    gradient.addColorStop(1, 'rgba(99,102,241,0)');
 
     if (window._btChart) window._btChart.destroy();
     window._btChart = new Chart(ctx, {
@@ -127,7 +125,7 @@ function renderBacktestResults(result) {
         datasets: [{
           label: '策略权益',
           data: points.map(p => p.equity),
-          borderColor: '#22d3ee',
+          borderColor: '#6366F1',
           backgroundColor: gradient,
           borderWidth: 2,
           fill: true,
@@ -140,8 +138,8 @@ function renderBacktestResults(result) {
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: '#1f2937' }, ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 8 } },
-          y: { grid: { color: '#1f2937' }, ticks: { color: '#475569', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
+          x: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'Inter', sans-serif" }, maxTicksLimit: 8 } },
+          y: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
         }
       }
     });
@@ -160,12 +158,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const tmpl = templates.find(t => t.id === templateId);
         if (tmpl && tmpl.params) {
           document.getElementById('backtest-params').innerHTML = tmpl.params.map(p => `
-            <div style="margin-bottom:14px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <label style="font-size:12px;color:#e2e8f0;">${p.name}</label>
-                <span style="font-size:12px;font-weight:700;color:#22d3ee;" id="val-bt-${p.key}">${p.default}</span>
+            <div style="margin-bottom:var(--cq-space-3);">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
+                <label class="cq-label" style="margin-bottom:0;">${p.name}</label>
+                <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary-hover);" id="val-bt-${p.key}">${p.default}</span>
               </div>
-              <input type="range" class="slider-track" id="sl-bt-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
+              <input type="range" class="cq-slider" id="sl-bt-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
                 oninput="document.getElementById('val-bt-${p.key}').textContent=this.value">
             </div>
           `).join('');
@@ -181,66 +179,62 @@ document.addEventListener('DOMContentLoaded', () => {
 function renderBacktestHistory(history) {
   if (!history || history.length === 0) return;
 
-  // 在回测结果区域下方添加历史记录
   const resultsEl = document.getElementById('backtest-results');
   const parentEl = resultsEl.parentElement;
 
-  // 检查是否已有历史区域
   let historyEl = document.getElementById('backtest-history');
   if (!historyEl) {
     historyEl = document.createElement('div');
     historyEl.id = 'backtest-history';
-    historyEl.style.cssText = 'grid-column:1/-1;margin-top:16px;';
+    historyEl.style.cssText = 'grid-column:1/-1;margin-top:var(--cq-space-4);';
     parentEl.appendChild(historyEl);
   }
 
   historyEl.innerHTML = `
-    <div class="card">
-      <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:#e2e8f0;">📋 最近回测记录</div>
-      <div class="table-wrap">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
+    <div class="cq-card">
+      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-3);display:flex;align-items:center;gap:var(--cq-space-2);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        最近回测记录
+      </div>
+      <div class="cq-table-wrap">
+      <table class="cq-table">
         <thead>
-          <tr style="border-bottom:1px solid #1f2937;">
-            <th style="text-align:left;padding:8px 4px;color:#64748b;">策略</th>
-            <th style="text-align:left;padding:8px 4px;color:#64748b;">交易对</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">收益率</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">夏普</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">回撤</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">胜率</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">交易数</th>
-            <th style="text-align:right;padding:8px 4px;color:#64748b;">时间</th>
+          <tr>
+            <th>策略</th>
+            <th>交易对</th>
+            <th style="text-align:right;">收益率</th>
+            <th style="text-align:right;">夏普</th>
+            <th style="text-align:right;">回撤</th>
+            <th style="text-align:right;">胜率</th>
+            <th style="text-align:right;">交易数</th>
+            <th style="text-align:right;">时间</th>
           </tr>
         </thead>
         <tbody>
           ${history.map(h => `
-            <tr style="border-bottom:1px solid #111827;cursor:pointer;" onclick="viewBacktestDetail(${h.id})"
-                onmouseenter="this.style.background='#111827'" onmouseleave="this.style.background=''">
-              <td style="padding:8px 4px;color:#e2e8f0;">${h.templateId}</td>
-              <td style="padding:8px 4px;color:#94a3b8;">${h.symbol}</td>
-              <td style="padding:8px 4px;text-align:right;color:${h.totalReturnPercent >= 0 ? '#22c55e' : '#ef4444'};">${h.totalReturnPercent >= 0 ? '+' : ''}${h.totalReturnPercent.toFixed(2)}%</td>
-              <td style="padding:8px 4px;text-align:right;color:#22d3ee;">${h.sharpeRatio.toFixed(2)}</td>
-              <td style="padding:8px 4px;text-align:right;color:#ef4444;">${h.maxDrawdown.toFixed(2)}%</td>
-              <td style="padding:8px 4px;text-align:right;color:#22c55e;">${h.winRate.toFixed(1)}%</td>
-              <td style="padding:8px 4px;text-align:right;color:#94a3b8;">${h.totalTrades}</td>
-              <td style="padding:8px 4px;text-align:right;color:#64748b;">${h.createdAt ? h.createdAt.substring(0, 10) : ''}</td>
+            <tr style="cursor:pointer;" onclick="viewBacktestDetail(${h.id})">
+              <td style="color:var(--cq-text-primary);font-weight:500;">${h.templateId}</td>
+              <td style="color:var(--cq-text-secondary);">${h.symbol}</td>
+              <td class="cq-num" style="text-align:right;color:${h.totalReturnPercent >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${h.totalReturnPercent >= 0 ? '+' : ''}${h.totalReturnPercent.toFixed(2)}%</td>
+              <td class="cq-num" style="text-align:right;color:var(--cq-color-primary-hover);">${h.sharpeRatio.toFixed(2)}</td>
+              <td class="cq-num" style="text-align:right;color:var(--cq-color-loss);">${h.maxDrawdown.toFixed(2)}%</td>
+              <td class="cq-num" style="text-align:right;color:var(--cq-color-profit);">${h.winRate.toFixed(1)}%</td>
+              <td class="cq-num" style="text-align:right;color:var(--cq-text-secondary);">${h.totalTrades}</td>
+              <td style="text-align:right;color:var(--cq-text-tertiary);">${h.createdAt ? h.createdAt.substring(0, 10) : ''}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
-/**
- * 查看回测详情
- */
 async function viewBacktestDetail(id) {
   try {
     const result = await api.getBacktestResults(id);
     renderBacktestResults(result);
     document.getElementById('backtest-results').scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
-    showToast('❌ 加载回测详情失败');
+    showToast('加载回测详情失败', 'error');
   }
 }

@@ -1,7 +1,7 @@
 """
 交易相关仓储
 """
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import select, and_, or_
@@ -185,9 +185,7 @@ class SignalRepository(BaseRepository[Signal]):
         limit: int = 50,
     ) -> list[Signal]:
         """获取策略最近的信号"""
-        from datetime import timedelta
-
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         result = await self.session.execute(
             select(Signal)
             .where(
@@ -201,9 +199,7 @@ class SignalRepository(BaseRepository[Signal]):
 
     async def expire_old_signals(self, strategy_instance_id: int) -> int:
         """过期过时的信号"""
-        from datetime import timedelta
-
-        cutoff = datetime.utcnow()
+        cutoff = datetime.now(timezone.utc)
         result = await self.session.execute(
             select(Signal)
             .where(

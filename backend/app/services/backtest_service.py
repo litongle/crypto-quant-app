@@ -100,6 +100,9 @@ class BacktestService:
                 "detail": f"获取到 {len(klines)} 根K线，需要至少 50 根",
             }
 
+        # 1.5 获取K线数据后检查数据源
+        data_source = "mock" if getattr(self, "_using_mock_data", True) else "binance"
+
         # 2. 创建策略实例
         strategy_type = _TEMPLATE_MAP.get(template_id.lower(), template_id.lower())
         config = StrategyConfig(
@@ -364,6 +367,8 @@ class BacktestService:
             # 元信息
             "startTime": report.start_time.isoformat() + "Z" if report.start_time else None,
             "endTime": report.end_time.isoformat() + "Z" if report.end_time else None,
+            "dataSource": data_source,
+            "warning": "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None,
         }
 
     async def _fetch_klines(
@@ -424,6 +429,9 @@ class BacktestService:
             logger.warning("获取K线数据失败: %s，使用模拟数据", e)
             # 降级：使用确定性模拟数据
             all_klines = self._generate_mock_klines(symbol, start_date, end_date)
+            self._using_mock_data = True  # 标记使用了模拟数据
+        else:
+            self._using_mock_data = False
 
         return all_klines
 

@@ -27,6 +27,7 @@ class CreateStrategyRequest(BaseModel):
     templateId: str = Field(..., description="策略模板ID")
     exchange: str = Field(..., description="交易所 (binance/okx/htx)")
     symbol: str = Field(..., description="交易对 (如 BTCUSDT)")
+    accountId: int | None = Field(None, description="绑定的交易所账户ID，自动下单时使用")
     params: dict = Field(default_factory=dict, description="策略参数")
 
 
@@ -176,6 +177,7 @@ async def get_user_strategies(
             "templateId": template_code,
             "templateName": template_name,
             "status": inst.status,
+            "accountId": inst.account_id,
             "totalPnl": float(inst.total_pnl or 0),
             "totalPnlPercent": float(inst.total_pnl_percent or 0),
             "winRate": float(inst.win_rate or 0),
@@ -214,6 +216,7 @@ async def create_strategy(
         params=request.params,
         risk_params={},
         direction="both",
+        account_id=request.accountId,
     )
 
     return APIResponse(data={

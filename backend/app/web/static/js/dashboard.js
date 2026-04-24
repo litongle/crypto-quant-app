@@ -1,8 +1,14 @@
 /**
- * Dashboard 页面逻辑
+ * Dashboard 页面逻辑 v2 — 使用设计令牌
  */
+
+/* ── SVG 图标模板 ── */
+const ICONS = {
+  wallet: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>',
+  chart:  '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>',
+};
+
 async function loadDashboard() {
-  // 加载数据
   const [summary, positions, equity] = await Promise.all([
     api.getAssetSummary().catch(() => null),
     api.getPositions().catch(() => null),
@@ -14,10 +20,12 @@ async function loadDashboard() {
   if (equity && equity.points && equity.points.length > 0) {
     renderEquityCurveChart(equity);
   } else {
-    // 无权益数据时显示空状态
     const chartEl = document.getElementById('equityChart');
     if (chartEl) {
-      chartEl.parentElement.innerHTML = '<div class="card" style="text-align:center;padding:40px;color:#475569;font-size:13px;">暂无权益曲线数据</div>';
+      chartEl.parentElement.innerHTML = `
+        <div class="cq-card" style="text-align:center;padding:var(--cq-space-10) var(--cq-space-6);">
+          <div style="color:var(--cq-text-tertiary);font-size:var(--cq-text-base);">暂无权益曲线数据</div>
+        </div>`;
     }
   }
 }
@@ -25,60 +33,63 @@ async function loadDashboard() {
 function renderAssetSummary(summary) {
   const el = document.getElementById('asset-summary');
   if (!summary || (summary.totalAssets === 0 && !summary.totalPnl)) {
-    // 空状态：没有账户或账户余额为0
     el.innerHTML = `
-      <div class="card" style="text-align:center;padding:40px 24px;margin-bottom:16px;background:linear-gradient(135deg,#0f172a 0%,#1a2235 100%);border:1px solid #1e293b;">
-        <div style="font-size:32px;margin-bottom:12px;">💼</div>
-        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">还没有添加交易所账户</div>
-        <div style="font-size:12px;color:#64748b;margin-bottom:16px;">添加交易所账户后，在此查看资产和持仓</div>
-        <button class="btn-primary" style="font-size:13px;" onclick="navigate('accounts')">前往添加账户 →</button>
+      <div class="cq-card" style="text-align:center;padding:var(--cq-space-8) var(--cq-space-6);margin-bottom:var(--cq-space-4);border:1px dashed var(--cq-border-hover);">
+        ${ICONS.wallet}
+        <div style="font-size:var(--cq-text-md);font-weight:600;margin-top:var(--cq-space-3);margin-bottom:var(--cq-space-2);">还没有添加交易所账户</div>
+        <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-4);">添加交易所账户后，在此查看资产和持仓</div>
+        <button class="cq-btn cq-btn--primary cq-btn--sm" onclick="navigate('accounts')">前往添加账户 →</button>
       </div>
-      <div class="grid-4">
-        <div class="card stat-card"><div class="stat-label">总资产 (USDT)</div><div class="stat-value" style="color:#64748b;">--</div></div>
-        <div class="card stat-card"><div class="stat-label">可用余额</div><div class="stat-value" style="color:#64748b;">--</div></div>
-        <div class="card stat-card"><div class="stat-label">冻结余额</div><div class="stat-value" style="color:#64748b;">--</div></div>
-        <div class="card stat-card"><div class="stat-label">今日盈亏</div><div class="stat-value" style="color:#64748b;">--</div></div>
+      <div class="cq-grid-4">
+        <div class="cq-card stat-card"><div class="stat-label">总资产 (USDT)</div><div class="stat-value" style="color:var(--cq-text-tertiary);">--</div></div>
+        <div class="cq-card stat-card"><div class="stat-label">可用余额</div><div class="stat-value" style="color:var(--cq-text-tertiary);">--</div></div>
+        <div class="cq-card stat-card"><div class="stat-label">冻结余额</div><div class="stat-value" style="color:var(--cq-text-tertiary);">--</div></div>
+        <div class="cq-card stat-card"><div class="stat-label">今日盈亏</div><div class="stat-value" style="color:var(--cq-text-tertiary);">--</div></div>
       </div>`;
     return;
   }
 
-  const pnlColor = summary.totalPnl >= 0 ? '#22c55e' : '#ef4444';
+  const pnlColor = summary.totalPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
   const pnlSign = summary.totalPnl >= 0 ? '+' : '';
 
   document.getElementById('asset-summary').innerHTML = `
-    <div class="grid-4" style="margin-bottom:24px;">
-      <div class="card stat-card">
+    <div class="cq-grid-4" style="margin-bottom:var(--cq-space-6);">
+      <div class="cq-card stat-card">
         <div class="stat-label">总资产 (USDT)</div>
-        <div class="stat-value">$${formatNum(summary.totalAssets)}</div>
+        <div class="stat-value cq-num">$${formatNum(summary.totalAssets)}</div>
         <div class="stat-sub" style="color:${pnlColor}">${pnlSign}${formatNum(summary.totalPnl)} (${pnlSign}${summary.totalPnlPercent?.toFixed(2) || 0}%)</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">可用余额</div>
-        <div class="stat-value" style="color:#22d3ee;">$${formatNum(summary.availableBalance)}</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-primary-hover);">$${formatNum(summary.availableBalance)}</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">冻结余额</div>
-        <div class="stat-value" style="color:#facc15;">$${formatNum(summary.frozenBalance)}</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-warning);">$${formatNum(summary.frozenBalance)}</div>
       </div>
-      <div class="card stat-card">
+      <div class="cq-card stat-card">
         <div class="stat-label">今日盈亏</div>
-        <div class="stat-value" style="color:${summary.todayPnl >= 0 ? '#22c55e' : '#ef4444'};">${summary.todayPnl >= 0 ? '+' : ''}$${formatNum(summary.todayPnl)}</div>
+        <div class="stat-value cq-num" style="color:${summary.todayPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${summary.todayPnl >= 0 ? '+' : ''}$${formatNum(summary.todayPnl)}</div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderPositionTable(positions) {
   const el = document.getElementById('position-section');
   if (!positions || positions.length === 0) {
-    el.innerHTML = `<div class="card" style="text-align:center;padding:32px;"><div style="font-size:28px;margin-bottom:8px;">📊</div><div style="font-size:13px;color:#64748b;">暂无持仓，运行策略后将在此展示</div></div>`;
+    el.innerHTML = `
+      <div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);">
+        ${ICONS.chart}
+        <h3>暂无持仓</h3>
+        <p>运行策略后将在此展示</p>
+      </div>`;
     return;
   }
 
   el.innerHTML = `
-    <div class="card" style="padding:0;overflow:hidden;">
-      <div class="table-wrap">
-      <table class="data-table">
+    <div class="cq-card" style="padding:0;overflow:hidden;">
+      <div class="cq-table-wrap">
+      <table class="cq-table">
         <thead>
           <tr>
             <th>交易对</th>
@@ -93,20 +104,19 @@ function renderPositionTable(positions) {
         <tbody>
           ${positions.map(p => `
             <tr>
-              <td style="font-weight:700;">${p.symbol}</td>
-              <td><span class="tag ${p.side === 'long' ? 'tag-green' : 'tag-red'}">${p.side === 'long' ? '多' : '空'}</span></td>
-              <td>${p.quantity}</td>
-              <td>$${formatNum(p.entryPrice)}</td>
-              <td>$${formatNum(p.currentPrice)}</td>
-              <td style="color:${p.unrealizedPnl >= 0 ? '#22c55e' : '#ef4444'};font-weight:700;">${p.unrealizedPnl >= 0 ? '+' : ''}$${formatNum(p.unrealizedPnl)}</td>
-              <td style="color:${p.unrealizedPnlPercent >= 0 ? '#22c55e' : '#ef4444'};">${p.unrealizedPnlPercent >= 0 ? '+' : ''}${p.unrealizedPnlPercent?.toFixed(2)}%</td>
+              <td style="font-weight:600;color:var(--cq-text-primary);">${p.symbol}</td>
+              <td><span class="cq-tag ${p.side === 'long' ? 'cq-tag--profit' : 'cq-tag--loss'}">${p.side === 'long' ? '多' : '空'}</span></td>
+              <td class="cq-num">${p.quantity}</td>
+              <td class="cq-num">$${formatNum(p.entryPrice)}</td>
+              <td class="cq-num">$${formatNum(p.currentPrice)}</td>
+              <td class="cq-num" style="color:${p.unrealizedPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};font-weight:600;">${p.unrealizedPnl >= 0 ? '+' : ''}$${formatNum(p.unrealizedPnl)}</td>
+              <td class="cq-num" style="color:${p.unrealizedPnlPercent >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${p.unrealizedPnlPercent >= 0 ? '+' : ''}${p.unrealizedPnlPercent?.toFixed(2)}%</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderEquityCurveChart(equity) {
@@ -115,8 +125,8 @@ function renderEquityCurveChart(equity) {
 
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-  gradient.addColorStop(0, 'rgba(34,211,238,0.2)');
-  gradient.addColorStop(1, 'rgba(34,211,238,0)');
+  gradient.addColorStop(0, 'rgba(99,102,241,0.15)');
+  gradient.addColorStop(1, 'rgba(99,102,241,0)');
 
   if (window._equityChart) window._equityChart.destroy();
 
@@ -127,13 +137,16 @@ function renderEquityCurveChart(equity) {
       datasets: [{
         label: '权益 (USDT)',
         data: equity.points.map(p => p.equity),
-        borderColor: '#22d3ee',
+        borderColor: '#6366F1',
         backgroundColor: gradient,
         borderWidth: 2,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 4,
+        pointHoverBackgroundColor: '#6366F1',
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
       }]
     },
     options: {
@@ -141,8 +154,8 @@ function renderEquityCurveChart(equity) {
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { color: '#1f2937' }, ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 8 } },
-        y: { grid: { color: '#1f2937' }, ticks: { color: '#475569', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(1) + 'k' } }
+        x: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'Inter', sans-serif" }, maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(31,41,55,0.5)' }, ticks: { color: '#64748B', font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: v => '$' + (v/1000).toFixed(1) + 'k' } }
       }
     }
   });

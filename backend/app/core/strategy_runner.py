@@ -21,7 +21,7 @@
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -213,7 +213,7 @@ class StrategyRunner:
             return []
 
     async def _handle_signal(self, instance_id: int, signal: Signal, config: StrategyConfig) -> None:
-        """处理策略信号"""
+        """处理策略信号：持久化信号 + WS推送 + 自动下单"""
         # 防抖：60 秒内同策略不重复发信号
         now = datetime.now(timezone.utc)
         last = self._last_signal_at.get(instance_id)
@@ -227,7 +227,10 @@ class StrategyRunner:
             instance_id, signal.action, signal.confidence, signal.reason,
         )
 
-        # 通过 WebSocket 推送信号通知
+        # ① 持久化信号到数据库
+        signal_id = await self._persist_signal(instance_id, signal, config)
+
+        # ② 通过 WebSocket 推送信号通知
         try:
             from app.api.v1.ws_market import manager
             msg = WSMessage(
@@ -236,6 +239,7 @@ class StrategyRunner:
                 symbol=config.symbol,
                 data={
                     "instance_id": instance_id,
+                    "signal_id": signal_id,
                     "action": signal.action,
                     "confidence": signal.confidence,
                     "entry_price": str(signal.entry_price) if signal.entry_price else None,
@@ -244,7 +248,6 @@ class StrategyRunner:
                     "reason": signal.reason,
                 },
             )
-            # 推送给所有订阅了该 symbol 的 WebSocket 连接
             subscribers = manager.get_subscribers("signal", config.symbol)
             for ws in subscribers:
                 try:
@@ -254,15 +257,211 @@ class StrategyRunner:
         except Exception as exc:
             logger.debug("[StrategyRunner] WS 推送信号失败: %s", exc)
 
-        # 自动下单（需要用户在策略参数中开启 auto_trade）
+        # ③ 自动下单（需要用户在策略参数中开启 auto_trade + 绑定账户）
         auto_trade = config.params.get("auto_trade", False)
         if not auto_trade:
             logger.info("[StrategyRunner] 策略 #%d auto_trade 未开启，跳过自动下单", instance_id)
             return
 
-        # TODO: 自动下单需要获取用户的 exchange_account，后续对接
-        # 当前只记录信号，不下单
-        logger.info("[StrategyRunner] 策略 #%d auto_trade 已开启，信号已记录（自动下单待实现）", instance_id)
+        await self._auto_trade(instance_id, signal, config, signal_id)
+
+    async def _persist_signal(
+        self, instance_id: int, signal: Signal, config: StrategyConfig
+    ) -> int | None:
+        """将信号写入数据库，返回 signal_id"""
+        try:
+            async with self._session_maker() as session:
+                from app.models.order import Signal as SignalModel
+                db_signal = SignalModel(
+                    strategy_instance_id=instance_id,
+                    symbol=config.symbol,
+                    action=signal.action,
+                    confidence=Decimal(str(round(signal.confidence, 4))),
+                    entry_price=signal.entry_price,
+                    stop_loss_price=signal.stop_loss_price,
+                    take_profit_price=signal.take_profit_price,
+                    status="pending",
+                    reason=signal.reason,
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                )
+                session.add(db_signal)
+                await session.commit()
+                await session.refresh(db_signal)
+                logger.info("[StrategyRunner] 信号已持久化: signal_id=%d, action=%s", db_signal.id, signal.action)
+                return db_signal.id
+        except Exception as exc:
+            logger.error("[StrategyRunner] 信号持久化失败: %s", exc)
+            return None
+
+    async def _auto_trade(
+        self,
+        instance_id: int,
+        signal: Signal,
+        config: StrategyConfig,
+        signal_id: int | None,
+    ) -> None:
+        """自动下单：查找绑定的交易所账户 → 创建订单 → 提交到交易所"""
+        try:
+            async with self._session_maker() as session:
+                # 查找策略实例及其绑定的账户
+                result = await session.execute(
+                    select(StrategyInstance)
+                    .where(StrategyInstance.id == instance_id)
+                )
+                inst = result.scalar_one_or_none()
+                if not inst:
+                    logger.error("[StrategyRunner] 策略实例 #%d 不存在", instance_id)
+                    return
+
+                if not inst.account_id:
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d 未绑定交易所账户，无法自动下单",
+                        instance_id,
+                    )
+                    # 更新信号状态为 rejected
+                    if signal_id:
+                        await self._update_signal_status(signal_id, "rejected", reason="未绑定交易所账户")
+                    return
+
+                # 获取绑定的交易所账户
+                from app.models.exchange import ExchangeAccount
+                acct_result = await session.execute(
+                    select(ExchangeAccount).where(ExchangeAccount.id == inst.account_id)
+                )
+                account = acct_result.scalar_one_or_none()
+                if not account or not account.is_active:
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d 绑定的账户 #%d 不可用",
+                        instance_id, inst.account_id,
+                    )
+                    if signal_id:
+                        await self._update_signal_status(signal_id, "rejected", reason="交易所账户不可用")
+                    return
+
+                # 确定下单方向
+                if signal.action in ("buy", "sell"):
+                    side = signal.action
+                elif signal.action == "close":
+                    # 平仓信号 → 查找持仓确定方向
+                    from app.models.exchange import Position
+                    pos_result = await session.execute(
+                        select(Position).where(
+                            Position.account_id == account.id,
+                            Position.symbol == config.symbol,
+                            Position.status == "open",
+                        )
+                    )
+                    position = pos_result.scalar_one_or_none()
+                    if not position:
+                        logger.info("[StrategyRunner] 策略 #%d close 信号但无持仓，跳过", instance_id)
+                        return
+                    side = "sell" if position.side == "long" else "buy"
+                else:
+                    logger.warning("[StrategyRunner] 未知信号动作: %s", signal.action)
+                    return
+
+                # 计算下单数量（使用账户可用余额的 95%）
+                quantity = self._calculate_order_quantity(
+                    account.balance, signal.entry_price, config.symbol, side
+                )
+                if quantity <= 0:
+                    logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0，跳过", instance_id)
+                    if signal_id:
+                        await self._update_signal_status(signal_id, "rejected", reason="余额不足")
+                    return
+
+                # 创建订单
+                from app.services.order_service import OrderService
+                order_service = OrderService(session)
+                order = await order_service.create_order(
+                    user_id=inst.user_id,
+                    account_id=account.id,
+                    symbol=config.symbol,
+                    side=side,
+                    order_type="market",
+                    quantity=quantity,
+                    strategy_instance_id=instance_id,
+                )
+
+                # 提交到交易所
+                await order_service.submit_order(order.id, inst.user_id)
+
+                # 更新信号状态
+                if signal_id:
+                    await self._update_signal_status(
+                        signal_id, "executed", order_id=order.id
+                    )
+
+                logger.info(
+                    "[StrategyRunner] 策略 #%d 自动下单成功: order_id=%d, side=%s, qty=%s",
+                    instance_id, order.id, side, quantity,
+                )
+
+        except Exception as exc:
+            logger.error("[StrategyRunner] 策略 #%d 自动下单失败: %s", instance_id, exc)
+            if signal_id:
+                try:
+                    await self._update_signal_status(signal_id, "rejected", reason=str(exc))
+                except Exception:
+                    pass
+
+    def _calculate_order_quantity(
+        self,
+        balance: Decimal,
+        entry_price: Decimal | None,
+        symbol: str,
+        side: str,
+    ) -> Decimal:
+        """计算下单数量"""
+        if not entry_price or entry_price <= 0:
+            return Decimal("0")
+
+        # 使用可用余额的 95%
+        invest_amount = balance * Decimal("0.95")
+        quantity = invest_amount / entry_price
+
+        # 根据交易对确定最小下单量
+        symbol_upper = symbol.upper()
+        if "BTC" in symbol_upper:
+            min_qty = Decimal("0.001")
+        elif "ETH" in symbol_upper:
+            min_qty = Decimal("0.01")
+        elif "SOL" in symbol_upper:
+            min_qty = Decimal("0.1")
+        else:
+            min_qty = Decimal("1")
+
+        # 卖出不受余额限制（平仓场景）
+        if side == "sell":
+            return quantity
+
+        return max(quantity, min_qty) if quantity >= min_qty else Decimal("0")
+
+    async def _update_signal_status(
+        self,
+        signal_id: int,
+        status: str,
+        order_id: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """更新信号状态"""
+        try:
+            async with self._session_maker() as session:
+                from app.models.order import Signal as SignalModel
+                result = await session.execute(
+                    select(SignalModel).where(SignalModel.id == signal_id)
+                )
+                db_signal = result.scalar_one_or_none()
+                if db_signal:
+                    db_signal.status = status
+                    if order_id:
+                        db_signal.executed_order_id = order_id
+                        db_signal.executed_at = datetime.now(timezone.utc)
+                    if reason and status == "rejected":
+                        db_signal.reason = (db_signal.reason or "") + f" [{reason}]"
+                    await session.commit()
+        except Exception as exc:
+            logger.error("[StrategyRunner] 更新信号状态失败: %s", exc)
 
     async def _update_last_run(self, instance_id: int) -> None:
         """更新策略实例的 last_run_at"""
