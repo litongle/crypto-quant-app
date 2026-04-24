@@ -199,7 +199,7 @@
                 </div>
                 <div>
                   <label class="cq-label">交易对</label>
-                  <input type="text" class="cq-input" id="new-strategy-symbol" placeholder="BTCUSDT" value="BTCUSDT">
+                  <div id="strategy-symbol-selector"></div>
                 </div>
               </div>
               <div id="param-sliders" style="margin-bottom:var(--cq-space-4);"></div>
@@ -232,7 +232,7 @@
           </div>
           <div style="margin-bottom:var(--cq-space-3);">
             <label class="cq-label">交易对</label>
-            <input type="text" class="cq-input" id="backtest-symbol" value="BTCUSDT">
+            <div id="backtest-symbol-selector"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
             <div>
@@ -286,6 +286,7 @@
 <!-- JS -->
 <script src="/web/static/js/api.js"></script>
 <script src="/web/static/js/dashboard.js"></script>
+<script src="/web/static/js/symbol-selector.js"></script>
 <script src="/web/static/js/strategy.js"></script>
 <script src="/web/static/js/backtest.js"></script>
 <script src="/web/static/js/accounts.js"></script>

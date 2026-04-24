@@ -25,6 +25,18 @@ async function loadStrategyPage() {
   const container = document.getElementById('instance-list');
   container.innerHTML = '<div class="cq-skeleton" style="height:80px;margin-bottom:var(--cq-space-3);"></div><div class="cq-skeleton" style="height:60px;"></div>';
 
+  // 初始化交易对选择器（只创建一次）
+  if (!window._strategySymbolSel) {
+    const selEl = document.getElementById('strategy-symbol-selector');
+    if (selEl) {
+      window._strategySymbolSel = new SymbolSelector({
+        containerId: 'strategy-symbol-selector',
+        value: 'BTCUSDT',
+        exchangeFilter: 'new-strategy-exchange',
+      });
+    }
+  }
+
   try {
     const [templates, instances] = await Promise.all([
       api.getStrategyTemplates().catch(() => []),
@@ -174,7 +186,7 @@ async function createStrategyInstance() {
   if (!name) { showToast('请输入策略名称', 'warn'); return; }
 
   const exchange = document.getElementById('new-strategy-exchange').value;
-  const symbol = document.getElementById('new-strategy-symbol').value.trim() || 'BTCUSDT';
+  const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
 
   const params = {};
   document.querySelectorAll('#param-sliders input[type="range"]').forEach(sl => {

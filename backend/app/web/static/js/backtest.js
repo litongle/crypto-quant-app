@@ -2,6 +2,17 @@
  * 回测页面逻辑 v2 — 使用设计令牌
  */
 async function loadBacktestPage() {
+  // 初始化交易对选择器（只创建一次）
+  if (!window._backtestSymbolSel) {
+    const selEl = document.getElementById('backtest-symbol-selector');
+    if (selEl) {
+      window._backtestSymbolSel = new SymbolSelector({
+        containerId: 'backtest-symbol-selector',
+        value: 'BTCUSDT',
+      });
+    }
+  }
+
   try {
     const templates = await api.getStrategyTemplates();
     renderBacktestTemplateSelect(templates);
@@ -24,7 +35,7 @@ async function runBacktest() {
   const templateId = document.getElementById('backtest-template-select').value;
   if (!templateId) { showToast('请选择策略模板', 'warn'); return; }
 
-  const symbol = document.getElementById('backtest-symbol').value.trim() || 'BTCUSDT';
+  const symbol = window._backtestSymbolSel ? window._backtestSymbolSel.getValue() : 'BTCUSDT';
   const startDate = document.getElementById('backtest-start').value || '2024-01-01';
   const endDate = document.getElementById('backtest-end').value || '2025-12-31';
   const initialCapital = parseFloat(document.getElementById('backtest-capital').value) || 100000;
