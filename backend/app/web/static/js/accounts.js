@@ -1,5 +1,5 @@
 /**
- * 交易所账户管理页面逻辑 v2 — 使用设计令牌
+ * 交易所账户管理页面逻辑 v3 — 状态展示 + 余额同步 + 错误提示
  */
 let accounts = [];
 let showAddForm = false;
@@ -9,6 +9,13 @@ const EXCHANGE_META = {
   binance: { label: 'Binance', color: 'var(--cq-color-binance)', letter: 'B', icon: 'B' },
   okx:     { label: 'OKX',     color: 'var(--cq-color-okx)',     letter: 'O', icon: 'O' },
   huobi:   { label: 'HTX',     color: 'var(--cq-color-htx)',     letter: 'H', icon: 'H' },
+};
+
+/* ── 状态映射 ── */
+const STATUS_MAP = {
+  active:  { label: '已连接', color: 'var(--cq-color-profit)',  bg: 'rgba(34,197,94,0.1)' },
+  error:   { label: '连接异常', color: 'var(--cq-color-loss)',    bg: 'rgba(239,68,68,0.1)' },
+  disabled:{ label: '已禁用', color: 'var(--cq-text-disabled)', bg: 'var(--cq-bg-l2)' },
 };
 
 async function loadAccountsPage() {
@@ -58,7 +65,7 @@ function renderAccounts() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
         <div>
           <label class="cq-label">交易所</label>
-          <select class="cq-input" id="acc-exchange">
+          <select class="cq-input" id="acc-exchange" onchange="onExchangeChange()">
             <option value="binance">Binance</option>
             <option value="okx">OKX</option>
             <option value="huobi">HTX (火币)</option>
@@ -78,7 +85,7 @@ function renderAccounts() {
         <input type="password" class="cq-input" id="acc-secretkey" placeholder="输入 Secret Key">
       </div>
       <div style="margin-bottom:var(--cq-space-3);" id="passphrase-field">
-        <label class="cq-label">Passphrase <span style="color:var(--cq-text-disabled);">(OKX 必须，其他可不填)</span></label>
+        <label class="cq-label">Passphrase <span style="color:var(--cq-color-warning);font-weight:600;">(OKX 必须，其他可不填)</span></label>
         <input type="password" class="cq-input" id="acc-passphrase" placeholder="输入 Passphrase">
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);">
@@ -98,7 +105,7 @@ function renderAccounts() {
           <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);">API Key 和 Secret Key 会使用 AES-256 加密存储。我们不会以明文形式存储或传输您的密钥。</div>
         </div>
       </div>
-      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="submitAddAccount()">确认添加</button>
+      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="submitAddAccount()" id="add-account-btn">确认添加</button>
     </div>`;
   }
 
@@ -107,36 +114,94 @@ function renderAccounts() {
     html += '<div style="display:flex;flex-direction:column;gap:var(--cq-space-3);">';
     for (const acc of accounts) {
       const meta = EXCHANGE_META[acc.exchange] || { label: acc.exchange, color: 'var(--cq-color-primary)', letter: acc.exchange[0]?.toUpperCase() || '?' };
+      const statusInfo = STATUS_MAP[acc.status] || STATUS_MAP.disabled;
       const badges = [];
       if (acc.is_testnet) badges.push('<span class="cq-tag cq-tag--neutral">测试网</span>');
       if (acc.is_demo) badges.push('<span class="cq-tag cq-tag--warn">模拟盘</span>');
 
+      // 同步时间显示
+      let syncInfo = '';
+      if (acc.last_sync_at) {
+        const syncDate = new Date(acc.last_sync_at);
+        const ago = timeAgo(syncDate);
+        syncInfo = `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);margin-top:2px;">最后同步: ${ago}</div>`;
+      } else {
+        syncInfo = '<div style="font-size:var(--cq-text-xs);color:var(--cq-color-warning);margin-top:2px;">尚未同步</div>';
+      }
+
+      // 错误信息
+      let errorHtml = '';
+      if (acc.error_message) {
+        errorHtml = `
+        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--cq-radius-md);padding:var(--cq-space-2) var(--cq-space-3);margin-top:var(--cq-space-2);font-size:var(--cq-text-xs);color:var(--cq-color-loss);display:flex;align-items:flex-start;gap:var(--cq-space-2);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span>${acc.error_message}</span>
+        </div>`;
+      }
+
       html += `
-      <div class="cq-card account-card-inner" style="display:flex;align-items:center;justify-content:space-between;padding:var(--cq-space-4) var(--cq-space-5);">
-        <div style="display:flex;align-items:center;gap:var(--cq-space-4);">
-          <div style="width:44px;height:44px;border-radius:var(--cq-radius-lg);background:var(--cq-bg-l2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:${meta.color};flex-shrink:0;border:1px solid var(--cq-border-default);">${meta.letter}</div>
-          <div style="min-width:0;">
-            <div style="font-weight:600;font-size:var(--cq-text-md);margin-bottom:var(--cq-space-1);color:var(--cq-text-primary);">${acc.account_name || meta.label}</div>
-            <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">${meta.label} · ${acc.exchange}</div>
-            ${badges.length ? '<div style="margin-top:var(--cq-space-1);display:flex;gap:var(--cq-space-1);">' + badges.join('') + '</div>' : ''}
+      <div class="cq-card account-card-inner" style="padding:var(--cq-space-4) var(--cq-space-5);">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:var(--cq-space-4);">
+            <div style="width:44px;height:44px;border-radius:var(--cq-radius-lg);background:var(--cq-bg-l2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:${meta.color};flex-shrink:0;border:1px solid var(--cq-border-default);">${meta.letter}</div>
+            <div style="min-width:0;">
+              <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-1);">
+                <span style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-text-primary);">${acc.account_name || meta.label}</span>
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--cq-text-xs);padding:2px 8px;border-radius:999px;background:${statusInfo.bg};color:${statusInfo.color};font-weight:500;">
+                  <span style="width:6px;height:6px;border-radius:50%;background:${statusInfo.color};"></span>
+                  ${statusInfo.label}
+                </span>
+                ${badges.length ? badges.join('') : ''}
+              </div>
+              <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">${meta.label}</div>
+              ${syncInfo}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:var(--cq-space-3);">
+            <div style="text-align:right;">
+              <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:2px;">余额</div>
+              <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${Number(acc.balance || 0).toFixed(4)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
+              ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);">冻结: ${Number(acc.frozen_balance).toFixed(4)}</div>` : ''}
+            </div>
+            <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="syncAccount(${acc.id})" title="同步余额" id="sync-btn-${acc.id}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              同步
+            </button>
+            <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="deleteAccount(${acc.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              删除
+            </button>
           </div>
         </div>
-        <div class="account-card-actions" style="display:flex;align-items:center;gap:var(--cq-space-3);">
-          <div style="text-align:right;">
-            <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:2px;">余额</div>
-            <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${Number(acc.balance || 0).toFixed(4)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
-          </div>
-          <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="deleteAccount(${acc.id})">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            删除
-          </button>
-        </div>
+        ${errorHtml}
       </div>`;
     }
     html += '</div>';
   }
 
   container.innerHTML = html;
+}
+
+/* ── 工具函数 ── */
+function timeAgo(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+  return Math.floor(diff / 86400) + '天前';
+}
+
+function onExchangeChange() {
+  const exchange = document.getElementById('acc-exchange')?.value;
+  const passphraseLabel = document.querySelector('#passphrase-field .cq-label');
+  if (passphraseLabel) {
+    if (exchange === 'okx') {
+      passphraseLabel.innerHTML = 'Passphrase <span style="color:var(--cq-color-loss);font-weight:600;">*必须填写</span>';
+    } else {
+      passphraseLabel.innerHTML = 'Passphrase <span style="color:var(--cq-text-disabled);">(OKX 必须，其他可不填)</span>';
+    }
+  }
 }
 
 function toggleAddForm() {
@@ -164,8 +229,13 @@ async function submitAddAccount() {
     return;
   }
 
+  const btn = document.getElementById('add-account-btn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="cq-spin" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;"></span> 添加并同步中...';
+
   try {
-    await api.createExchangeAccount({
+    const result = await api.createExchangeAccount({
       exchange,
       account_name: account_name || undefined,
       api_key,
@@ -174,12 +244,57 @@ async function submitAddAccount() {
       is_testnet,
       is_demo,
     });
-    showToast('账户添加成功', 'success');
+
+    // 根据返回的账户状态判断同步结果
+    if (result.status === 'error') {
+      showToast('账户已添加，但余额同步失败，请检查 API Key', 'warn');
+    } else if (result.balance && Number(result.balance) > 0) {
+      showToast('账户添加成功，余额已同步', 'success');
+    } else {
+      showToast('账户添加成功，余额为 0 或未同步', 'info');
+    }
+
     showAddForm = false;
     accounts = await api.getExchangeAccounts();
     renderAccounts();
   } catch (err) {
-    showToast(err.message || '添加失败', 'error');
+    // 区分账户创建成功但同步失败 vs 完全失败
+    const msg = err.message || '添加失败';
+    if (msg.includes('余额同步失败')) {
+      showToast('账户已添加，但余额同步失败，请检查 API Key 后点击同步', 'warn');
+      showAddForm = false;
+      accounts = await api.getExchangeAccounts();
+      renderAccounts();
+    } else {
+      showToast(msg, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origText;
+  }
+}
+
+async function syncAccount(accountId) {
+  const btn = document.getElementById(`sync-btn-${accountId}`);
+  if (!btn) return;
+
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="cq-spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(99,102,241,0.3);border-top-color:var(--cq-color-primary);border-radius:50%;"></span>';
+
+  try {
+    await api.syncExchangeAccount(accountId);
+    showToast('余额同步成功', 'success');
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
+  } catch (err) {
+    showToast(err.message || '同步失败，请检查 API Key 和网络', 'error');
+    // 刷新列表以显示错误状态
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
   }
 }
 

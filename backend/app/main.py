@@ -34,6 +34,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("WebSocket 代理初始化失败（不影响 REST API）: %s", exc)
 
+    # 自动 seed 策略模板（首次启动时）
+    if not settings.setup_required:
+        try:
+            from app.seed_data import init_strategy_templates
+            await init_strategy_templates()
+            logger.info("策略模板数据已就绪")
+        except Exception as exc:
+            logger.warning("策略模板初始化失败: %s", exc)
+
     # 启动策略运行器
     try:
         from app.core.strategy_runner import strategy_runner

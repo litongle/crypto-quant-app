@@ -37,6 +37,48 @@ class StrategyService:
         """根据代码获取策略模板"""
         return await self.template_repo.get_by_code(code)
 
+    async def _ensure_template(self, template_id: int | str) -> StrategyTemplate | None:
+        """确保策略模板在 DB 中存在，不存在则自动从 seed_data 补建
+
+        Args:
+            template_id: 模板ID（int=数据库ID, str=code如ma_cross）
+        """
+        from app.seed_data import STRATEGY_TEMPLATES
+
+        # 确定要查找的 code
+        if isinstance(template_id, int):
+            _STR_ID_MAP = {"ma_cross": 1, "rsi": 2, "bollinger": 3, "grid": 4, "martingale": 5}
+            code = {v: k for k, v in _STR_ID_MAP.items()}.get(template_id)
+            if not code:
+                return None
+        else:
+            code = template_id
+
+        # 在 seed_data 中找到对应定义
+        seed = next((t for t in STRATEGY_TEMPLATES if t["code"] == code), None)
+        if not seed:
+            return None
+
+        # 先查一下是否已有（并发安全）
+        existing = await self.template_repo.get_by_code(code)
+        if existing:
+            return existing
+
+        # 创建模板记录
+        new_template = StrategyTemplate(
+            code=seed["code"],
+            name=seed["name"],
+            description=seed["description"],
+            strategy_type=seed["strategy_type"],
+            risk_level=seed.get("risk_level", "medium"),
+            params_schema=seed.get("params_schema", {}),
+            is_active=True,
+        )
+        self.session.add(new_template)
+        await self.session.flush()
+        await self.session.refresh(new_template)
+        return new_template
+
     async def get_user_instances(
         self, user_id: int, active_only: bool = False
     ) -> list[StrategyInstance]:
@@ -74,11 +116,14 @@ class StrategyService:
         else:
             template = await self.template_repo.get_by_id(template_id)
 
+        # 模板不在DB中时，自动从 seed_data 补建
         if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="策略模板不存在",
-            )
+            template = await self._ensure_template(template_id)
+            if not template:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="策略模板不存在",
+                )
 
         # 验证 account_id（如果指定）
         if account_id:

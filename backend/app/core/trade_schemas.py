@@ -126,6 +126,8 @@ class AccountInfoSchema(BaseModel):
     status: str
     balance: str = "0"
     frozen_balance: str = "0"
+    error_message: str | None = None
+    last_sync_at: str | None = None
 
     @classmethod
     def from_model(cls, a: Any) -> "AccountInfoSchema":
@@ -139,6 +141,8 @@ class AccountInfoSchema(BaseModel):
             status=a.status,
             balance=str(getattr(a, "balance", 0)),
             frozen_balance=str(getattr(a, "frozen_balance", 0)),
+            error_message=getattr(a, "error_message", None),
+            last_sync_at=_dt_to_iso(getattr(a, "last_sync_at", None)),
         )
 
 
