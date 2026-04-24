@@ -114,7 +114,9 @@ function renderBacktestResults(result) {
       <div class="cq-section-title" style="margin-bottom:var(--cq-space-3);">
         <h3>收益曲线</h3>
       </div>
-      <canvas id="backtestResultChart" height="200"></canvas>
+      <div style="position:relative;height:280px;width:100%;">
+        <canvas id="backtestResultChart"></canvas>
+      </div>
     </div>`;
 
   const points = result.equityCurve || result.points || [];
