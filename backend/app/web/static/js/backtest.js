@@ -29,6 +29,13 @@ async function runBacktest() {
   const endDate = document.getElementById('backtest-end').value || '2025-12-31';
   const initialCapital = parseFloat(document.getElementById('backtest-capital').value) || 100000;
 
+  // 计算日期跨度，给提示
+  const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
+  let intervalHint = '';
+  if (daysDiff > 800) intervalHint = '（将使用日线级别）';
+  else if (daysDiff > 200) intervalHint = '（将使用4小时级别）';
+  else intervalHint = '（1小时级别）';
+
   const params = {};
   document.querySelectorAll('#backtest-params input[type="range"]').forEach(sl => {
     const key = sl.id.replace('sl-bt-', '');
@@ -37,7 +44,7 @@ async function runBacktest() {
 
   const btn = document.getElementById('run-backtest-btn');
   btn.disabled = true;
-  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 回测运行中...';
+  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 回测运行中' + intervalHint + '...';
 
   try {
     const result = await api.runBacktest({
@@ -50,7 +57,8 @@ async function runBacktest() {
     });
 
     renderBacktestResults(result);
-    showToast('回测完成！', 'success');
+    const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒)` : '';
+    showToast('回测完成！' + extra, 'success');
   } catch (err) {
     showToast('回测失败: ' + err.message, 'error');
     document.getElementById('backtest-results').innerHTML = `

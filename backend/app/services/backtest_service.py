@@ -1,15 +1,17 @@
 """
-回测服务 - 完整版
+回测服务 v2 - 内存优化版
 
-架构：
-- 使用 StrategyFactory 创建策略实例，调用 analyze() 生成信号
-- 从 Binance 公开 API 获取历史K线数据（无需 API Key）
-- 模拟订单执行，跟踪权益曲线
-- 集成 PerformanceCalculator 计算绩效指标
-- 支持所有 5 种策略类型：MA / RSI / Bollinger / Grid / Martingale
+核心优化：
+1. K线数据量上限 5000 根，跨度过大自动升级时间级别（1h→4h→1d）
+2. 策略分析只传滑动窗口（最近 200 根），不再全量拷贝
+3. 权益曲线实时采样，不累积全量 EquityPoint 对象
+4. 超时保护：最长 60 秒
+5. K线预转换为 float，避免循环内重复转换
 """
+import asyncio
 import logging
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -40,16 +42,30 @@ _TEMPLATE_MAP = {
     "martingale": "martingale",
 }
 
+# 时间级别配置：(interval, 每天约多少根, 最大支持天数)
+_INTERVAL_CONFIG = [
+    ("1h", 24, 200),    # 200天以内用1h
+    ("4h", 6, 800),     # 200-800天用4h
+    ("1d", 1, 3650),    # 800天-10年用1d
+]
+
+# 策略分析用滑动窗口大小
+_ANALYSIS_WINDOW = 200
+
+# 最大K线数量
+_MAX_KLINES = 5000
+
+# 回测超时（秒）
+_BACKTEST_TIMEOUT = 60
+
 
 class BacktestService:
-    """回测服务"""
+    """回测服务 v2"""
 
-    # 共享 httpx 客户端（K线数据请求）
     _shared_client: httpx.AsyncClient | None = None
 
     @classmethod
     async def _get_client(cls) -> httpx.AsyncClient:
-        """获取共享 httpx 客户端"""
         if cls._shared_client is None or cls._shared_client.is_closed:
             cls._shared_client = httpx.AsyncClient(
                 timeout=30.0,
@@ -59,10 +75,25 @@ class BacktestService:
 
     @classmethod
     async def close_client(cls) -> None:
-        """关闭共享客户端"""
         if cls._shared_client and not cls._shared_client.is_closed:
             await cls._shared_client.aclose()
             cls._shared_client = None
+
+    def _select_interval(self, start_date: str, end_date: str) -> tuple[str, str]:
+        """根据日期跨度自动选择K线时间级别"""
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+            days = (end - start).days
+        except ValueError:
+            days = 90
+
+        for interval, bars_per_day, max_days in _INTERVAL_CONFIG:
+            if days <= max_days:
+                label_map = {"1h": "1小时", "4h": "4小时", "1d": "日线"}
+                return interval, label_map.get(interval, interval)
+
+        return "1d", "日线"
 
     async def execute_backtest(
         self,
@@ -74,33 +105,26 @@ class BacktestService:
         initial_capital: float = 100000,
         params: dict | None = None,
     ) -> dict:
-        """
-        执行策略回测
-
-        Args:
-            template_id: 策略模板ID (ma_cross/rsi/bollinger/grid/martingale)
-            symbol: 交易对 (BTCUSDT)
-            exchange: 交易所 (binance/okx/htx)
-            start_date: 开始日期 (YYYY-MM-DD)
-            end_date: 结束日期 (YYYY-MM-DD)
-            initial_capital: 初始资金
-            params: 策略参数
-
-        Returns:
-            dict: 回测结果（含绩效指标 + 权益曲线 + 交易记录）
-        """
+        """执行策略回测"""
         params = params or {}
+        start_time = time.monotonic()
+
+        # 自动选择时间级别
+        interval, interval_label = self._select_interval(start_date, end_date)
 
         # 1. 获取K线数据
-        klines = await self._fetch_klines(symbol, start_date, end_date)
+        klines = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
         if len(klines) < 50:
             return {
                 "error": "回测数据不足，至少需要 50 根K线",
                 "code": 4001,
-                "detail": f"获取到 {len(klines)} 根K线，需要至少 50 根",
+                "detail": f"获取到 {len(klines)} 根K线（{interval_label}级别），需要至少 50 根",
             }
 
-        # 1.5 获取K线数据后检查数据源
+        # 截取
+        if len(klines) > _MAX_KLINES:
+            klines = klines[-_MAX_KLINES:]
+
         data_source = "mock" if getattr(self, "_using_mock_data", True) else "binance"
 
         # 2. 创建策略实例
@@ -116,17 +140,29 @@ class BacktestService:
         try:
             strategy = get_strategy(strategy_type, config)
         except ValueError:
+            return {"error": f"不支持的策略类型: {template_id}", "code": 3001}
+
+        # 3. 运行回测引擎（带超时保护）
+        try:
+            result = await asyncio.wait_for(
+                self._run_backtest_engine(
+                    strategy=strategy,
+                    klines=klines,
+                    initial_capital=Decimal(str(initial_capital)),
+                    interval_label=interval_label,
+                ),
+                timeout=_BACKTEST_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
             return {
-                "error": f"不支持的策略类型: {template_id}",
-                "code": 3001,
+                "error": f"回测超时（{_BACKTEST_TIMEOUT}秒），请缩小时间范围",
+                "code": 4002,
             }
 
-        # 3. 运行回测引擎
-        result = await self._run_backtest_engine(
-            strategy=strategy,
-            klines=klines,
-            initial_capital=Decimal(str(initial_capital)),
-        )
+        elapsed = time.monotonic() - start_time
+        result["elapsedSeconds"] = round(elapsed, 1)
+        result["interval"] = interval_label
+        result["klineCount"] = len(klines)
 
         return result
 
@@ -135,52 +171,65 @@ class BacktestService:
         strategy: BaseStrategy,
         klines: list[dict],
         initial_capital: Decimal,
+        interval_label: str = "",
     ) -> dict:
-        """回测引擎核心
+        """回测引擎核心 v2 — 内存优化版
 
-        逐根K线驱动策略，模拟订单执行，跟踪权益变化。
+        关键优化：
+        1. 策略分析只传滑动窗口 float_klines[window_start:i+1]
+        2. 预转换 float 格式，不循环内创建新 list
+        3. 权益曲线在采样点直接写入 dict，不累积 EquityPoint
+        4. 同时维护精确 EquityPoint 列表供绩效计算（采样间隔保存）
         """
         capital = initial_capital
-        position: dict | None = None  # {"side": "long"/"short", "quantity": Decimal, "entry_price": Decimal, "entry_time": datetime}
+        position: dict | None = None
         trades: list[TradeRecord] = []
-        equity_curve: list[EquityPoint] = []
-        commission_rate = Decimal("0.001")  # 0.1% 手续费
+        commission_rate = Decimal("0.001")
 
-        # 初始权益点
-        equity_curve.append(EquityPoint(
-            timestamp=klines[0]["timestamp"],
-            equity=initial_capital,
-        ))
+        # 预转换K线为 float 格式（只做一次，O(n)）
+        float_klines = [
+            {
+                "open": float(k["open"]),
+                "high": float(k["high"]),
+                "low": float(k["low"]),
+                "close": float(k["close"]),
+                "volume": float(k["volume"]),
+            }
+            for k in klines
+        ]
 
-        # 最小K线数量（策略需要历史数据）
         min_history = 50
 
+        # 权益曲线采样：用于前端展示（最多 200 个点）
+        _sample_step = max(1, (len(klines) - min_history) // 200)
+        display_equity: list[dict] = []
+
+        # 精确权益曲线：用于绩效计算（采样保存，最多 500 个点）
+        _perf_step = max(1, (len(klines) - min_history) // 500)
+        perf_equity: list[EquityPoint] = [
+            EquityPoint(timestamp=klines[0]["timestamp"], equity=initial_capital)
+        ]
+
+        # 初始展示点
+        display_equity.append({
+            "date": klines[0]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+            "equity": float(initial_capital),
+        })
+
         for i in range(min_history, len(klines)):
-            current_kline = klines[i]
-            current_price = current_kline["close"]
-            current_time = current_kline["timestamp"]
+            current_price = klines[i]["close"]
+            current_time = klines[i]["timestamp"]
 
-            # 构建历史K线窗口
-            history_klines = klines[:i + 1]
-
-            # 格式化为策略引擎期望的格式
-            formatted_history = []
-            for k in history_klines:
-                formatted_history.append({
-                    "open": float(k["open"]),
-                    "high": float(k["high"]),
-                    "low": float(k["low"]),
-                    "close": float(k["close"]),
-                    "volume": float(k["volume"]),
-                })
+            # 滑动窗口：只传最近 _ANALYSIS_WINDOW 根给策略
+            window_start = max(0, i - _ANALYSIS_WINDOW + 1)
+            history_slice = float_klines[window_start:i + 1]
 
             # 策略分析
-            signal = await strategy.analyze(formatted_history)
+            signal = await strategy.analyze(history_slice)
 
+            # 交易逻辑
             if signal is not None:
-                # 处理买入信号
                 if signal.action == "buy" and position is None:
-                    # 使用 95% 资金开仓
                     invest_amount = capital * Decimal("0.95")
                     quantity = invest_amount / current_price
                     commission = invest_amount * commission_rate
@@ -194,66 +243,13 @@ class BacktestService:
                     }
                     capital -= invest_amount + commission
 
-                # 处理卖出信号（平仓）
                 elif signal.action == "sell" and position is not None:
                     close_value = position["quantity"] * current_price
                     commission = close_value * commission_rate
 
-                    # 计算盈亏
-                    if position["side"] == "long":
-                        pnl = (current_price - position["entry_price"]) * position["quantity"]
-                    else:
-                        pnl = (position["entry_price"] - current_price) * position["quantity"]
-
-                    pnl -= commission  # 扣除平仓手续费
-
-                    # 记录交易
-                    trades.append(TradeRecord(
-                        entry_price=position["entry_price"],
-                        exit_price=current_price,
-                        quantity=position["quantity"],
-                        side=position["side"],
-                        entry_time=position["entry_time"],
-                        exit_time=current_time,
-                        pnl=pnl,
-                        commission=position["commission_paid"] + commission,
-                    ))
-
-                    capital += close_value - commission
-                    position = None
-
-            # 检查止损止盈（如果有持仓）
-            if position is not None:
-                sl_price = signal.stop_loss_price if signal else None
-                tp_price = signal.take_profit_price if signal else None
-
-                # 止损检查
-                should_close = False
-                close_reason = ""
-                if position["side"] == "long":
-                    if sl_price and current_price <= sl_price:
-                        should_close = True
-                        close_reason = "止损"
-                    elif tp_price and current_price >= tp_price:
-                        should_close = True
-                        close_reason = "止盈"
-                elif position["side"] == "short":
-                    if sl_price and current_price >= sl_price:
-                        should_close = True
-                        close_reason = "止损"
-                    elif tp_price and current_price <= tp_price:
-                        should_close = True
-                        close_reason = "止盈"
-
-                if should_close:
-                    close_value = position["quantity"] * current_price
-                    commission = close_value * commission_rate
-
-                    if position["side"] == "long":
-                        pnl = (current_price - position["entry_price"]) * position["quantity"]
-                    else:
-                        pnl = (position["entry_price"] - current_price) * position["quantity"]
-
+                    pnl = (current_price - position["entry_price"]) * position["quantity"] \
+                        if position["side"] == "long" \
+                        else (position["entry_price"] - current_price) * position["quantity"]
                     pnl -= commission
 
                     trades.append(TradeRecord(
@@ -270,15 +266,61 @@ class BacktestService:
                     capital += close_value - commission
                     position = None
 
-            # 记录权益
+            # 止损止盈
+            if position is not None:
+                sl_price = signal.stop_loss_price if signal else None
+                tp_price = signal.take_profit_price if signal else None
+
+                should_close = False
+                if position["side"] == "long":
+                    if (sl_price and current_price <= sl_price) or (tp_price and current_price >= tp_price):
+                        should_close = True
+                else:
+                    if (sl_price and current_price >= sl_price) or (tp_price and current_price <= tp_price):
+                        should_close = True
+
+                if should_close:
+                    close_value = position["quantity"] * current_price
+                    commission = close_value * commission_rate
+
+                    pnl = (current_price - position["entry_price"]) * position["quantity"] \
+                        if position["side"] == "long" \
+                        else (position["entry_price"] - current_price) * position["quantity"]
+                    pnl -= commission
+
+                    trades.append(TradeRecord(
+                        entry_price=position["entry_price"],
+                        exit_price=current_price,
+                        quantity=position["quantity"],
+                        side=position["side"],
+                        entry_time=position["entry_time"],
+                        exit_time=current_time,
+                        pnl=pnl,
+                        commission=position["commission_paid"] + commission,
+                    ))
+
+                    capital += close_value - commission
+                    position = None
+
+            # 当前权益
             current_equity = capital
             if position is not None:
                 current_equity += position["quantity"] * current_price
 
-            equity_curve.append(EquityPoint(
-                timestamp=current_time,
-                equity=current_equity,
-            ))
+            # 采样：展示权益曲线
+            idx = i - min_history
+            if idx % _sample_step == 0:
+                display_equity.append({
+                    "date": current_time.strftime("%Y-%m-%d %H:%M"),
+                    "equity": float(round(current_equity, 2)),
+                })
+
+            # 采样：绩效权益曲线
+            if idx % _perf_step == 0:
+                perf_equity.append(EquityPoint(
+                    timestamp=current_time,
+                    equity=current_equity,
+                ))
 
         # 平仓未结束的头寸
         if position is not None:
@@ -286,11 +328,9 @@ class BacktestService:
             close_value = position["quantity"] * final_price
             commission = close_value * commission_rate
 
-            if position["side"] == "long":
-                pnl = (final_price - position["entry_price"]) * position["quantity"]
-            else:
-                pnl = (position["entry_price"] - final_price) * position["quantity"]
-
+            pnl = (final_price - position["entry_price"]) * position["quantity"] \
+                if position["side"] == "long" \
+                else (position["entry_price"] - final_price) * position["quantity"]
             pnl -= commission
 
             trades.append(TradeRecord(
@@ -305,28 +345,29 @@ class BacktestService:
             ))
 
             capital += close_value - commission
+            position = None
 
-        # 4. 使用 PerformanceCalculator 计算绩效
+        # 最终权益
+        final_equity = capital
+        display_equity.append({
+            "date": klines[-1]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+            "equity": float(round(final_equity, 2)),
+        })
+        perf_equity.append(EquityPoint(
+            timestamp=klines[-1]["timestamp"],
+            equity=final_equity,
+        ))
+
+        # 绩效计算
         report = PerformanceCalculator.calculate(
             trades=trades,
-            equity_curve=equity_curve,
+            equity_curve=perf_equity,
             initial_capital=initial_capital,
         )
 
-        # 5. 构建返回结果
-        equity_points = []
-        # 采样权益曲线（最多 200 个点，避免数据量过大）
-        step = max(1, len(equity_curve) // 200)
-        for i in range(0, len(equity_curve), step):
-            point = equity_curve[i]
-            equity_points.append({
-                "date": point.timestamp.strftime("%Y-%m-%d %H:%M"),
-                "equity": float(round(point.equity, 2)),
-            })
-
-        # 交易记录（最多 50 条）
+        # 交易记录（最多 100 条）
         trade_records = []
-        for t in trades[:50]:
+        for t in trades[:100]:
             trade_records.append({
                 "side": t.side,
                 "entryPrice": float(t.entry_price),
@@ -338,7 +379,6 @@ class BacktestService:
             })
 
         return {
-            # 绩效指标
             "totalReturn": float(report.total_pnl),
             "totalReturnPercent": float(report.total_return_pct),
             "annualReturn": float(report.annualized_return_pct),
@@ -354,17 +394,11 @@ class BacktestService:
             "avgLoss": float(report.avg_loss),
             "maxConsecutiveWins": report.max_consecutive_wins,
             "maxConsecutiveLosses": report.max_consecutive_losses,
-
-            # 资金信息
             "initialCapital": float(initial_capital),
             "finalCapital": float(report.final_equity),
             "duration": report.trading_days,
-
-            # 详细数据
-            "equityCurve": equity_points,
+            "equityCurve": display_equity,
             "trades": trade_records,
-
-            # 元信息
             "startTime": report.start_time.isoformat() + "Z" if report.start_time else None,
             "endTime": report.end_time.isoformat() + "Z" if report.end_time else None,
             "dataSource": data_source,
@@ -378,9 +412,9 @@ class BacktestService:
         end_date: str,
         interval: str = "1h",
     ) -> list[dict]:
-        """获取历史K线数据（Binance 公开 API，无需 API Key）
+        """获取历史K线数据（Binance 公开 API）
 
-        支持自动分页获取大量历史数据。
+        内置最大数量限制 _MAX_KLINES，超过自动截断。
         """
         all_klines = []
         try:
@@ -390,7 +424,7 @@ class BacktestService:
             client = await self._get_client()
             current_start = start_ts
 
-            while current_start < end_ts:
+            while current_start < end_ts and len(all_klines) < _MAX_KLINES:
                 url = "https://api.binance.com/api/v3/klines"
                 params = {
                     "symbol": symbol.upper(),
@@ -418,29 +452,33 @@ class BacktestService:
                         "close_time": datetime.fromtimestamp(k[6] / 1000, tz=timezone.utc),
                     })
 
-                # 下一页起始时间 = 最后一根K线的关闭时间 + 1ms
                 current_start = data[-1][6] + 1
 
-                # 如果返回数量 < 1000，说明已经没有更多数据
                 if len(data) < 1000:
+                    break
+
+                if len(all_klines) >= _MAX_KLINES:
+                    logger.warning(
+                        "K线数量已达上限 %d，截断。interval=%s, %s ~ %s",
+                        _MAX_KLINES, interval, start_date, end_date,
+                    )
                     break
 
         except Exception as e:
             logger.warning("获取K线数据失败: %s，使用模拟数据", e)
-            # 降级：使用确定性模拟数据
-            all_klines = self._generate_mock_klines(symbol, start_date, end_date)
-            self._using_mock_data = True  # 标记使用了模拟数据
+            all_klines = self._generate_mock_klines(symbol, start_date, end_date, interval)
+            self._using_mock_data = True
         else:
             self._using_mock_data = False
 
         return all_klines
 
     def _generate_mock_klines(
-        self, symbol: str, start_date: str, end_date: str
+        self, symbol: str, start_date: str, end_date: str, interval: str = "1h"
     ) -> list[dict]:
         """生成模拟K线数据（降级用）
 
-        使用确定性伪随机，确保相同参数产生相同结果。
+        根据 interval 自动调整生成频率，总量不超过 _MAX_KLINES。
         """
         import hashlib
 
@@ -460,16 +498,17 @@ class BacktestService:
         }
         base = base_prices.get(symbol.upper(), 100.0)
 
+        interval_hours = {"1m": 1/60, "5m": 5/60, "15m": 15/60, "30m": 30/60, "1h": 1, "4h": 4, "1d": 24}
+        hours_per_bar = interval_hours.get(interval, 1)
+        total_bars = min(int(days * 24 / hours_per_bar), _MAX_KLINES)
+
         klines = []
-        current_time = start
-        # 每天约 24 根 1h K线
-        total_bars = days * 24
+        current_time = start.replace(tzinfo=timezone.utc)
         price = base
 
         for i in range(total_bars):
-            # 确定性伪随机
-            seed = int(hashlib.md5(f"{symbol}_{i}".encode()).hexdigest(), 16) % 10000
-            change = ((seed / 10000.0) - 0.48) * 0.02  # ±1% 波动
+            seed = int(hashlib.md5(f"{symbol}_{interval}_{i}".encode()).hexdigest(), 16) % 10000
+            change = ((seed / 10000.0) - 0.48) * 0.02
             price = price * (1 + change)
 
             open_price = price
@@ -479,17 +518,15 @@ class BacktestService:
             volume = base * 1000 * (1 + (seed % 5) * 0.1)
 
             klines.append({
-                "timestamp": current_time.replace(tzinfo=timezone.utc),
+                "timestamp": current_time,
                 "open": Decimal(str(round(open_price, 8))),
                 "high": Decimal(str(round(high, 8))),
                 "low": Decimal(str(round(low, 8))),
                 "close": Decimal(str(round(close, 8))),
                 "volume": Decimal(str(round(volume, 2))),
-                "close_time": current_time.replace(tzinfo=timezone.utc),
+                "close_time": current_time,
             })
 
-            # 每小时
-            from datetime import timedelta
-            current_time += timedelta(hours=1)
+            current_time += timedelta(hours=hours_per_bar)
 
         return klines
