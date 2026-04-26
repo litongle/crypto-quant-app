@@ -161,3 +161,7 @@
 #9 828.6 Downloading pytest_asyncio-0.24.0-py3-none-any.whl (18 kB)
 #9 829.7 Downloading httpcore-1.0.9-py3-none-any.whl (78 kB)
 #9 833.7 Downloading pydantic_core-2.14.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+#9 881.7    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 37.5 kB/s eta 0:00:00
+#9 881.9 Downloading annotated_types-0.7.0-py3-none-any.whl (13 kB)
+#9 882.3 Downloading click-8.3.3-py3-none-any.whl (110 kB)
+#9 885.3 Downloading cryptography-47.0.0-cp311-abi3-manylinux_2_34_x86_64.whl (4.7 MB)

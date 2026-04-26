@@ -1,8 +1,0 @@
- Container crypto-quant-app-redis-1 Running 
- Container crypto-quant-app-postgres-1 Running 
- Container crypto-quant-app-postgres-1 Waiting 
- Container crypto-quant-app-postgres-1 Healthy 
- Container crypto-quant-app-backend-run-d2d36941f48d Creating 
- Container crypto-quant-app-backend-run-d2d36941f48d Created 
-/usr/local/bin/python: No module named pytest
-

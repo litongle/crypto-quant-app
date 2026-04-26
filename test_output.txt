@@ -1,6 +1,0 @@
-ImportError while loading conftest 'C:\Users\USER\WorkBuddy\xiangmu\crypto-quant-app\backend\tests\conftest.py'.
-tests\conftest.py:13: in <module>
-    from app.database import Base, get_engine, get_session_maker, get_db
-app\database.py:15: in <module>
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-E   ModuleNotFoundError: No module named 'sqlalchemy'
