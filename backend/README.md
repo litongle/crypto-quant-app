@@ -2,91 +2,82 @@
 
 ## 环境要求
 
-- Python 3.11+
-- PostgreSQL 15+
-- Redis 7+
+- Python 3.12+
+- PostgreSQL 16+（可选，默认 SQLite 零配置启动）
+- Redis 7+（可选，部分功能降级运行）
 
 ## 快速开始
 
 ```bash
-# 1. 创建虚拟环境
-python -m venv .venv
-.venv\Scripts\activate     # Windows
-# source .venv/bin/activate  # Linux/Mac
+# 1. 安装依赖
+pip install -e .
 
-# 2. 安装依赖
-pip install -e ".[dev]"
-
-# 3. 配置环境变量（必须！无默认值）
-cp .env.example .env
-# 编辑 .env 填入实际配置，以下变量为必填：
-#   SECRET_KEY, DATABASE_URL, JWT_SECRET_KEY
-
-# 4. 数据库迁移
-alembic upgrade head
-
-# 5. 运行开发服务器
+# 2. 启动开发服务器（无需 .env，首次自动进入安装向导）
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 6. 初始化种子数据（可选）
-python -m app.seed_data
+# 3. 访问 http://localhost:8000 完成安装向导
+#    - 创建管理员账号
+#    - 选择数据库（默认 SQLite，可选 PostgreSQL）
+#    - 确认安装 → 自动生成安全密钥、建表、跳转登录
 
-# 7. 运行测试
+# 4. 运行测试
 pytest
 
-# 8. 代码检查
+# 5. 代码检查
 ruff check .
-mypy app/
 ```
+
+> 首次启动无需 `.env` 文件，安装向导自动生成安全配置。完成后配置保存在 `.env`，后续启动直接进入控制台。
 
 ## 项目结构
 
 ```
 backend/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI 应用入口（结构化日志、CORS 加固）
-│   ├── config.py                # 配置管理（无硬编码默认密钥）
-│   ├── database.py              # PostgreSQL 异步连接
+│   ├── main.py                  # FastAPI 应用入口 + 生命周期管理
+│   ├── config.py                # 配置管理（开发默认值 + 生产校验）
+│   ├── database.py              # 懒初始化 + SQLite 默认 + PostgreSQL 可选
 │   ├── redis.py                 # Redis 连接池（asyncio.Lock 线程安全）
-│   ├── seed_data.py             # 初始数据种子
-│   ├── api/                     # API 路由
+│   ├── seed_data.py             # 初始数据种子（6种策略模板含规则策略）
+│   ├── api/                     # API 路由（40 端点）
 │   │   ├── deps.py              # 依赖注入（get_current_user, get_db 等）
 │   │   └── v1/
-│   │       ├── __init__.py
-│   │       ├── auth.py          # 认证（登录/注册/刷新 Token）
-│   │       ├── users.py         # 用户信息
-│   │       ├── strategies.py    # 策略模板 & 实例
-│   │       ├── market.py        # 行情数据
-│   │       ├── orders.py        # 订单管理
+│   │       ├── auth.py          # 认证（登录/注册/刷新/me）
+│   │       ├── strategies.py    # 策略模板/实例/规则校验
+│   │       ├── orders.py        # 交易（下单/撤单/持仓/平仓/紧急平仓）
+│   │       ├── market.py        # 行情（REST + WebSocket 3交易所）
+│   │       ├── backtest.py      # 回测执行 & 历史
 │   │       ├── asset.py         # 资产汇总/持仓/权益曲线
-│   │       └── backtest.py      # 回测执行
-│   ├── core/                    # 核心模块
-│   │   ├── security.py          # 安全：JWT + AES-256(Fernet) 加密
-│   │   ├── exceptions.py        # 统一异常处理
-│   │   ├── exchange_adapter.py  # 交易所适配器（Binance/OKX，httpx 单例）
-│   │   ├── strategy_engine.py   # 策略引擎
-│   │   └── schemas.py           # 通用 Schema
-│   ├── models/                  # SQLAlchemy 模型
-│   │   ├── __init__.py
-│   │   ├── user.py              # 用户模型
-│   │   ├── strategy.py          # 策略模板 & 实例
-│   │   ├── exchange.py          # 交易所账户（API Key 加密存储）
-│   │   └── order.py             # 订单 & 信号
-│   ├── services/                # 业务逻辑层
-│   │   ├── __init__.py
-│   │   ├── auth_service.py      # 认证服务
-│   │   ├── asset_service.py     # 资产服务
-│   │   ├── backtest_service.py  # 回测服务
-│   │   ├── market_service.py    # 行情服务（Redis 缓存）
-│   │   ├── order_service.py     # 订单服务
-│   │   └── strategy_service.py  # 策略服务
-│   └── repositories/            # 数据访问层
-│       ├── __init__.py
-│       ├── base.py              # 基础仓储
-│       ├── user_repo.py         # 用户仓储
-│       ├── strategy_repo.py     # 策略仓储
-│       └── trading_repo.py      # 交易仓储
+│   │       └── setup.py         # 安装向导
+│   ├── core/                    # 核心模块（10个）
+│   │   ├── strategy_engine.py   # 6种策略实现
+│   │   ├── strategy_runner.py   # 实时运行器 + 自动交易
+│   │   ├── rule_engine.py       # 自定义规则引擎
+│   │   ├── indicators.py        # 14种技术指标计算
+│   │   ├── exchange_adapter.py  # 三交易所适配器（~1150行）
+│   │   ├── performance.py       # 绩效计算
+│   │   ├── security.py          # JWT + AES-256(Fernet) 加密
+│   │   ├── exceptions.py        # 统一异常
+│   │   ├── schemas.py           # 通用 Schema
+│   │   └── trade_schemas.py     # 交易 Schema
+│   ├── models/                  # SQLAlchemy 模型（6个）
+│   │   ├── user.py              # 用户（含 is_superuser）
+│   │   ├── strategy.py          # 策略模板/实例/信号
+│   │   ├── exchange.py          # 交易所账户（API Key AES-256 加密）
+│   │   ├── order.py             # 订单 & 持仓
+│   │   └── backtest.py          # 回测结果
+│   ├── services/                # 业务逻辑层（6个）
+│   │   ├── auth_service.py      # 认证
+│   │   ├── strategy_service.py  # 策略
+│   │   ├── order_service.py     # 交易 + 余额同步
+│   │   ├── market_service.py    # 行情（httpx 单例复用）
+│   │   ├── backtest_service.py  # 回测（真实K线 + 降级）
+│   │   └── asset_service.py     # 资产
+│   ├── repositories/            # 数据访问层
+│   └── web/                     # 网页控制台
+│       ├── routes.py            # 页面路由
+│       └── static/              # index.html, setup.html, css/, js/（8个模块）
+├── tests/                       # 测试（7个文件 / 40+ 用例）
 └── pyproject.toml               # 项目依赖 & 配置
 ```
 
@@ -95,41 +86,40 @@ backend/
 启动服务后访问：
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
-- OpenAPI JSON: http://localhost:8000/openapi.json
+- 健康检查: http://localhost:8000/health
 
 ## 环境变量
 
-所有环境变量定义在 `.env.example` 中，以下为必填项（无默认值）：
+安装向导自动生成 `.env`，无需手动配置。如需自定义：
 
 ```env
 # 应用
 APP_NAME=CryptoQuant
-APP_VERSION=1.0.0
-DEBUG=true
-SECRET_KEY=                    # 必填！无默认值
-JWT_SECRET_KEY=                # 必填！无默认值
+DEBUG=false                          # 生产必须 false
+SECRET_KEY=                          # 安装向导自动生成
+JWT_SECRET_KEY=                      # 安装向导自动生成
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
+PRODUCTION=true                      # 生产环境设为 true（校验密钥安全性）
 
-# 数据库
-DATABASE_URL=                  # 必填！无默认值
-                                # 格式: postgresql+asyncpg://user:password@localhost:5432/crypto_quant
+# 数据库（默认 SQLite，无需配置）
+DATABASE_URL=sqlite+aiosqlite:///./data/crypto_quant.db
+# PostgreSQL: postgresql+asyncpg://user:password@localhost:5432/crypto_quant
 
-# Redis
+# Redis（可选，缺失时部分功能降级）
 REDIS_URL=redis://localhost:6379/0
 ```
 
-> ⚠️ **安全提示**：`SECRET_KEY`、`DATABASE_URL`、`JWT_SECRET_KEY` 在 `config.py` 中无默认值，必须在 `.env` 文件中配置，否则服务无法启动。
+> ⚠️ 生产环境设置 `PRODUCTION=true` 时，`validate_production_secrets()` 会拒绝默认密钥启动。
 
 ## 安全特性
 
-- **API Key 加密存储**：交易所 API Key/Secret/Passphrase 使用 AES-256 (Fernet) 加密
+- **生产密钥校验**：`PRODUCTION=true` 时拒绝默认/弱密钥
+- **API Key 加密存储**：交易所 API Key/Secret/Passphrase 使用 AES-256 (Fernet)
 - **JWT Token 类型校验**：Refresh Token 验证时校验 token_type
-- **数值范围校验**：金融数值字段使用 `Field(gt=0)` 防止非法值
+- **IDOR 防护**：所有资源操作校验 user_id 所有权
+- **WS 连接认证**：WebSocket 端点需 JWT 认证 + 单用户最多 5 连接
+- **数值范围校验**：金融数值字段使用 `Field(gt=0)`
 - **CORS 加固**：明确限制 methods 和 headers
-- **结构化日志**：使用 Python logging 替代 print
-
-## 开发规范
-
-详见 `../docs/standards/CODE_STANDARDS.md` 和 `../docs/standards/CODE_REVIEW_PROCESS.md`
+- **策略实例上限**：每用户最多 20 个
