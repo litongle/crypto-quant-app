@@ -131,9 +131,8 @@ async def complete_setup(req: SetupRequest):
     env_values["SETUP_COMPLETE"] = "true"
     write_env_file(env_values)
 
-    # Step 7: 再次热切换，让进程用最终配置
+    # Step 7: 再次热切换配置（不再 reset_database，否则会清掉刚建好的表和数据）
     reload_settings()
-    await reset_database()
 
     return {
         "success": True,

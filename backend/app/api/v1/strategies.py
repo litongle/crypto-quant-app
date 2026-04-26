@@ -55,12 +55,13 @@ class ParamSchema(BaseModel):
     """参数定义"""
     key: str
     name: str
-    type: Literal["int", "double", "select"]
-    default: int | float | str
+    type: Literal["int", "double", "select", "rules"]
+    default: int | float | str | None = None
     min: int | float | None = None
     max: int | float | None = None
     step: int | float | None = None
     options: list[dict] | None = None
+    description: str | None = None
 
 
 class StrategyTemplateResponse(BaseModel):

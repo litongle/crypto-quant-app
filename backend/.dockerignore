@@ -1,0 +1,83 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache
+.mypy_cache
+*.egg
+.ruff_cache
+
+# IDE & Editor
+.vscode
+.idea
+.cursor
+.vs
+.sublime-project
+.sublime-workspace
+*.swp
+*.swo
+*~
+*.iml
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Project files
+data/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.env.*.local
+
+# Documentation & Examples
+README.md
+DESIGN_SYSTEM.md
+PROGRESS.md
+DECISIONS.md
+screenshot-*.png
+docs/
+*.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci/
+.travis.yml
+.codecov.yml
+
+# Test files
+tests/
+test_data/
+test_*.py
+*_test.py
+conftest.py
+
+# Other
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.workbuddy/
+.cursor/
