@@ -97,8 +97,8 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
-    # P1-3: 行情 API 限流中间件（IP 级别，每分钟 60 次）
-    _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+    # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
+    # 改为使用 Redis 存储，支持多进程/多实例且有过期时间
     MARKET_RATE_LIMIT = 60  # 每分钟请求上限
     MARKET_RATE_WINDOW = 60  # 窗口大小（秒）
 
@@ -111,26 +111,33 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
-
-        # 清理过期记录
-        timestamps = _rate_limit_store[client_ip]
-        _rate_limit_store[client_ip] = [t for t in timestamps if now - t < MARKET_RATE_WINDOW]
-
-        # 检查限流
-        if len(_rate_limit_store[client_ip]) >= MARKET_RATE_LIMIT:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "success": False,
-                    "error": {
-                        "code": "RATE_LIMITED",
-                        "message": "请求频率超限，请稍后重试",
+        
+        try:
+            from app.redis import get_redis_client
+            r = await get_redis_client()
+            
+            key = f"rate_limit:market:{client_ip}"
+            
+            # 使用 Redis INCR + EXPIRE 实现固定窗口限流
+            count = await r.incr(key)
+            if count == 1:
+                await r.expire(key, MARKET_RATE_WINDOW)
+            
+            if count > MARKET_RATE_LIMIT:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "success": False,
+                        "error": {
+                            "code": "RATE_LIMITED",
+                            "message": "请求频率超限，请稍后重试",
+                        },
                     },
-                },
-            )
-
-        _rate_limit_store[client_ip].append(now)
+                )
+        except Exception as exc:
+            # Redis 故障时降级：记录日志并放行，避免影响核心业务
+            logger.warning("[RateLimit] Redis 访问失败，已降级放行: %s", exc)
+        
         return await call_next(request)
 
     # 异常处理
@@ -194,7 +201,7 @@ def create_app() -> FastAPI:
 
         # Redis 连接检查
         try:
-            from app.services.market_service import get_redis_client
+            from app.redis import get_redis_client
             r = await get_redis_client()
             if r:
                 await r.ping()

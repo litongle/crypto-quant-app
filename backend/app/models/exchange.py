@@ -151,10 +151,10 @@ class Position(Base):
     
     # 盈亏
     unrealized_pnl: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8), default=0, comment="未实现盈亏"
+        Numeric(20, 8), default=Decimal("0"), comment="未实现盈亏"
     )
     unrealized_pnl_percent: Mapped[Decimal] = mapped_column(
-        Numeric(10, 4), default=0, comment="未实现盈亏百分比"
+        Numeric(10, 4), default=Decimal("0"), comment="未实现盈亏百分比"
     )
     
     # 止盈止损

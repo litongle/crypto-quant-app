@@ -16,9 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy dependency configuration (separate from source for better caching)
 COPY pyproject.toml ./
 
-# Install dependencies with pip mirror (Aliyun/Douban for faster downloads)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . 2>&1 | tail -10
+# Install dependencies with pip mirror (Aliyun for faster downloads)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel hatchling && \
+    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ .
 
 # === Stage 2: Runtime image ===
 FROM python:3.12-slim
@@ -45,4 +45,4 @@ COPY . ./
 EXPOSE 8000
 
 # Production mode - no reload
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

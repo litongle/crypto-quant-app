@@ -15,9 +15,12 @@
 7. 再次 reload + reset 让进程用最终配置
 """
 import secrets
+import logging
+import asyncio
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr, Field
 
 from app.config import get_settings, reload_settings
@@ -26,6 +29,10 @@ from app.models.user import User
 from app.core.security import hash_password
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# P0-5: 增加进程级锁，防止安装向导竞态条件
+_setup_lock = asyncio.Lock()
 
 
 class SetupRequest(BaseModel):
@@ -70,11 +77,12 @@ async def setup_status():
 @router.post("/complete")
 async def complete_setup(req: SetupRequest):
     """完成安装"""
-    settings = get_settings()
+    async with _setup_lock:
+        settings = get_settings()
 
-    # 防止重复安装
-    if settings.env_path.exists() and not settings.setup_required:
-        raise HTTPException(status_code=409, detail="应用已初始化，不能重复安装")
+        # 防止重复安装
+        if settings.env_path.exists() and not settings.setup_required:
+            raise HTTPException(status_code=409, detail="应用已初始化，不能重复安装")
 
     # Step 1: 生成配置并写入 .env（SETUP_COMPLETE=false，先不标记完成）
     env_values = {

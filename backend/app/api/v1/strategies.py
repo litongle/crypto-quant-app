@@ -138,20 +138,9 @@ def _build_predefined_templates() -> list[dict]:
     return templates
 
 
+from app.constants import STR_ID_MAP, TEMPLATE_ID_TO_CODE
+
 PREDEFINED_TEMPLATES = _build_predefined_templates()
-
-# 字符串 code → 数据库整数 template_id 映射
-_STR_ID_MAP = {
-    "ma_cross": 1,
-    "rsi": 2,
-    "bollinger": 3,
-    "grid": 4,
-    "martingale": 5,
-    "rule_custom": 6,
-}
-
-# 反向映射：数据库 template_id (int) → 前端 code (str)
-_TEMPLATE_ID_TO_CODE = {v: k for k, v in _STR_ID_MAP.items()}
 
 
 # ============ 辅助函数 ============
@@ -172,7 +161,7 @@ def _parse_instance_id(instance_id: str | int) -> int:
 
 def _format_instance(inst: StrategyInstance) -> dict:
     """统一格式化策略实例响应 — P1-5: id 直接用整数，不再加 inst_ 前缀"""
-    template_code = _TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
+    template_code = TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
     template_name = "未知策略"
     for t in PREDEFINED_TEMPLATES:
         if t["id"] == template_code:
@@ -201,8 +190,8 @@ def _format_instance(inst: StrategyInstance) -> dict:
 # ============ 路由 ============
 
 @router.get("/templates")
-async def get_strategy_templates() -> APIResponse:
-    """获取策略模板列表"""
+async def get_strategy_templates() -> APIResponse[list[StrategyTemplateResponse]]:
+    """获取策略模板列表 (P2-13: 类型化响应)"""
     return APIResponse(data=PREDEFINED_TEMPLATES)
 
 
@@ -210,9 +199,9 @@ async def get_strategy_templates() -> APIResponse:
 async def get_user_strategies(
     current_user: Annotated[User, Depends(get_current_user)],
     status: str = Query("all", description="状态筛选 (running/stopped/all)"),
-    session: AsyncSession = Depends(get_session),
-) -> APIResponse:
-    """获取用户的策略实例列表"""
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse[list[StrategyInstanceResponse]]:
+    """获取用户的策略实例列表 (P2-13: 类型化响应)"""
     service = StrategyService(session)
     instances = await service.get_user_instances(current_user.id, active_only=False)
 
@@ -228,8 +217,8 @@ async def create_strategy(
     request: CreateStrategyRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: AsyncSession = Depends(get_session),
-) -> APIResponse:
-    """创建策略实例"""
+) -> APIResponse[CreateInstanceResponse]:
+    """创建策略实例 (P2-13: 类型化响应)"""
     # P1-6: 检查实例创建上限
     count_result = await session.execute(
         select(func.count(StrategyInstance.id)).where(
@@ -265,10 +254,10 @@ async def create_strategy(
         account_id=request.accountId,
     )
 
-    return APIResponse(data={
-        "id": instance.id,
-        "status": instance.status,
-    })
+    return APIResponse(data=CreateInstanceResponse(
+        id=str(instance.id),
+        status=instance.status
+    ).model_dump())
 
 
 @router.get("/instances/{instance_id}")

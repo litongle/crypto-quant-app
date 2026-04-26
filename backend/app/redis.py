@@ -13,6 +13,8 @@ from app.config import get_settings
 
 # 连接池
 _pool: ConnectionPool | None = None
+# 全局客户端单例
+_redis_client: Redis | None = None
 # PRF-02: 加锁保护全局连接池初始化
 _pool_lock = asyncio.Lock()
 
@@ -33,19 +35,30 @@ async def get_redis_pool() -> ConnectionPool:
     return _pool
 
 
+async def get_redis_client() -> Redis:
+    """获取全局 Redis 客户端单例（复用连接池）"""
+    global _redis_client
+    if _redis_client is None:
+        async with _pool_lock:
+            if _redis_client is None:
+                pool = await get_redis_pool()
+                _redis_client = Redis(connection_pool=pool)
+    return _redis_client
+
+
 async def get_redis() -> AsyncGenerator[Redis, None]:
     """获取 Redis 客户端的依赖"""
-    pool = await get_redis_pool()
-    client = Redis(connection_pool=pool)
-    try:
-        yield client
-    finally:
-        await client.aclose()
+    client = await get_redis_client()
+    yield client
+    # 注意：全局单例不在这里关闭，由 close_redis 统一关闭
 
 
 async def close_redis() -> None:
-    """关闭 Redis 连接池"""
-    global _pool
+    """关闭 Redis 连接池和客户端"""
+    global _pool, _redis_client
+    if _redis_client is not None:
+        await _redis_client.aclose()
+        _redis_client = None
     if _pool is not None:
         await _pool.disconnect()
         _pool = None

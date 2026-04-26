@@ -52,6 +52,9 @@ coverage.xml
 *.sqlite3
 data/
 
+# Alembic (only versions/ is tracked, bytecode ignored)
+alembic/__pycache__/
+
 # Logs
 *.log
 logs/

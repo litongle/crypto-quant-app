@@ -159,6 +159,33 @@ class OrderRepository(BaseRepository[Order]):
         )
         return result.scalar_one_or_none()
 
+    async def get_filled_orders_after(
+        self, account_id: int, start_time: datetime
+    ) -> list[Order]:
+        """获取指定时间后的已成交订单"""
+        result = await self.session.execute(
+            select(Order).where(
+                Order.account_id == account_id,
+                Order.status == "filled",
+                Order.updated_at >= start_time,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def get_filled_orders_between(
+        self, account_id: int, start_time: datetime, end_time: datetime
+    ) -> list[Order]:
+        """获取指定时间范围内的已成交订单"""
+        result = await self.session.execute(
+            select(Order).where(
+                Order.account_id == account_id,
+                Order.status == "filled",
+                Order.updated_at >= start_time,
+                Order.updated_at <= end_time,
+            )
+        )
+        return list(result.scalars().all())
+
 
 class SignalRepository(BaseRepository[Signal]):
     """信号仓储"""

@@ -7,7 +7,7 @@
 安全性：纯数据驱动，无 exec()/eval()，指标和算子均为白名单。
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -408,7 +408,7 @@ class RuleStrategy(BaseStrategy):
                         stop_loss_price=current_price * (1 - sl_pct / 100),
                         take_profit_price=current_price * (1 + tp_pct / 100),
                         reason=_build_reason(buy_rules, "买入"),
-                        timestamp=datetime.utcnow(),
+                        timestamp=datetime.now(timezone.utc),
                     )
             except Exception as e:
                 logger.error("买入规则评估失败: %s", e)
@@ -424,7 +424,7 @@ class RuleStrategy(BaseStrategy):
                         stop_loss_price=current_price * (1 + sl_pct / 100),
                         take_profit_price=current_price * (1 - tp_pct / 100),
                         reason=_build_reason(sell_rules, "卖出"),
-                        timestamp=datetime.utcnow(),
+                        timestamp=datetime.now(timezone.utc),
                     )
             except Exception as e:
                 logger.error("卖出规则评估失败: %s", e)

@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query
 
 from app.services.market_service import MarketService, SUPPORTED_SYMBOLS
+from app.core.trade_schemas import TickerSchema, KlineSchema, OrderBookSchema
 from app.core.schemas import APIResponse
 from app.api.deps import DbSession
 
@@ -21,17 +22,13 @@ async def get_ticker(
     symbol: str,
     session: DbSession,
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
-) -> APIResponse:
+) -> APIResponse[TickerSchema]:
     """
-    获取实时行情
-
-    Args:
-        symbol: 交易对，如 BTCUSDT
-        exchange: 交易所 (binance/okx/huobi)
+    获取实时行情 (P2-13: 类型化响应)
     """
     service = MarketService(session)
     data = await service.get_ticker(symbol, exchange)
-    return APIResponse(data=data)
+    return APIResponse(data=TickerSchema.model_validate(data))
 
 
 @router.get("/kline/{symbol}")
@@ -41,18 +38,13 @@ async def get_kline(
     interval: str = Query(default="1h", pattern=r"^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     limit: int = Query(default=100, ge=1, le=1000),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
-) -> APIResponse:
+) -> APIResponse[dict]:
     """
     获取K线数据
-
-    Args:
-        symbol: 交易对
-        interval: K线周期 (1m/5m/15m/30m/1h/4h/1d/1w)
-        limit: 数据条数 (1-1000)
-        exchange: 交易所
     """
     service = MarketService(session)
     klines = await service.get_kline(symbol, interval, limit, exchange)
+    # klines 已经是 list[dict]
     return APIResponse(data={"symbol": symbol.upper(), "interval": interval, "klines": klines})
 
 
@@ -62,18 +54,13 @@ async def get_orderbook(
     session: DbSession,
     limit: int = Query(default=20, ge=1, le=100),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
-) -> APIResponse:
+) -> APIResponse[OrderBookSchema]:
     """
-    获取订单簿
-
-    Args:
-        symbol: 交易对
-        limit: 深度条数
-        exchange: 交易所
+    获取订单簿 (P2-13: 类型化响应)
     """
     service = MarketService(session)
     data = await service.get_orderbook(symbol, limit, exchange)
-    return APIResponse(data=data)
+    return APIResponse(data=OrderBookSchema.model_validate(data))
 
 
 @router.get("/symbols")

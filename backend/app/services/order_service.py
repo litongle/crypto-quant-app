@@ -43,6 +43,18 @@ class OrderService:
         """获取用户的交易所账户"""
         return await self.account_repo.get_active_by_user(user_id)
 
+    async def _get_adapter(self, account: ExchangeAccount):
+        """获取交易所适配器助手 (P1-11: 统一解密逻辑)"""
+        from app.core.exchange_adapter import get_exchange_adapter
+        return get_exchange_adapter(
+            exchange=account.exchange,
+            api_key=account.get_api_key(),
+            secret_key=account.get_secret_key(),
+            passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+            testnet=account.is_testnet,
+            is_demo=account.is_demo,
+        )
+
     async def sync_account_balance(self, account_id: int, user_id: int | None = None) -> ExchangeAccount:
         """从交易所同步账户真实余额
 
@@ -63,17 +75,7 @@ class OrderService:
             )
 
         try:
-            from app.core.exchange_adapter import get_exchange_adapter
-
-            adapter = get_exchange_adapter(
-                exchange=account.exchange,
-                api_key=account.get_api_key(),
-                secret_key=account.get_secret_key(),
-                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-                testnet=account.is_testnet,
-                is_demo=account.is_demo,
-            )
-
+            adapter = await self._get_adapter(account)
             balances = await adapter.get_balance()
 
             # 提取 USDT 余额
@@ -196,16 +198,7 @@ class OrderService:
 
         # 调用真实交易所 API
         try:
-            from app.core.exchange_adapter import get_exchange_adapter
-
-            adapter = get_exchange_adapter(
-                exchange=account.exchange,
-                api_key=account.get_api_key(),
-                secret_key=account.get_secret_key(),
-                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-                testnet=account.is_testnet,
-                is_demo=account.is_demo,
-            )
+            adapter = await self._get_adapter(account)
 
             logger.info(
                 "[OrderService] 提交订单: order_id=%d, symbol=%s, side=%s, "
@@ -341,16 +334,7 @@ class OrderService:
         # 调用交易所撤单
         if order.exchange_order_id:
             try:
-                from app.core.exchange_adapter import get_exchange_adapter
-
-                adapter = get_exchange_adapter(
-                    exchange=account.exchange,
-                    api_key=account.get_api_key(),
-                    secret_key=account.get_secret_key(),
-                    passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-                    testnet=account.is_testnet,
-                    is_demo=account.is_demo,
-                )
+                adapter = await self._get_adapter(account)
 
                 logger.info(
                     "[OrderService] 撤单: order_id=%d, exchange_order_id=%s, symbol=%s",
@@ -546,16 +530,7 @@ class OrderService:
         # 止损方向与持仓方向相反：多头持仓 → 卖出止损，空头持仓 → 买入止损
         sl_side = "sell" if position.side == "long" else "buy"
         try:
-            from app.core.exchange_adapter import get_exchange_adapter
-
-            adapter = get_exchange_adapter(
-                exchange=account.exchange,
-                api_key=account.get_api_key(),
-                secret_key=account.get_secret_key(),
-                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-                testnet=account.is_testnet,
-                is_demo=account.is_demo,
-            )
+            adapter = await self._get_adapter(account)
 
             result = await adapter.create_stop_order(
                 symbol=position.symbol,
@@ -627,16 +602,7 @@ class OrderService:
         # 止盈方向与持仓方向相反：多头持仓 → 卖出止盈，空头持仓 → 买入止盈
         tp_side = "sell" if position.side == "long" else "buy"
         try:
-            from app.core.exchange_adapter import get_exchange_adapter
-
-            adapter = get_exchange_adapter(
-                exchange=account.exchange,
-                api_key=account.get_api_key(),
-                secret_key=account.get_secret_key(),
-                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-                testnet=account.is_testnet,
-                is_demo=account.is_demo,
-            )
+            adapter = await self._get_adapter(account)
 
             result = await adapter.create_stop_order(
                 symbol=position.symbol,

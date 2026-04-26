@@ -2,6 +2,7 @@
 用户仓储
 """
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -22,9 +23,11 @@ class UserRepository(BaseRepository[User]):
         return result.scalar_one_or_none()
 
     async def get_by_email_with_accounts(self, email: str) -> User | None:
-        """获取用户及账户"""
+        """获取用户及账户 (P3-21: 修复名不副实)"""
         result = await self.session.execute(
-            select(User).where(User.email == email)
+            select(User)
+            .where(User.email == email)
+            .options(selectinload(User.accounts))
         )
         return result.scalar_one_or_none()
 

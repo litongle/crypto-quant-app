@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _http_client: httpx.AsyncClient | None = None
 
 # P1-4: 模块级 Redis 客户端单例，复用连接
-_redis_client = None
+# 已迁移至 app.redis.get_redis_client
 
 
 async def get_http_client() -> httpx.AsyncClient:
@@ -30,31 +30,21 @@ async def get_http_client() -> httpx.AsyncClient:
 
 
 async def get_redis_client():
-    """P1-4: 获取全局 Redis 客户端单例（懒加载，复用连接池）"""
-    global _redis_client
-    if _redis_client is None:
-        try:
-            from app.redis import get_redis_pool
-            import redis.asyncio as aioredis
-            pool = await get_redis_pool()
-            _redis_client = aioredis.Redis(connection_pool=pool)
-        except Exception:
-            return None
-    return _redis_client
+    """P1-4: 获取全局 Redis 客户端单例（复用连接池）"""
+    try:
+        from app.redis import get_redis_client as _get_redis
+        return await _get_redis()
+    except Exception:
+        return None
 
 
 async def close_market_resources():
     """关闭市场服务的全局资源（应用关闭时调用）"""
-    global _http_client, _redis_client
+    global _http_client
     if _http_client and not _http_client.is_closed:
         await _http_client.aclose()
         _http_client = None
-    if _redis_client:
-        try:
-            await _redis_client.aclose()
-        except Exception:
-            pass
-        _redis_client = None
+    # Redis 资源由 app.redis.close_redis 统一关闭
 
 
 # 支持的交易对
@@ -70,7 +60,7 @@ KLINE_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 class MarketService:
     """市场数据服务"""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession | None = None):
         self.session = session
 
     async def get_ticker(self, symbol: str, exchange: str = "binance") -> dict:
@@ -230,6 +220,11 @@ class MarketService:
     ) -> dict:
         """获取订单簿"""
         symbol = symbol.upper()
+        if symbol not in SUPPORTED_SYMBOLS:
+            raise AppException(
+                code="INVALID_SYMBOL",
+                message=f"不支持的交易对: {symbol}",
+            )
 
         try:
             client = await get_http_client()

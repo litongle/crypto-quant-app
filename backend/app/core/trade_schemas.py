@@ -7,7 +7,7 @@
 3. Decimal 统一序列化为 str（精度安全）
 4. 时间统一 ISO 8601 格式
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -311,4 +311,4 @@ class WSMessage(BaseModel):
     def __init__(self, **data: Any):
         super().__init__(**data)
         if not self.timestamp:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(timezone.utc).isoformat()

@@ -1,11 +1,11 @@
 """
 资产服务 - 资产汇总、权益计算
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.exchange import ExchangeAccount, Position
@@ -13,6 +13,7 @@ from app.models.order import Order
 from app.models.strategy import StrategyInstance
 from app.repositories.trading_repo import PositionRepository, OrderRepository, ExchangeAccountRepository
 from app.repositories.strategy_repo import StrategyInstanceRepository
+from app.core.performance import PerformanceCalculator, TradeRecord, EquityPoint
 
 
 class AssetService:
@@ -88,9 +89,11 @@ class AssetService:
                     unrealized_pnl = -unrealized_pnl
                 total_pnl += unrealized_pnl
 
-                # 今日盈亏（简化：使用当前价格与昨日收盘价对比）
-                # 这里简化为总盈亏的1/30作为今日估算
-                today_pnl += unrealized_pnl / 30
+            # P0-2: 修复今日盈亏计算 - 从 Order 表汇总当日已成交订单的 pnl
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_orders = await self.order_repo.get_filled_orders_after(account.id, today_start)
+            account_today_pnl = sum((o.pnl for o in today_orders if o.pnl is not None), Decimal("0"))
+            today_pnl += account_today_pnl
 
         # 计算收益率
         total_pnl_percent = (total_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
@@ -104,7 +107,7 @@ class AssetService:
             "frozenBalance": float(locked_balance),
             "todayPnl": float(today_pnl),
             "todayPnlPercent": float(today_pnl_percent),
-            "updatedAt": datetime.utcnow().isoformat() + "Z",
+            "updatedAt": datetime.now(timezone.utc).isoformat() + "Z",
         }
 
     async def get_positions(
@@ -171,7 +174,7 @@ class AssetService:
                     "unrealizedPnlPercent": float(pnl_percent),
                     "leverage": pos.leverage,
                     "exchange": account.exchange,
-                    "updatedAt": pos.updated_at.isoformat() + "Z" if pos.updated_at else datetime.utcnow().isoformat() + "Z",
+                    "updatedAt": pos.updated_at.isoformat() + "Z" if pos.updated_at else datetime.now(timezone.utc).isoformat() + "Z",
                 })
 
         return positions_data
@@ -198,57 +201,58 @@ class AssetService:
         if exchange != "all":
             accounts = [a for a in accounts if a.exchange == exchange]
 
-        # 生成权益曲线数据点
+        # P0-1: 修复权益曲线 - 使用真实订单数据计算
+        all_trades = []
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+        for account in accounts:
+            # 获取账户的所有历史成交订单
+            orders = await self.order_repo.get_by_account(account.id, status="filled", limit=2000)
+            for o in orders:
+                if o.pnl is not None and o.filled_at:
+                    # 简化：假设 entry_time 是 filled_at 之前的一个占位时间，如果模型中没有开仓时间的话
+                    # 实际上 Order 模型应该记录 open_at 或类似的。这里我们主要关注 pnl 发生的时间
+                    all_trades.append(TradeRecord(
+                        entry_price=o.price or Decimal("0"),
+                        exit_price=o.avg_fill_price or Decimal("0"),
+                        quantity=o.filled_quantity,
+                        side=o.side,
+                        entry_time=o.created_at,
+                        exit_time=o.filled_at,
+                        pnl=o.pnl,
+                        commission=o.commission
+                    ))
+
+        # 使用 PerformanceCalculator 计算绩效
+        report = PerformanceCalculator.calculate(
+            trades=all_trades,
+            initial_capital=self.DEFAULT_INITIAL_CAPITAL
+        )
+
+        # 生成每日权益点
         points = []
-        base_equity = self.DEFAULT_INITIAL_CAPITAL
-        current_equity = base_equity
+        trades_by_date = {}
+        for t in all_trades:
+            d = t.exit_time.date()
+            trades_by_date.setdefault(d, []).append(t)
 
+        current_equity = self.DEFAULT_INITIAL_CAPITAL
         for i in range(days, -1, -1):
-            date = datetime.utcnow().date() - timedelta(days=i)
-            # 模拟每日权益变化（实际应从数据库查询）
-            daily_change = current_equity * Decimal("0.001") * (i % 10 - 5) / 10
-            current_equity = current_equity + daily_change
-            daily_pnl = daily_change
-
+            date = (datetime.now(timezone.utc) - timedelta(days=i)).date()
+            daily_pnl = sum((t.pnl for t in trades_by_date.get(date, [])), Decimal("0"))
+            current_equity += daily_pnl
             points.append({
                 "date": date.strftime("%Y-%m-%d"),
                 "equity": float(current_equity),
                 "pnl": float(daily_pnl),
             })
 
-        # 计算统计数据
-        final_equity = current_equity
-        total_return = ((final_equity - base_equity) / base_equity * 100) if base_equity > 0 else Decimal("0")
-
-        # 计算最大回撤
-        max_equity = base_equity
-        max_drawdown = Decimal("0")
-        for p in points:
-            if p["equity"] > float(max_equity):
-                max_equity = Decimal(str(p["equity"]))
-            drawdown = ((max_equity - Decimal(str(p["equity"]))) / max_equity * 100)
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-
-        # 获取策略统计数据
-        total_trades = 0
-        win_trades = 0
-        for account in accounts:
-            # 获取账户的历史订单
-            orders = await self.order_repo.get_by_account(account.id, limit=1000)
-            closed_orders = [o for o in orders if o.status == "filled" and o.pnl is not None]
-            total_trades += len(closed_orders)
-            win_trades += len([o for o in closed_orders if o.pnl > 0])
-
-        win_rate = (Decimal(str(win_trades)) / Decimal(str(total_trades)) * 100) if total_trades > 0 else Decimal("0")
-        profit_factor = Decimal("2.1")  # 简化计算
-
         return {
             "points": points,
-            "totalReturn": float(total_return),
-            "maxDrawdown": float(-max_drawdown),
-            "sharpeRatio": float(Decimal("2.35")),  # 简化
-            "winRate": float(win_rate),
-            "totalTrades": total_trades,
-            "profitFactor": float(profit_factor),
+            "totalReturn": float(report.total_return_pct),
+            "maxDrawdown": float(-report.max_drawdown_pct),
+            "sharpeRatio": float(report.sharpe_ratio),
+            "winRate": float(report.win_rate),
+            "totalTrades": report.total_trades,
+            "profitFactor": float(report.profit_loss_ratio),
         }

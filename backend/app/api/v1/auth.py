@@ -38,11 +38,15 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
-class LoginResponse(BaseModel):
-    """登录响应"""
+class TokenResponse(BaseModel):
+    """Token响应"""
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class LoginResponse(TokenResponse):
+    """登录响应"""
     user: UserResponse
 
 
@@ -93,14 +97,13 @@ async def refresh_token(
     request: RefreshRequest,
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
-    """刷新Token"""
+    """刷新Token (P2-18: 统一响应格式)"""
     auth_service = AuthService(session)
     access_token, refresh_token = await auth_service.refresh_tokens(request.refresh_token)
-    return APIResponse(data={
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    })
+    return APIResponse(data=TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+    ).model_dump())
 
 
 @router.get("/me")

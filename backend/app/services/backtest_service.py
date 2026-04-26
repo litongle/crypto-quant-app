@@ -59,10 +59,107 @@ _MAX_KLINES = 5000
 _BACKTEST_TIMEOUT = 60
 
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+import json
+
+
 class BacktestService:
     """回测服务 v2"""
 
+    def __init__(self, session: AsyncSession | None = None):
+        self.session = session
+
     _shared_client: httpx.AsyncClient | None = None
+
+    async def get_user_history(self, user_id: int, limit: int = 20) -> list[dict]:
+        """获取用户回测历史 (P2-17)"""
+        if not self.session:
+            return []
+            
+        from app.models.backtest import BacktestResult
+        from app.seed_data import STRATEGY_TEMPLATES
+        
+        name_map = {t["code"]: t["name"] for t in STRATEGY_TEMPLATES}
+        
+        result = await self.session.execute(
+            select(BacktestResult)
+            .where(BacktestResult.user_id == user_id)
+            .order_by(desc(BacktestResult.created_at))
+            .limit(limit)
+        )
+        records = result.scalars().all()
+        
+        history = []
+        for r in records:
+            history.append({
+                "id": r.id,
+                "templateId": r.template_id,
+                "templateName": name_map.get(r.template_id, r.template_id),
+                "symbol": r.symbol,
+                "exchange": r.exchange,
+                "startDate": r.start_date,
+                "endDate": r.end_date,
+                "initialCapital": float(r.initial_capital),
+                "totalReturn": float(r.total_return),
+                "totalReturnPercent": float(r.total_return_pct),
+                "sharpeRatio": float(r.sharpe_ratio),
+                "maxDrawdown": float(r.max_drawdown),
+                "winRate": float(r.win_rate),
+                "totalTrades": r.total_trades,
+                "createdAt": r.created_at.isoformat() + "Z" if r.created_at else "",
+            })
+        return history
+
+    async def get_result_by_id(self, backtest_id: int, user_id: int) -> dict | None:
+        """获取回测详情 (P2-17)"""
+        if not self.session:
+            return None
+            
+        from app.models.backtest import BacktestResult
+        
+        result = await self.session.execute(
+            select(BacktestResult)
+            .where(
+                BacktestResult.id == backtest_id,
+                BacktestResult.user_id == user_id,
+            )
+        )
+        record = result.scalar_one_or_none()
+        if not record:
+            return None
+            
+        return {
+            "id": record.id,
+            "templateId": record.template_id,
+            "symbol": record.symbol,
+            "exchange": record.exchange,
+            "startDate": record.start_date,
+            "endDate": record.end_date,
+            "initialCapital": float(record.initial_capital),
+            "params": json.loads(record.params) if record.params else {},
+            "totalReturn": float(record.total_return),
+            "totalReturnPercent": float(record.total_return_pct),
+            "annualReturn": float(record.annual_return),
+            "sharpeRatio": float(record.sharpe_ratio),
+            "calmarRatio": float(record.calmar_ratio),
+            "maxDrawdown": float(record.max_drawdown),
+            "winRate": float(record.win_rate),
+            "profitFactor": float(record.profit_factor),
+            "totalTrades": record.total_trades,
+            "profitTrades": record.profit_trades,
+            "lossTrades": record.loss_trades,
+            "avgProfit": float(record.avg_profit),
+            "avgLoss": float(record.avg_loss),
+            "maxConsecutiveWins": record.max_wins,
+            "maxConsecutiveLosses": record.max_losses,
+            "finalCapital": float(record.final_capital),
+            "duration": record.duration,
+            "equityCurve": json.loads(record.equity_curve) if record.equity_curve else [],
+            "trades": json.loads(record.trades) if record.trades else [],
+            "startTime": record.start_time.isoformat() + "Z" if record.start_time else None,
+            "endTime": record.end_time.isoformat() + "Z" if record.end_time else None,
+        }
 
     @classmethod
     async def _get_client(cls) -> httpx.AsyncClient:
@@ -113,7 +210,7 @@ class BacktestService:
         interval, interval_label = self._select_interval(start_date, end_date)
 
         # 1. 获取K线数据
-        klines = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
+        klines, is_mock = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
         if len(klines) < 50:
             return {
                 "error": "回测数据不足，至少需要 50 根K线",
@@ -125,7 +222,7 @@ class BacktestService:
         if len(klines) > _MAX_KLINES:
             klines = klines[-_MAX_KLINES:]
 
-        data_source = "mock" if getattr(self, "_using_mock_data", True) else "binance"
+        data_source = "mock" if is_mock else "binance"
 
         # 2. 创建策略实例
         strategy_type = _TEMPLATE_MAP.get(template_id.lower(), template_id.lower())
@@ -413,12 +510,14 @@ class BacktestService:
         start_date: str,
         end_date: str,
         interval: str = "1h",
-    ) -> list[dict]:
+    ) -> tuple[list[dict], bool]:
         """获取历史K线数据（Binance 公开 API）
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
+        返回 (klines, is_mock)
         """
         all_klines = []
+        is_mock = False
         try:
             start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
             end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
@@ -469,11 +568,11 @@ class BacktestService:
         except Exception as e:
             logger.warning("获取K线数据失败: %s，使用模拟数据", e)
             all_klines = self._generate_mock_klines(symbol, start_date, end_date, interval)
-            self._using_mock_data = True
+            is_mock = True
         else:
-            self._using_mock_data = False
+            is_mock = False
 
-        return all_klines
+        return all_klines, is_mock
 
     def _generate_mock_klines(
         self, symbol: str, start_date: str, end_date: str, interval: str = "1h"
@@ -481,8 +580,9 @@ class BacktestService:
         """生成模拟K线数据（降级用）
 
         根据 interval 自动调整生成频率，总量不超过 _MAX_KLINES。
+        P3-23: 使用 zlib.crc32 代替 md5 进行确定性随机（更轻量，且不受 FIPS 限制）
         """
-        import hashlib
+        import zlib
 
         try:
             start = datetime.strptime(start_date, "%Y-%m-%d")
@@ -509,7 +609,7 @@ class BacktestService:
         price = base
 
         for i in range(total_bars):
-            seed = int(hashlib.md5(f"{symbol}_{interval}_{i}".encode()).hexdigest(), 16) % 10000
+            seed = zlib.crc32(f"{symbol}_{interval}_{i}".encode()) % 10000
             change = ((seed / 10000.0) - 0.48) * 0.02
             price = price * (1 + change)
 

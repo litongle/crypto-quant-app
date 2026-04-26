@@ -113,6 +113,7 @@ import base64
 import hashlib
 
 from cryptography.fernet import Fernet
+from contextlib import contextmanager
 
 
 def _get_encryption_key() -> bytes:
@@ -142,3 +143,22 @@ def decrypt_api_key(ciphertext: str) -> str:
         return ""
     f = Fernet(_get_encryption_key())
     return f.decrypt(ciphertext.encode()).decode()
+
+
+@contextmanager
+def decrypted_api_keys(account: Any):
+    """上下文管理器：解密 API Key 并确保使用后清理 (P1-12)
+
+    虽然 Python 的内存管理无法保证绝对清理，但通过此模式可以最小化明文在变量作用域中的存活时间。
+    """
+    api_key = account.get_api_key()
+    secret_key = account.get_secret_key()
+    passphrase = account.get_passphrase() if getattr(account, "encrypted_passphrase", None) else None
+    
+    try:
+        yield api_key, secret_key, passphrase
+    finally:
+        # 尝试显式清理明文（虽然对 Python 字符串效果有限，但作为防御性编程）
+        del api_key
+        del secret_key
+        del passphrase

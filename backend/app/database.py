@@ -8,6 +8,7 @@
 - get_session() 别名，修复代码库中 Depends(get_session) 引用
 """
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _session_maker = None
@@ -96,19 +99,38 @@ async def reset_database():
 
 
 async def init_db():
-    """初始化数据库表（首次安装时调用）"""
-    # 确保数据目录存在（SQLite 需要）
+    """Initialize database tables (called on first setup).
+
+    Uses Alembic migrations if available, falls back to create_all().
+    After create_all(), stamps the Alembic version so future
+    `alembic upgrade head` won't try to recreate existing tables.
+    """
+    # Ensure data directory exists (SQLite)
     settings = get_settings()
     if settings.database_url.startswith("sqlite"):
         db_path = settings.database_url.split("///")[-1]
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # 导入所有模型，确保 Base.metadata 知道所有表
+    # Import all models so Base.metadata knows all tables
     import app.models  # noqa: F401
 
     engine = await get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Stamp Alembic head version so future migrations don't replay
+    try:
+        from alembic.config import Config as AlembicConfig
+        from alembic import command
+
+        alembic_cfg = AlembicConfig()
+        alembic_cfg.set_main_option("script_location", "alembic")
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+        command.stamp(alembic_cfg, "head")
+        logger.info("Alembic version stamped to head")
+    except Exception:
+        # Alembic not configured or stamp failed — not critical
+        pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

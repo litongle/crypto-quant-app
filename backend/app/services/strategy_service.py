@@ -47,8 +47,8 @@ class StrategyService:
 
         # 确定要查找的 code
         if isinstance(template_id, int):
-            _STR_ID_MAP = {"ma_cross": 1, "rsi": 2, "bollinger": 3, "grid": 4, "martingale": 5}
-            code = {v: k for k, v in _STR_ID_MAP.items()}.get(template_id)
+            from app.constants import TEMPLATE_ID_TO_CODE
+            code = TEMPLATE_ID_TO_CODE.get(template_id)
             if not code:
                 return None
         else:

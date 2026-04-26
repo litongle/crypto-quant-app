@@ -110,44 +110,11 @@ async def get_backtest_history(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> APIResponse:
     """
-    获取回测历史记录
-
-    返回用户最近的回测历史。
+    获取回测历史记录 (P2-17: 使用 Service 层)
     """
-    from app.models.backtest import BacktestResult
-
-    result = await session.execute(
-        select(BacktestResult)
-        .where(BacktestResult.user_id == current_user.id)
-        .order_by(desc(BacktestResult.created_at))
-        .limit(limit)
-    )
-    records = result.scalars().all()
-
-    history = []
-    # 策略代码→中文名映射
-    from app.seed_data import STRATEGY_TEMPLATES
-    _name_map = {t["code"]: t["name"] for t in STRATEGY_TEMPLATES}
-
-    for r in records:
-        history.append({
-            "id": r.id,
-            "templateId": r.template_id,
-            "templateName": _name_map.get(r.template_id, r.template_id),
-            "symbol": r.symbol,
-            "exchange": r.exchange,
-            "startDate": r.start_date,
-            "endDate": r.end_date,
-            "initialCapital": float(r.initial_capital),
-            "totalReturn": float(r.total_return),
-            "totalReturnPercent": float(r.total_return_pct),
-            "sharpeRatio": float(r.sharpe_ratio),
-            "maxDrawdown": float(r.max_drawdown),
-            "winRate": float(r.win_rate),
-            "totalTrades": r.total_trades,
-            "createdAt": r.created_at.isoformat() + "Z" if r.created_at else "",
-        })
-
+    from app.services.backtest_service import BacktestService
+    service = BacktestService(session)
+    history = await service.get_user_history(current_user.id, limit)
     return APIResponse(data=history)
 
 
@@ -158,60 +125,16 @@ async def get_backtest_result(
     session: DbSession,
 ) -> APIResponse:
     """
-    获取回测结果详情
+    获取回测结果详情 (P2-17: 使用 Service 层)
     """
-    from app.models.backtest import BacktestResult
-
-    result = await session.execute(
-        select(BacktestResult)
-        .where(
-            BacktestResult.id == backtest_id,
-            BacktestResult.user_id == current_user.id,
-        )
-    )
-    record = result.scalar_one_or_none()
-
-    if not record:
+    from app.services.backtest_service import BacktestService
+    service = BacktestService(session)
+    result = await service.get_result_by_id(backtest_id, current_user.id)
+    
+    if not result:
         raise HTTPException(status_code=404, detail="回测记录不存在")
 
-    # 解析存储的详细数据
-    equity_curve = json.loads(record.equity_curve) if record.equity_curve else []
-    trades = json.loads(record.trades) if record.trades else []
-
-    return APIResponse(data={
-        "id": record.id,
-        "templateId": record.template_id,
-        "symbol": record.symbol,
-        "exchange": record.exchange,
-        "startDate": record.start_date,
-        "endDate": record.end_date,
-        "initialCapital": float(record.initial_capital),
-        "params": json.loads(record.params) if record.params else {},
-
-        # 绩效指标
-        "totalReturn": float(record.total_return),
-        "totalReturnPercent": float(record.total_return_pct),
-        "annualReturn": float(record.annual_return),
-        "sharpeRatio": float(record.sharpe_ratio),
-        "calmarRatio": float(record.calmar_ratio),
-        "maxDrawdown": float(record.max_drawdown),
-        "winRate": float(record.win_rate),
-        "profitFactor": float(record.profit_factor),
-        "totalTrades": record.total_trades,
-        "profitTrades": record.profit_trades,
-        "lossTrades": record.loss_trades,
-        "avgProfit": float(record.avg_profit),
-        "avgLoss": float(record.avg_loss),
-
-        # 详细数据
-        "equityCurve": equity_curve,
-        "trades": trades,
-
-        # 时间
-        "startTime": record.start_time.isoformat() + "Z" if record.start_time else None,
-        "endTime": record.end_time.isoformat() + "Z" if record.end_time else None,
-        "createdAt": record.created_at.isoformat() + "Z" if record.created_at else "",
-    })
+    return APIResponse(data=result)
 
 
 # ============ 内部辅助 ============
