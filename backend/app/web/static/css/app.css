@@ -1578,7 +1578,222 @@ select.cq-input {
 .cq-day-pill:hover { color: var(--cq-text-secondary); border-color: var(--cq-border-hover); }
 .cq-day-pill.is-active { background: var(--cq-color-primary); color: white; border-color: var(--cq-color-primary); }
 
-/* ── 19. Responsive ─────────────────────────────────────────── */
+/* ── 19. Rule Builder — 自定义规则策略构建器 ──────────────── */
+.cq-rule-builder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-5);
+}
+
+.cq-rule-section {
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-lg);
+  padding: var(--cq-space-4);
+}
+
+.cq-rule-section__header {
+  display: flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+  font-size: var(--cq-text-md);
+  font-weight: 600;
+  color: var(--cq-text-primary);
+  margin-bottom: var(--cq-space-3);
+}
+
+.cq-rule-section__header svg {
+  flex-shrink: 0;
+}
+
+.cq-rule-section__header span {
+  flex: 1;
+}
+
+/* AND/OR 逻辑切换 */
+.cq-rule-logic-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--cq-bg-l1);
+  border-radius: var(--cq-radius-sm);
+  padding: 2px;
+  border: 1px solid var(--cq-border-default);
+}
+
+.cq-logic-btn {
+  background: transparent;
+  border: none;
+  color: var(--cq-text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--cq-font-mono);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--cq-duration-fast) var(--cq-ease-default);
+  letter-spacing: 0.5px;
+}
+
+.cq-logic-btn:hover {
+  color: var(--cq-text-secondary);
+}
+
+.cq-logic-btn.is-active {
+  background: var(--cq-color-primary);
+  color: white;
+}
+
+/* 条件列表 */
+.cq-rule-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-2);
+  margin-bottom: var(--cq-space-3);
+  min-height: 40px;
+}
+
+.cq-rule-empty {
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-disabled);
+  text-align: center;
+  padding: var(--cq-space-4);
+  border: 1px dashed var(--cq-border-default);
+  border-radius: var(--cq-radius-md);
+}
+
+/* 单个条件行 */
+.cq-rule-condition {
+  background: var(--cq-bg-l1);
+  border: 1px solid var(--cq-border-subtle);
+  border-radius: var(--cq-radius-md);
+  padding: var(--cq-space-3);
+  animation: cq-slide-up 0.2s var(--cq-ease-default);
+}
+
+.cq-cond-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+  flex-wrap: wrap;
+}
+
+.cq-cond-indicator {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.cq-cond-operator {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.cq-cond-value {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.cq-cond-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--cq-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--cq-text-disabled);
+  cursor: pointer;
+  transition: all var(--cq-duration-fast) var(--cq-ease-default);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.cq-cond-remove:hover {
+  background: var(--cq-color-loss-muted);
+  color: var(--cq-color-loss);
+}
+
+.cq-cond-params {
+  display: flex;
+  gap: var(--cq-space-2);
+  margin-top: var(--cq-space-2);
+  flex-wrap: wrap;
+}
+
+.cq-cond-param {
+  display: flex;
+  align-items: center;
+  gap: var(--cq-space-1);
+}
+
+.cq-cond-param__label {
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+  white-space: nowrap;
+}
+
+.cq-cond-param__input {
+  width: 70px;
+  padding: 4px 6px;
+  font-size: var(--cq-text-sm);
+}
+
+/* 添加条件按钮 */
+.cq-add-condition-btn {
+  width: 100%;
+  justify-content: center;
+  border-style: dashed;
+}
+
+/* 风控参数网格 */
+.cq-rule-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--cq-space-4);
+}
+
+/* 规则预览 */
+.cq-rule-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-3);
+}
+
+.cq-rule-preview-text {
+  font-family: var(--cq-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cq-text-tertiary);
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-md);
+  padding: var(--cq-space-3);
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cq-rule-validation-msg {
+  font-size: var(--cq-text-sm);
+  padding: var(--cq-space-2) var(--cq-space-3);
+  border-radius: var(--cq-radius-md);
+  display: flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+}
+
+.cq-rule-valid {
+  background: var(--cq-color-profit-muted);
+  color: var(--cq-color-profit);
+}
+
+.cq-rule-invalid {
+  background: var(--cq-color-loss-muted);
+  color: var(--cq-color-loss);
+}
+
+/* ── 20. Responsive ─────────────────────────────────────────── */
 
 /* Tablet & small desktop (≤1200px) — structural only */
 @media (max-width: 1200px) {
@@ -1616,6 +1831,12 @@ select.cq-input {
   /* Instance cards */
   .cq-instance-card__header { flex-direction: column; align-items: flex-start; gap: var(--cq-space-2); }
   .cq-instance-card__pnl { text-align: left; }
+
+  /* Rule builder mobile */
+  .cq-cond-row { flex-direction: column; align-items: stretch; }
+  .cq-cond-indicator, .cq-cond-operator, .cq-cond-value { width: 100%; }
+  .cq-cond-remove { margin-left: 0; align-self: flex-end; }
+  .cq-rule-risk-grid { grid-template-columns: 1fr; }
 }
 
 /* Small phone (≤480px) — tight spacing only */

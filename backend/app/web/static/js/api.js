@@ -278,8 +278,10 @@ class ApiClient {
     return json.data || json;
   }
 
-  async closePosition(positionId) {
-    const json = await this.post(`/trading/${positionId}/close`);
+  async closePosition(positionId, accountId) {
+    const body = {};
+    if (accountId) body.account_id = accountId;
+    const json = await this.post(`/trading/${positionId}/close`, body);
     return json.data || json;
   }
 
@@ -308,6 +310,12 @@ class ApiClient {
 
   async updateStrategy(instanceId, data) {
     const json = await this.put(`/strategies/instances/${instanceId}`, data);
+    return json.data || json;
+  }
+
+  // ===== 规则引擎 =====
+  async validateRules(rules) {
+    const json = await this.post('/strategies/validate-rules', { rules });
     return json.data || json;
   }
 }

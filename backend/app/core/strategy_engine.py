@@ -456,12 +456,15 @@ class StrategyFactory:
     """策略工厂（回测服务用）"""
 
     def __init__(self):
+        # 延迟导入 RuleStrategy 避免循环依赖
+        from app.core.rule_engine import RuleStrategy
         self._strategies = {
             "ma": MAStrategy,
             "rsi": RSIStrategy,
             "bollinger": BollingerStrategy,
             "grid": GridStrategy,
             "martingale": MartingaleStrategy,
+            "rule": RuleStrategy,
         }
 
     def create_strategy(self, template_id: str, params: dict | None = None) -> BaseStrategy | None:
@@ -483,12 +486,15 @@ class StrategyFactory:
 
 def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
     """策略工厂"""
+    # 延迟导入 RuleStrategy 避免循环依赖
+    from app.core.rule_engine import RuleStrategy
     strategies = {
         "ma": MAStrategy,
         "rsi": RSIStrategy,
         "bollinger": BollingerStrategy,
         "grid": GridStrategy,
         "martingale": MartingaleStrategy,
+        "rule": RuleStrategy,
     }
     strategy_class = strategies.get(strategy_type.lower())
     if not strategy_class:

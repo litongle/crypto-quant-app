@@ -86,6 +86,64 @@ STRATEGY_TEMPLATES = [
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
     },
+    {
+        "code": "rule_custom",
+        "name": "自定义规则策略",
+        "description": "通过组合技术指标条件创建自定义策略，无需编程。支持 RSI/MA/布林带/MACD 等 14 种指标，AND/OR 逻辑组合。",
+        "strategy_type": "rule",
+        "risk_level": "medium",
+        "params_schema": {
+            "params": [
+                {
+                    "key": "rules",
+                    "name": "交易规则",
+                    "type": "rules",
+                    "default": None,
+                    "description": "JSON 规则定义，含 buy_rules/sell_rules/risk",
+                },
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
+            # 前端规则构建器使用的指标元数据
+            "indicators": [
+                {"key": "price", "name": "价格", "type": "value", "params": []},
+                {"key": "rsi", "name": "RSI", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
+                {"key": "ma", "name": "均线MA", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 200}]},
+                {"key": "ema", "name": "指数均线EMA", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 200}]},
+                {"key": "ma_cross", "name": "均线交叉", "type": "event", "params": [
+                    {"key": "fast_period", "name": "快线周期", "default": 5, "type": "int", "min": 2, "max": 50},
+                    {"key": "slow_period", "name": "慢线周期", "default": 20, "type": "int", "min": 5, "max": 200},
+                ]},
+                {"key": "bollinger_upper", "name": "布林上轨", "type": "value", "params": [
+                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
+                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
+                ]},
+                {"key": "bollinger_lower", "name": "布林下轨", "type": "value", "params": [
+                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
+                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
+                ]},
+                {"key": "bollinger_pct", "name": "布林位置%", "type": "value", "params": [
+                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
+                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
+                ]},
+                {"key": "volume", "name": "成交量", "type": "value", "params": []},
+                {"key": "volume_ma", "name": "成交量均线", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 100}]},
+                {"key": "atr", "name": "ATR波幅", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
+                {"key": "macd", "name": "MACD柱", "type": "value", "params": [
+                    {"key": "fast", "name": "快线", "default": 12, "type": "int", "min": 2, "max": 50},
+                    {"key": "slow", "name": "慢线", "default": 26, "type": "int", "min": 5, "max": 100},
+                    {"key": "signal", "name": "信号线", "default": 9, "type": "int", "min": 2, "max": 50},
+                ]},
+                {"key": "macd_cross", "name": "MACD交叉", "type": "event", "params": [
+                    {"key": "fast", "name": "快线", "default": 12, "type": "int", "min": 2, "max": 50},
+                    {"key": "slow", "name": "慢线", "default": 26, "type": "int", "min": 5, "max": 100},
+                    {"key": "signal", "name": "信号线", "default": 9, "type": "int", "min": 2, "max": 50},
+                ]},
+                {"key": "price_change_pct", "name": "涨跌幅%", "type": "value", "params": [{"key": "period", "name": "K线数", "default": 1, "type": "int", "min": 1, "max": 50}]},
+                {"key": "stoch_k", "name": "KDJ-K值", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
+                {"key": "cci", "name": "CCI", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50}]},
+            ],
+        },
+    },
 ]
 
 

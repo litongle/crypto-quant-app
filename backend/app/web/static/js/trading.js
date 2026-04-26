@@ -37,6 +37,7 @@ async function loadTradingPage() {
 
   // 加载持仓和订单
   await refreshTradingData();
+  updateTradingSubmitBtnLabel();
 }
 
 /* ── 账户下拉 ── */
@@ -63,6 +64,13 @@ function setTradingSide(side) {
   document.querySelectorAll('.cq-side-btn').forEach(b => b.classList.remove('is-active'));
   const active = document.querySelector(`.cq-side-btn[data-side="${side}"]`);
   if (active) active.classList.add('is-active');
+  updateTradingSubmitBtnLabel();
+}
+
+function updateTradingSubmitBtnLabel() {
+  const btn = document.getElementById('trading-submit-btn');
+  if (!btn) return;
+  btn.textContent = tradingForm.side === 'buy' ? '买入' : '卖出';
 }
 
 /* ── 订单类型切换 ── */
@@ -186,7 +194,7 @@ function renderTradingPositions(positions) {
                 <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="showSlTpDialog(${posId}, ${accountId})" title="设置止损止盈">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </button>
-                <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="closePositionAction(${posId})" title="平仓">
+                <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="closePositionAction(${posId}, ${accountId})" title="平仓">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </td>
@@ -310,10 +318,14 @@ async function submitSlTp() {
 }
 
 /* ── 平仓 ── */
-async function closePositionAction(positionId) {
+async function closePositionAction(positionId, accountId) {
   if (!confirm('确认平仓此仓位？')) return;
+  if (!accountId) {
+    showToast('无法识别仓位所属账户，平仓失败', 'error');
+    return;
+  }
   try {
-    await api.closePosition(positionId);
+    await api.closePosition(positionId, accountId);
     showToast('平仓成功', 'success');
     refreshTradingData();
   } catch (err) {
@@ -324,8 +336,14 @@ async function closePositionAction(positionId) {
 /* ── 紧急一键平仓 ── */
 async function emergencyCloseAllAction() {
   if (!confirm('⚠️ 确认紧急平仓所有仓位？此操作不可撤销！')) return;
+  const accountSelect = document.getElementById('trading-account-select');
+  const accountId = parseInt(accountSelect?.value);
+  if (!accountId) {
+    showToast('请先选择交易所账户', 'warn');
+    return;
+  }
   try {
-    const result = await api.emergencyCloseAll();
+    const result = await api.emergencyCloseAll(accountId);
     showToast(`已平仓 ${result.closed_count || 0} 个仓位`, 'success');
     refreshTradingData();
   } catch (err) {

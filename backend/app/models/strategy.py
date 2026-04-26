@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, func
+# 注意：strategy_type 已从 Enum 改为 String(50)，以后加策略无需改模型/做迁移
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -24,9 +25,7 @@ class StrategyTemplate(Base):
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # 字符串ID: ma_cross, grid, rsi, bollinger
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text)
-    strategy_type: Mapped[str] = mapped_column(
-        Enum("ma", "rsi", "bollinger", "grid", "martingale", name="strategy_type")
-    )
+    strategy_type: Mapped[str] = mapped_column(String(50))
     params_schema: Mapped[dict] = mapped_column(JSON, default=dict)
     risk_level: Mapped[str] = mapped_column(
         Enum("low", "medium", "high", name="strategy_risk_level"),

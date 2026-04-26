@@ -10,6 +10,7 @@ const STRATEGY_ICONS = {
   boll:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12C2 6.5 6.5 2 12 2s10 4.5 10 10-4.5 10-10 10S2 17.5 2 12z"/><path d="M6 12C6 8.7 8.7 6 12 6s6 2.7 6 6-2.7 6-6 6-6-2.7-6-6z"/></svg>',
   grid:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
   mart:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+  rule:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   default: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>',
 };
 
@@ -250,16 +251,20 @@ async function showCreateForm(templateId) {
     filterAccountsByExchange();
   } catch (e) { console.warn('加载交易所账户失败:', e); }
 
-  // 加载参数滑块
+  // 加载参数滑块（或规则构建器）
   try {
     if (!tmpl) {
       const allTemplates = await api.getStrategyTemplates();
       window._cachedTemplates = allTemplates;
       const found = allTemplates.find(t => t.id === templateId);
-      if (found && found.params) renderParamSliders(found.params);
-      else document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
+      if (found) {
+        if (found.strategyType === 'rule') renderRuleBuilder();
+        else if (found.params) renderParamSliders(found.params);
+        else document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
+      }
     } else {
-      if (tmpl.params) renderParamSliders(tmpl.params);
+      if (tmpl.strategyType === 'rule') renderRuleBuilder();
+      else if (tmpl.params) renderParamSliders(tmpl.params);
       else document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
     }
   } catch {}
@@ -301,10 +306,22 @@ async function createStrategyInstance() {
   const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
 
   const params = {};
-  document.querySelectorAll('#param-sliders input[type="range"]').forEach(sl => {
+  document.querySelectorAll('#param-sliders input[type="range"]:not(.cq-rule-builder input)').forEach(sl => {
     const key = sl.id.replace('sl-', '');
     params[key] = parseFloat(sl.value);
   });
+
+  // 规则策略：从构建器生成 rules JSON
+  const isRuleTemplate = (window._cachedTemplates || []).find(t => t.id === selectedTemplateId)?.strategyType === 'rule';
+  if (isRuleTemplate) {
+    const buyEmpty = _ruleBuilderState.buyRules.length === 0;
+    const sellEmpty = _ruleBuilderState.sellRules.length === 0;
+    if (buyEmpty && sellEmpty) {
+      showToast('请至少添加一个买入或卖出条件', 'warn');
+      return;
+    }
+    params.rules = buildRulesDSL();
+  }
 
   try {
     await api.createStrategyInstance({
@@ -487,4 +504,356 @@ function closeStrategyEditModal() {
   const modal = document.getElementById('strategy-edit-modal');
   if (modal) modal.classList.remove('is-visible');
   window._editingStrategyId = null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   规则构建器 — 自定义规则策略的可视化条件编辑器
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 指标元数据（与 seed_data.py indicators 同步） ── */
+const RULE_INDICATORS = [
+  { key: 'price',          name: '价格',       type: 'value',  params: [] },
+  { key: 'rsi',            name: 'RSI',        type: 'value',  params: [{ key: 'period', name: '周期', default: 14, type: 'int', min: 2, max: 50 }] },
+  { key: 'ma',             name: '均线MA',     type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 2, max: 200 }] },
+  { key: 'ema',            name: '指数均线EMA',type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 2, max: 200 }] },
+  { key: 'bollinger_upper',name: '布林上轨',   type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 5, max: 50 },{ key: 'std_dev', name: '标准差', default: 2.0, type: 'double', min: 1.0, max: 4.0 }] },
+  { key: 'bollinger_lower',name: '布林下轨',   type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 5, max: 50 },{ key: 'std_dev', name: '标准差', default: 2.0, type: 'double', min: 1.0, max: 4.0 }] },
+  { key: 'bollinger_pct',  name: '布林位置%',  type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 5, max: 50 },{ key: 'std_dev', name: '标准差', default: 2.0, type: 'double', min: 1.0, max: 4.0 }] },
+  { key: 'volume',         name: '成交量',     type: 'value',  params: [] },
+  { key: 'volume_ma',      name: '成交量均线', type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 2, max: 100 }] },
+  { key: 'atr',            name: 'ATR波幅',   type: 'value',  params: [{ key: 'period', name: '周期', default: 14, type: 'int', min: 2, max: 50 }] },
+  { key: 'macd',           name: 'MACD柱',    type: 'value',  params: [{ key: 'fast', name: '快线', default: 12, type: 'int', min: 2, max: 50 },{ key: 'slow', name: '慢线', default: 26, type: 'int', min: 5, max: 100 },{ key: 'signal', name: '信号线', default: 9, type: 'int', min: 2, max: 50 }] },
+  { key: 'ma_cross',       name: '均线交叉',   type: 'event',  params: [{ key: 'fast_period', name: '快线周期', default: 5, type: 'int', min: 2, max: 50 },{ key: 'slow_period', name: '慢线周期', default: 20, type: 'int', min: 5, max: 200 }] },
+  { key: 'macd_cross',     name: 'MACD交叉',   type: 'event',  params: [{ key: 'fast', name: '快线', default: 12, type: 'int', min: 2, max: 50 },{ key: 'slow', name: '慢线', default: 26, type: 'int', min: 5, max: 100 },{ key: 'signal', name: '信号线', default: 9, type: 'int', min: 2, max: 50 }] },
+  { key: 'price_change_pct',name: '涨跌幅%',   type: 'value',  params: [{ key: 'period', name: 'K线数', default: 1, type: 'int', min: 1, max: 50 }] },
+  { key: 'stoch_k',        name: 'KDJ-K值',   type: 'value',  params: [{ key: 'period', name: '周期', default: 14, type: 'int', min: 2, max: 50 }] },
+  { key: 'cci',            name: 'CCI',       type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 5, max: 50 }] },
+];
+
+const VALUE_OPERATORS = [
+  { key: '>',  name: '>' },
+  { key: '>=', name: '>=' },
+  { key: '<',  name: '<' },
+  { key: '<=', name: '<=' },
+  { key: '==', name: '==' },
+];
+
+const EVENT_OPERATORS = [
+  { key: 'cross_up',   name: '上穿' },
+  { key: 'cross_down', name: '下穿' },
+];
+
+/* ── 规则构建器状态 ── */
+let _ruleBuilderState = {
+  buyRules: [],   // [{ id, indicator, params, operator, value }]
+  sellRules: [],  // same
+  buyLogic: 'AND',
+  sellLogic: 'AND',
+  stopLossPct: 3,
+  takeProfitPct: 6,
+  confidenceBase: 0.7,
+  _nextId: 1,
+};
+
+function _newCondition(indicatorKey) {
+  const ind = RULE_INDICATORS.find(i => i.key === indicatorKey) || RULE_INDICATORS[0];
+  const params = {};
+  ind.params.forEach(p => { params[p.key] = p.default; });
+  return {
+    id: _ruleBuilderState._nextId++,
+    indicator: indicatorKey || 'price',
+    params,
+    operator: ind.type === 'event' ? 'cross_up' : '>',
+    value: ind.type === 'event' ? '' : 0,
+  };
+}
+
+/* ── 渲染规则构建器到 #param-sliders ── */
+function renderRuleBuilder() {
+  const el = document.getElementById('param-sliders');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div class="cq-rule-builder">
+      <!-- 买入条件 -->
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-profit)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span>买入条件</span>
+          <div class="cq-rule-logic-toggle">
+            <button class="cq-logic-btn${_ruleBuilderState.buyLogic === 'AND' ? ' is-active' : ''}" onclick="setRuleLogic('buy','AND')">AND</button>
+            <button class="cq-logic-btn${_ruleBuilderState.buyLogic === 'OR' ? ' is-active' : ''}" onclick="setRuleLogic('buy','OR')">OR</button>
+          </div>
+        </div>
+        <div class="cq-rule-conditions" id="rule-buy-conditions"></div>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm cq-add-condition-btn" onclick="addRuleCondition('buy')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加条件
+        </button>
+      </div>
+
+      <!-- 卖出条件 -->
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>
+          <span>卖出条件</span>
+          <div class="cq-rule-logic-toggle">
+            <button class="cq-logic-btn${_ruleBuilderState.sellLogic === 'AND' ? ' is-active' : ''}" onclick="setRuleLogic('sell','AND')">AND</button>
+            <button class="cq-logic-btn${_ruleBuilderState.sellLogic === 'OR' ? ' is-active' : ''}" onclick="setRuleLogic('sell','OR')">OR</button>
+          </div>
+        </div>
+        <div class="cq-rule-conditions" id="rule-sell-conditions"></div>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm cq-add-condition-btn" onclick="addRuleCondition('sell')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加条件
+        </button>
+      </div>
+
+      <!-- 风控参数 -->
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>风控参数</span>
+        </div>
+        <div class="cq-rule-risk-grid">
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">止损 %</span>
+              <span class="cq-param-value" id="val-stopLossPct">${_ruleBuilderState.stopLossPct}</span>
+            </div>
+            <input type="range" class="cq-slider" min="0.5" max="20" step="0.5" value="${_ruleBuilderState.stopLossPct}"
+              oninput="document.getElementById('val-stopLossPct').textContent=this.value; _ruleBuilderState.stopLossPct=parseFloat(this.value)">
+          </div>
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">止盈 %</span>
+              <span class="cq-param-value" id="val-takeProfitPct">${_ruleBuilderState.takeProfitPct}</span>
+            </div>
+            <input type="range" class="cq-slider" min="1" max="50" step="1" value="${_ruleBuilderState.takeProfitPct}"
+              oninput="document.getElementById('val-takeProfitPct').textContent=this.value; _ruleBuilderState.takeProfitPct=parseFloat(this.value)">
+          </div>
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">信号置信度</span>
+              <span class="cq-param-value" id="val-confidenceBase">${(_ruleBuilderState.confidenceBase * 100).toFixed(0)}%</span>
+            </div>
+            <input type="range" class="cq-slider" min="0.1" max="1.0" step="0.05" value="${_ruleBuilderState.confidenceBase}"
+              oninput="document.getElementById('val-confidenceBase').textContent=Math.round(this.value*100)+'%'; _ruleBuilderState.confidenceBase=parseFloat(this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- 预览 + 校验 -->
+      <div class="cq-rule-preview">
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="previewRules()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          预览规则
+        </button>
+        <div id="rule-preview-text" class="cq-rule-preview-text" style="display:none;"></div>
+        <div id="rule-validation-msg" class="cq-rule-validation-msg" style="display:none;"></div>
+      </div>
+    </div>
+  `;
+
+  renderRuleConditions('buy');
+  renderRuleConditions('sell');
+}
+
+/* ── 渲染条件列表 ── */
+function renderRuleConditions(side) {
+  const container = document.getElementById(`rule-${side}-conditions`);
+  if (!container) return;
+
+  const conditions = side === 'buy' ? _ruleBuilderState.buyRules : _ruleBuilderState.sellRules;
+
+  if (conditions.length === 0) {
+    container.innerHTML = '<div class="cq-rule-empty">尚未添加条件，点击下方按钮添加</div>';
+    return;
+  }
+
+  container.innerHTML = conditions.map((cond, idx) => {
+    const ind = RULE_INDICATORS.find(i => i.key === cond.indicator) || RULE_INDICATORS[0];
+    const isEvent = ind.type === 'event';
+    const operators = isEvent ? EVENT_OPERATORS : VALUE_OPERATORS;
+
+    // 指标参数输入
+    const paramInputs = ind.params.map(p => {
+      const val = cond.params[p.key] ?? p.default;
+      return `<div class="cq-cond-param">
+        <span class="cq-cond-param__label">${p.name}</span>
+        <input type="number" class="cq-input cq-cond-param__input" value="${val}"
+          min="${p.min || ''}" max="${p.max || ''}" step="${p.type === 'int' ? 1 : 0.1}"
+          onchange="updateCondParam('${side}',${cond.id},'${p.key}',this.value)">
+      </div>`;
+    }).join('');
+
+    // 比较值/参考值（事件型为另一个指标选择）
+    let valueInput = '';
+    if (isEvent) {
+      valueInput = `
+        <select class="cq-input cq-cond-value" onchange="updateCondValue('${side}',${cond.id},this.value)" style="width:120px;">
+          <option value="0" ${cond.value === '0' ? 'selected' : ''}>零线</option>
+          ${RULE_INDICATORS.filter(i => i.type === 'value').map(i =>
+            `<option value="${i.key}" ${cond.value === i.key ? 'selected' : ''}>${i.name}</option>`
+          ).join('')}
+        </select>`;
+    } else {
+      valueInput = `<input type="number" class="cq-input cq-cond-value" value="${cond.value}" step="any"
+        placeholder="阈值" onchange="updateCondValue('${side}',${cond.id},this.value)">`;
+    }
+
+    return `
+      <div class="cq-rule-condition" data-cond-id="${cond.id}">
+        <div class="cq-cond-row">
+          <select class="cq-input cq-cond-indicator" onchange="changeCondIndicator('${side}',${cond.id},this.value)">
+            ${RULE_INDICATORS.map(i => `<option value="${i.key}" ${i.key === cond.indicator ? 'selected' : ''}>${i.name}</option>`).join('')}
+          </select>
+          <select class="cq-input cq-cond-operator" onchange="updateCondOperator('${side}',${cond.id},this.value)">
+            ${operators.map(o => `<option value="${o.key}" ${o.key === cond.operator ? 'selected' : ''}>${o.name}</option>`).join('')}
+          </select>
+          ${valueInput}
+          <button class="cq-cond-remove" onclick="removeRuleCondition('${side}',${cond.id})" title="删除条件">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        ${paramInputs ? `<div class="cq-cond-params">${paramInputs}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+/* ── 条件操作 ── */
+function addRuleCondition(side) {
+  const cond = _newCondition('price');
+  if (side === 'buy') _ruleBuilderState.buyRules.push(cond);
+  else _ruleBuilderState.sellRules.push(cond);
+  renderRuleConditions(side);
+}
+
+function removeRuleCondition(side, condId) {
+  if (side === 'buy') _ruleBuilderState.buyRules = _ruleBuilderState.buyRules.filter(c => c.id !== condId);
+  else _ruleBuilderState.sellRules = _ruleBuilderState.sellRules.filter(c => c.id !== condId);
+  renderRuleConditions(side);
+}
+
+function changeCondIndicator(side, condId, indicatorKey) {
+  const list = side === 'buy' ? _ruleBuilderState.buyRules : _ruleBuilderState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (!cond) return;
+
+  const ind = RULE_INDICATORS.find(i => i.key === indicatorKey) || RULE_INDICATORS[0];
+  cond.indicator = indicatorKey;
+  cond.params = {};
+  ind.params.forEach(p => { cond.params[p.key] = p.default; });
+
+  // 切换算子
+  if (ind.type === 'event') {
+    cond.operator = 'cross_up';
+    cond.value = '0';
+  } else {
+    cond.operator = '>';
+    cond.value = 0;
+  }
+
+  renderRuleConditions(side);
+}
+
+function updateCondOperator(side, condId, operator) {
+  const list = side === 'buy' ? _ruleBuilderState.buyRules : _ruleBuilderState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (cond) cond.operator = operator;
+}
+
+function updateCondValue(side, condId, value) {
+  const list = side === 'buy' ? _ruleBuilderState.buyRules : _ruleBuilderState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (!cond) return;
+  const ind = RULE_INDICATORS.find(i => i.key === cond.indicator);
+  if (ind && ind.type === 'event') cond.value = value;
+  else cond.value = parseFloat(value) || 0;
+}
+
+function updateCondParam(side, condId, paramKey, value) {
+  const list = side === 'buy' ? _ruleBuilderState.buyRules : _ruleBuilderState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (cond) cond.params[paramKey] = parseFloat(value) || 0;
+}
+
+function setRuleLogic(side, logic) {
+  if (side === 'buy') _ruleBuilderState.buyLogic = logic;
+  else _ruleBuilderState.sellLogic = logic;
+  renderRuleBuilder();
+}
+
+/* ── 从 UI 状态生成规则 DSL JSON ── */
+function buildRulesDSL() {
+  function buildGroup(conditions, logic) {
+    if (conditions.length === 0) return { logic: 'AND', conditions: [] };
+    return {
+      logic,
+      conditions: conditions.map(c => {
+        const ind = RULE_INDICATORS.find(i => i.key === c.indicator);
+        const cond = {
+          indicator: c.indicator,
+          params: { ...c.params },
+          operator: c.operator,
+        };
+        // 非事件型直接传数值
+        if (ind && ind.type !== 'event') {
+          cond.value = c.value;
+        } else {
+          cond.value = c.value; // 事件型: '0' 表示零线, 或指标 key
+        }
+        return cond;
+      }),
+    };
+  }
+
+  return {
+    buy_rules: buildGroup(_ruleBuilderState.buyRules, _ruleBuilderState.buyLogic),
+    sell_rules: buildGroup(_ruleBuilderState.sellRules, _ruleBuilderState.sellLogic),
+    risk: {
+      stop_loss_percent: _ruleBuilderState.stopLossPct,
+      take_profit_percent: _ruleBuilderState.takeProfitPct,
+      confidence_base: _ruleBuilderState.confidenceBase,
+    },
+  };
+}
+
+/* ── 预览规则 + 后端校验 ── */
+async function previewRules() {
+  const dsl = buildRulesDSL();
+  const previewEl = document.getElementById('rule-preview-text');
+  const msgEl = document.getElementById('rule-validation-msg');
+
+  // 本地预览
+  if (previewEl) {
+    previewEl.style.display = 'block';
+    previewEl.textContent = JSON.stringify(dsl, null, 2);
+  }
+
+  // 后端校验
+  if (msgEl) {
+    msgEl.style.display = 'block';
+    msgEl.className = 'cq-rule-validation-msg';
+    msgEl.innerHTML = '<span class="cq-spin" style="display:inline-block;width:14px;height:14px;border:2px solid var(--cq-text-tertiary);border-top-color:var(--cq-color-primary);border-radius:50%;animation:cq-spin .7s linear infinite;vertical-align:middle;"></span> 校验中...';
+  }
+
+  try {
+    const result = await api.validateRules(dsl);
+    if (msgEl) {
+      if (result.valid) {
+        msgEl.className = 'cq-rule-validation-msg cq-rule-valid';
+        msgEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-profit)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 规则校验通过 — ${escapeHtml(result.description)}`;
+      } else {
+        msgEl.className = 'cq-rule-validation-msg cq-rule-invalid';
+        msgEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> ${result.errors.map(e => escapeHtml(e)).join('; ')}`;
+      }
+    }
+  } catch (err) {
+    if (msgEl) {
+      msgEl.className = 'cq-rule-validation-msg cq-rule-invalid';
+      msgEl.textContent = '校验请求失败: ' + err.message;
+    }
+  }
 }

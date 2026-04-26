@@ -309,9 +309,15 @@ async def set_take_profit(
     return APIResponse(data=PositionSchema.from_model(position).model_dump())
 
 
+class ClosePositionRequest(BaseModel):
+    """平仓请求"""
+    account_id: int | None = Field(default=None, description="指定账户ID（可选，后端自动从持仓获取）")
+
+
 @router.post("/{position_id}/close")
 async def close_position(
     position_id: int,
+    request: ClosePositionRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> APIResponse:

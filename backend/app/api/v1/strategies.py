@@ -20,6 +20,7 @@ from app.api.deps import get_current_user
 from app.services.strategy_service import StrategyService
 from app.core.schemas import APIResponse
 from app.core.performance import PerformanceCalculator, PerformanceReport
+from app.core.rule_engine import validate_rules, describe_rules, RuleValidationError
 
 router = APIRouter()
 
@@ -109,6 +110,7 @@ def _build_predefined_templates() -> list[dict]:
         "rsi": "show_chart",
         "bollinger": "bandcamp",
         "martingale": "casino",
+        "rule_custom": "tune",
     }
     for t in _SEED_TEMPLATES:
         params = []
@@ -129,6 +131,7 @@ def _build_predefined_templates() -> list[dict]:
             "description": t["description"],
             "icon": icon_map.get(t["code"], "info"),
             "isActive": True,
+            "strategyType": t.get("strategy_type", ""),
             "params": params,
         })
     return templates
@@ -143,6 +146,7 @@ _STR_ID_MAP = {
     "bollinger": 3,
     "grid": 4,
     "martingale": 5,
+    "rule_custom": 6,
 }
 
 # 反向映射：数据库 template_id (int) → 前端 code (str)
@@ -415,3 +419,33 @@ async def get_strategy_performance(
     report = PerformanceCalculator.from_order_models(orders, initial_capital)
 
     return APIResponse(data=report.to_dict())
+
+
+# ============ 规则引擎 API ============
+
+class ValidateRulesRequest(BaseModel):
+    """规则校验请求"""
+    rules: dict = Field(..., description="JSON 规则定义，含 buy_rules/sell_rules/risk")
+
+
+@router.post("/validate-rules")
+async def validate_strategy_rules(
+    request: ValidateRulesRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> APIResponse:
+    """校验规则 DSL 格式，返回校验结果和可读描述"""
+    errors = validate_rules(request.rules)
+
+    if errors:
+        return APIResponse(data={
+            "valid": False,
+            "errors": errors,
+            "description": "",
+        })
+
+    description = describe_rules(request.rules)
+    return APIResponse(data={
+        "valid": True,
+        "errors": [],
+        "description": description,
+    })

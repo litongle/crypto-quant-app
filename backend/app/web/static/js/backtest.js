@@ -31,6 +31,7 @@ async function loadBacktestPage() {
 
   try {
     const templates = await api.getStrategyTemplates();
+    window._backtestTemplates = templates;
     renderBacktestTemplateSelect(templates);
   } catch {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
@@ -39,6 +40,238 @@ async function loadBacktestPage() {
     const history = await api.getBacktestHistory(10);
     renderBacktestHistory(history);
   } catch {}
+}
+
+const BT_RULE_INDICATORS = [
+  { key: 'price', name: '当前价格', type: 'value', params: [] },
+  { key: 'sma', name: 'SMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'ema', name: 'EMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'rsi', name: 'RSI', type: 'value', params: [{ key: 'period', name: '周期', default: 14, min: 2, max: 100, type: 'int' }] },
+  { key: 'macd', name: 'MACD', type: 'value', params: [] },
+  { key: 'boll_mid', name: 'BOLL中轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'boll_upper', name: 'BOLL上轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'boll_lower', name: 'BOLL下轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+];
+
+const BT_VALUE_OPERATORS = [
+  { key: '>', name: '>' },
+  { key: '<', name: '<' },
+  { key: '>=', name: '>=' },
+  { key: '<=', name: '<=' },
+];
+
+let _backtestRuleState = {
+  buyRules: [],
+  sellRules: [],
+  buyLogic: 'AND',
+  sellLogic: 'AND',
+  stopLossPct: 3,
+  takeProfitPct: 6,
+  confidenceBase: 0.7,
+  _nextId: 1,
+};
+
+function resetBacktestRuleState() {
+  _backtestRuleState = {
+    buyRules: [],
+    sellRules: [],
+    buyLogic: 'AND',
+    sellLogic: 'AND',
+    stopLossPct: 3,
+    takeProfitPct: 6,
+    confidenceBase: 0.7,
+    _nextId: 1,
+  };
+}
+
+function newBacktestRuleCondition(indicatorKey = 'price') {
+  const indicator = BT_RULE_INDICATORS.find(i => i.key === indicatorKey) || BT_RULE_INDICATORS[0];
+  const params = {};
+  indicator.params.forEach(p => { params[p.key] = p.default; });
+  return {
+    id: _backtestRuleState._nextId++,
+    indicator: indicator.key,
+    params,
+    operator: '>',
+    value: 0,
+  };
+}
+
+function renderBacktestRuleBuilder() {
+  const el = document.getElementById('backtest-params');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="cq-rule-builder">
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header">
+          <span>买入条件</span>
+          <div class="cq-rule-logic-toggle">
+            <button class="cq-logic-btn${_backtestRuleState.buyLogic === 'AND' ? ' is-active' : ''}" onclick="setBacktestRuleLogic('buy','AND')">AND</button>
+            <button class="cq-logic-btn${_backtestRuleState.buyLogic === 'OR' ? ' is-active' : ''}" onclick="setBacktestRuleLogic('buy','OR')">OR</button>
+          </div>
+        </div>
+        <div class="cq-rule-conditions" id="bt-rule-buy-conditions"></div>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm cq-add-condition-btn" onclick="addBacktestRuleCondition('buy')">添加买入条件</button>
+      </div>
+
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header">
+          <span>卖出条件</span>
+          <div class="cq-rule-logic-toggle">
+            <button class="cq-logic-btn${_backtestRuleState.sellLogic === 'AND' ? ' is-active' : ''}" onclick="setBacktestRuleLogic('sell','AND')">AND</button>
+            <button class="cq-logic-btn${_backtestRuleState.sellLogic === 'OR' ? ' is-active' : ''}" onclick="setBacktestRuleLogic('sell','OR')">OR</button>
+          </div>
+        </div>
+        <div class="cq-rule-conditions" id="bt-rule-sell-conditions"></div>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm cq-add-condition-btn" onclick="addBacktestRuleCondition('sell')">添加卖出条件</button>
+      </div>
+
+      <div class="cq-rule-section">
+        <div class="cq-rule-section__header"><span>风控参数</span></div>
+        <div class="cq-rule-risk-grid">
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">止损 %</span>
+              <span class="cq-param-value" id="val-bt-stopLossPct">${_backtestRuleState.stopLossPct}</span>
+            </div>
+            <input type="range" class="cq-slider" min="0.5" max="20" step="0.5" value="${_backtestRuleState.stopLossPct}"
+              oninput="document.getElementById('val-bt-stopLossPct').textContent=this.value; _backtestRuleState.stopLossPct=parseFloat(this.value)">
+          </div>
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">止盈 %</span>
+              <span class="cq-param-value" id="val-bt-takeProfitPct">${_backtestRuleState.takeProfitPct}</span>
+            </div>
+            <input type="range" class="cq-slider" min="1" max="50" step="1" value="${_backtestRuleState.takeProfitPct}"
+              oninput="document.getElementById('val-bt-takeProfitPct').textContent=this.value; _backtestRuleState.takeProfitPct=parseFloat(this.value)">
+          </div>
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">信号置信度</span>
+              <span class="cq-param-value" id="val-bt-confidenceBase">${Math.round(_backtestRuleState.confidenceBase * 100)}%</span>
+            </div>
+            <input type="range" class="cq-slider" min="0.1" max="1.0" step="0.05" value="${_backtestRuleState.confidenceBase}"
+              oninput="document.getElementById('val-bt-confidenceBase').textContent=Math.round(this.value*100)+'%'; _backtestRuleState.confidenceBase=parseFloat(this.value)">
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  renderBacktestRuleConditions('buy');
+  renderBacktestRuleConditions('sell');
+}
+
+function renderBacktestRuleConditions(side) {
+  const container = document.getElementById(`bt-rule-${side}-conditions`);
+  if (!container) return;
+  const conditions = side === 'buy' ? _backtestRuleState.buyRules : _backtestRuleState.sellRules;
+  if (conditions.length === 0) {
+    container.innerHTML = '<div class="cq-rule-empty">尚未添加条件，点击下方按钮添加</div>';
+    return;
+  }
+
+  container.innerHTML = conditions.map(cond => {
+    const indicator = BT_RULE_INDICATORS.find(i => i.key === cond.indicator) || BT_RULE_INDICATORS[0];
+    const paramInputs = indicator.params.map(p => {
+      const val = cond.params[p.key] ?? p.default;
+      return `<div class="cq-cond-param">
+        <span class="cq-cond-param__label">${p.name}</span>
+        <input type="number" class="cq-input cq-cond-param__input" value="${val}" min="${p.min || ''}" max="${p.max || ''}" step="${p.type === 'int' ? 1 : 0.1}" onchange="updateBacktestCondParam('${side}',${cond.id},'${p.key}',this.value)">
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="cq-rule-condition" data-cond-id="${cond.id}">
+        <div class="cq-cond-row">
+          <select class="cq-input cq-cond-indicator" onchange="changeBacktestCondIndicator('${side}',${cond.id},this.value)">
+            ${BT_RULE_INDICATORS.map(i => `<option value="${i.key}" ${i.key === cond.indicator ? 'selected' : ''}>${i.name}</option>`).join('')}
+          </select>
+          <select class="cq-input cq-cond-operator" onchange="updateBacktestCondOperator('${side}',${cond.id},this.value)">
+            ${BT_VALUE_OPERATORS.map(o => `<option value="${o.key}" ${o.key === cond.operator ? 'selected' : ''}>${o.name}</option>`).join('')}
+          </select>
+          <input type="number" class="cq-input cq-cond-value" value="${cond.value}" step="any" placeholder="阈值" onchange="updateBacktestCondValue('${side}',${cond.id},this.value)">
+          <button class="cq-cond-remove" onclick="removeBacktestRuleCondition('${side}',${cond.id})" title="删除条件">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        ${paramInputs ? `<div class="cq-cond-params">${paramInputs}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function addBacktestRuleCondition(side) {
+  const cond = newBacktestRuleCondition('price');
+  if (side === 'buy') _backtestRuleState.buyRules.push(cond);
+  else _backtestRuleState.sellRules.push(cond);
+  renderBacktestRuleConditions(side);
+}
+
+function removeBacktestRuleCondition(side, condId) {
+  if (side === 'buy') _backtestRuleState.buyRules = _backtestRuleState.buyRules.filter(c => c.id !== condId);
+  else _backtestRuleState.sellRules = _backtestRuleState.sellRules.filter(c => c.id !== condId);
+  renderBacktestRuleConditions(side);
+}
+
+function changeBacktestCondIndicator(side, condId, indicatorKey) {
+  const list = side === 'buy' ? _backtestRuleState.buyRules : _backtestRuleState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (!cond) return;
+  const indicator = BT_RULE_INDICATORS.find(i => i.key === indicatorKey) || BT_RULE_INDICATORS[0];
+  cond.indicator = indicator.key;
+  cond.params = {};
+  indicator.params.forEach(p => { cond.params[p.key] = p.default; });
+  cond.operator = '>';
+  cond.value = 0;
+  renderBacktestRuleConditions(side);
+}
+
+function updateBacktestCondOperator(side, condId, operator) {
+  const list = side === 'buy' ? _backtestRuleState.buyRules : _backtestRuleState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (cond) cond.operator = operator;
+}
+
+function updateBacktestCondValue(side, condId, value) {
+  const list = side === 'buy' ? _backtestRuleState.buyRules : _backtestRuleState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (cond) cond.value = parseFloat(value) || 0;
+}
+
+function updateBacktestCondParam(side, condId, paramKey, value) {
+  const list = side === 'buy' ? _backtestRuleState.buyRules : _backtestRuleState.sellRules;
+  const cond = list.find(c => c.id === condId);
+  if (cond) cond.params[paramKey] = parseFloat(value) || 0;
+}
+
+function setBacktestRuleLogic(side, logic) {
+  if (side === 'buy') _backtestRuleState.buyLogic = logic;
+  else _backtestRuleState.sellLogic = logic;
+  renderBacktestRuleBuilder();
+}
+
+function buildBacktestRulesDSL() {
+  function buildGroup(conditions, logic) {
+    return {
+      logic,
+      conditions: conditions.map(c => ({
+        indicator: c.indicator,
+        params: { ...c.params },
+        operator: c.operator,
+        value: c.value,
+      })),
+    };
+  }
+  return {
+    buy_rules: buildGroup(_backtestRuleState.buyRules, _backtestRuleState.buyLogic),
+    sell_rules: buildGroup(_backtestRuleState.sellRules, _backtestRuleState.sellLogic),
+    risk: {
+      stop_loss_percent: _backtestRuleState.stopLossPct,
+      take_profit_percent: _backtestRuleState.takeProfitPct,
+      confidence_base: _backtestRuleState.confidenceBase,
+    },
+  };
 }
 
 function renderBacktestTemplateSelect(templates) {
@@ -70,11 +303,23 @@ async function runBacktest() {
   else if (daysDiff > 200) intervalHint = '（将使用4小时级别）';
   else intervalHint = '（1小时级别）';
 
+  const selectedTemplate = (window._backtestTemplates || []).find(t => t.id === templateId);
+  const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
   const params = {};
-  document.querySelectorAll('#backtest-params input[type="range"]').forEach(sl => {
-    const key = sl.id.replace('sl-bt-', '');
-    params[key] = parseFloat(sl.value);
-  });
+  if (isRuleTemplate) {
+    const buyEmpty = _backtestRuleState.buyRules.length === 0;
+    const sellEmpty = _backtestRuleState.sellRules.length === 0;
+    if (buyEmpty && sellEmpty) {
+      showToast('请至少添加一个买入或卖出条件', 'warn');
+      return;
+    }
+    params.rules = buildBacktestRulesDSL();
+  } else {
+    document.querySelectorAll('#backtest-params input[type="range"]').forEach(sl => {
+      const key = sl.id.replace('sl-bt-', '');
+      params[key] = parseFloat(sl.value);
+    });
+  }
 
   const btn = document.getElementById('run-backtest-btn');
   btn.disabled = true;
@@ -294,9 +539,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const templateId = sel.value;
       if (!templateId) { document.getElementById('backtest-params').innerHTML = ''; return; }
       try {
-        const templates = await api.getStrategyTemplates();
+        const templates = window._backtestTemplates || await api.getStrategyTemplates();
+        window._backtestTemplates = templates;
         const tmpl = templates.find(t => t.id === templateId);
-        if (tmpl && tmpl.params) {
+        if (tmpl && tmpl.strategyType === 'rule') {
+          resetBacktestRuleState();
+          renderBacktestRuleBuilder();
+        } else if (tmpl && tmpl.params) {
           document.getElementById('backtest-params').innerHTML = tmpl.params.map(p => `
             <div style="margin-bottom:var(--cq-space-3);">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
@@ -307,6 +556,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 oninput="document.getElementById('val-bt-${p.key}').textContent=this.value">
             </div>
           `).join('');
+        } else {
+          document.getElementById('backtest-params').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
         }
       } catch {}
     });
