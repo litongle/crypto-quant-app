@@ -74,6 +74,47 @@ async def setup_status():
     }
 
 
+@router.get("/env-defaults")
+async def setup_env_defaults():
+    """返回当前环境变量中预置的数据库/Redis配置，供安装向导自动预填"""
+    import re
+    settings = get_settings()
+    db_url = settings.database_url or ""
+    redis_url = settings.redis_url or "redis://localhost:6379/0"
+
+    # 解析 DATABASE_URL，提取各字段
+    db_type = "sqlite"
+    pg_host = "localhost"
+    pg_port = "5432"
+    pg_user = "postgres"
+    pg_password = ""
+    pg_dbname = "crypto_quant"
+
+    if db_url.startswith("postgresql"):
+        db_type = "postgresql"
+        # postgresql+asyncpg://user:password@host:port/dbname
+        m = re.match(
+            r"postgresql(?:\+\w+)?://([^:@]*)(?::([^@]*))?@([^:/]+)(?::(\d+))?/(\S+)",
+            db_url,
+        )
+        if m:
+            pg_user = m.group(1) or "postgres"
+            pg_password = m.group(2) or ""
+            pg_host = m.group(3) or "localhost"
+            pg_port = m.group(4) or "5432"
+            pg_dbname = m.group(5) or "crypto_quant"
+
+    return {
+        "db_type": db_type,
+        "pg_host": pg_host,
+        "pg_port": pg_port,
+        "pg_user": pg_user,
+        "pg_password": pg_password,
+        "pg_dbname": pg_dbname,
+        "redis_url": redis_url,
+    }
+
+
 @router.post("/complete")
 async def complete_setup(req: SetupRequest):
     """完成安装"""
@@ -129,6 +170,7 @@ async def complete_setup(req: SetupRequest):
             )
             session.add(admin)
             await session.flush()
+            await session.commit()
     except Exception as e:
         raise HTTPException(
             status_code=500,

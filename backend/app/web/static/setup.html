@@ -321,6 +321,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     // 后端未启动等情况，忽略
   }
+
+  // 自动预填数据库/Redis配置（从后端环境变量读取）
+  try {
+    const res = await fetch(`${API_BASE}/setup/env-defaults`);
+    if (res.ok) {
+      const d = await res.json();
+      // 切换数据库类型
+      const dbTypeEl = document.getElementById('db-type');
+      dbTypeEl.value = d.db_type;
+      toggleDbType();
+      // 预填 PostgreSQL 字段
+      if (d.db_type === 'postgresql') {
+        document.getElementById('pg-host').value = d.pg_host || 'localhost';
+        document.getElementById('pg-port').value = d.pg_port || '5432';
+        document.getElementById('pg-user').value = d.pg_user || 'postgres';
+        document.getElementById('pg-password').value = d.pg_password || '';
+        document.getElementById('pg-dbname').value = d.pg_dbname || 'crypto_quant';
+      }
+      // 预填 Redis 地址
+      document.getElementById('redis-url').value = d.redis_url || 'redis://localhost:6379/0';
+    }
+  } catch (e) {
+    // 预填失败不影响手动填写
+  }
 });
 
 // ===== 步骤切换 =====
