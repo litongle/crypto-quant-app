@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency configuration (separate from source for better caching)
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
 # Install dependencies with pip mirror (Aliyun for faster downloads)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel hatchling && \

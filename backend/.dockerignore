@@ -53,13 +53,13 @@ data/
 .env.*.local
 
 # Documentation & Examples
-README.md
+# README.md (required for build)
 DESIGN_SYSTEM.md
 PROGRESS.md
 DECISIONS.md
 screenshot-*.png
 docs/
-*.md
+# *.md (required for build)
 
 # CI/CD
 .github
@@ -68,12 +68,12 @@ docs/
 .travis.yml
 .codecov.yml
 
-# Test files
-tests/
-test_data/
-test_*.py
-*_test.py
-conftest.py
+# Test files (Keep for container testing)
+# tests/
+# test_data/
+# test_*.py
+# *_test.py
+# conftest.py
 
 # Other
 Dockerfile*

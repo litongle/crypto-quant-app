@@ -99,7 +99,7 @@ class Order(Base):
         ForeignKey("strategy_instances.id"), nullable=True, index=True
     )
     signal_id: Mapped[int | None] = mapped_column(
-        ForeignKey("signals.id"), nullable=True, index=True
+        ForeignKey("signals.id", use_alter=True, name="fk_order_signal_id"), nullable=True, index=True
     )
     
     # 备注
@@ -173,7 +173,7 @@ class Signal(Base):
     
     # 执行信息
     executed_order_id: Mapped[int | None] = mapped_column(
-        ForeignKey("orders.id"), nullable=True
+        ForeignKey("orders.id", use_alter=True, name="fk_signal_order_id"), nullable=True
     )
     
     # 市场数据快照（JSON格式存储，非ForeignKey）

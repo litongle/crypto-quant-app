@@ -3,7 +3,7 @@
 """
 import pytest
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.core.indicators import (
@@ -41,7 +41,7 @@ def _make_klines(count: int = 100, base_price: float = 50000.0, trend: str = "up
             "low": low,
             "close": price,
             "volume": random.uniform(100, 1000),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     return klines
 

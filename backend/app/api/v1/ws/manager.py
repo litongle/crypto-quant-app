@@ -2,6 +2,7 @@
 WebSocket 订阅管理器
 """
 import logging
+from typing import Any
 from collections import defaultdict
 from dataclasses import dataclass, field
 from fastapi import WebSocket

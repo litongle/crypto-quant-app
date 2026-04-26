@@ -20,7 +20,6 @@ import httpx
 from app.core.strategy_engine import (
     BaseStrategy,
     StrategyConfig,
-    StrategyFactory,
     get_strategy,
 )
 from app.core.performance import (

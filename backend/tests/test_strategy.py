@@ -3,7 +3,7 @@
 """
 import pytest
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.strategy_runner import StrategyRunner
 from app.core.strategy_engine import StrategyConfig, Signal, get_strategy
 
@@ -137,7 +137,7 @@ class TestSignalModel:
             stop_loss_price=Decimal("48000"),
             take_profit_price=Decimal("55000"),
             reason="MA golden cross",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         assert signal.action == "buy"
         assert signal.confidence == 0.85
@@ -152,7 +152,7 @@ class TestSignalModel:
             stop_loss_price=Decimal("48000"),
             take_profit_price=Decimal("55000"),
             reason="RSI oversold",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         assert signal.stop_loss_price == Decimal("48000")
         assert signal.take_profit_price == Decimal("55000")
