@@ -17,12 +17,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password.encode("utf-8")[:72].decode("utf-8", errors="ignore"), hashed_password)
+    # P3-5: 安全截断，不丢弃字符 — 先按 UTF-8 字节截断再用 surrogateescape 防丢失
+    raw = plain_password.encode("utf-8", errors="surrogateescape")[:72]
+    return pwd_context.verify(raw.decode("utf-8", errors="surrogateescape"), hashed_password)
 
 
 def hash_password(password: str) -> str:
     """哈希密码（bcrypt 限制 72 字节，按 UTF-8 字节截断）"""
-    return pwd_context.hash(password.encode("utf-8")[:72].decode("utf-8", errors="ignore"))
+    # P3-5: 安全截断，不丢弃字符
+    raw = password.encode("utf-8", errors="surrogateescape")[:72]
+    return pwd_context.hash(raw.decode("utf-8", errors="surrogateescape"))
 
 
 def create_access_token(

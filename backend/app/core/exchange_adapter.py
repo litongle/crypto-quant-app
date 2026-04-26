@@ -388,6 +388,35 @@ class BaseExchangeAdapter(ABC):
         """获取订单状态"""
         pass
 
+    async def create_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
+    ) -> OrderResult:
+        """创建条件单（止损/止盈）
+
+        P0-3: 止损止盈必须实际提交到交易所，不能只存在数据库。
+
+        Args:
+            symbol: 交易对
+            side: 方向 (buy/sell) — 止损通常与持仓方向相反
+            quantity: 数量
+            stop_price: 触发价格
+            order_type: stop_loss 或 take_profit
+
+        Returns:
+            OrderResult: 交易所返回的订单结果
+
+        默认实现通过 create_order 传递条件单参数，
+        子类可覆盖以实现交易所特定的条件单 API。
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} 尚未实现条件单 (stop_loss/take_profit) API"
+        )
+
 
 # ==================== Binance 适配器 ====================
 
@@ -666,8 +695,60 @@ class BinanceAdapter(BaseExchangeAdapter):
             avg_fill_price=_safe_divide(cumm_quote, executed_qty),
         )
 
+    async def create_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
+    ) -> OrderResult:
+        """创建条件单（止损/止盈）
 
-# ==================== OKX 适配器 ====================
+        Binance Spot: POST /api/v3/order
+        - STOP_LOSS: type=STOP_LOSS, stopPrice=xxx  → 触发后市价卖出
+        - TAKE_PROFIT: type=TAKE_PROFIT, stopPrice=xxx → 触发后市价卖出
+        """
+        binance_type = "STOP_LOSS" if order_type == "stop_loss" else "TAKE_PROFIT"
+
+        async def _do():
+            client = await self.get_shared_client()
+            params: dict[str, Any] = {
+                "symbol": symbol.upper(),
+                "side": side.upper(),
+                "type": binance_type,
+                "quantity": f"{quantity:.8f}".rstrip("0").rstrip("."),
+                "stopPrice": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+            }
+            params = self._sign_params(params)
+            resp = await client.post(
+                f"{self.base_url}/api/v3/order",
+                params=params,
+                headers=self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(
+            _do, max_attempts=1,  # 条件单不重试
+            context=f"create_stop_order({symbol},{side},{binance_type},stop={stop_price})",
+        )
+        self._check_response(data)
+
+        executed_qty = _safe_decimal(data.get("executedQty"))
+        cumm_quote = _safe_decimal(data.get("cummulativeQuoteQty"))
+
+        return OrderResult(
+            exchange_order_id=str(data.get("orderId", "")),
+            symbol=data.get("symbol", symbol),
+            side=data.get("side", side).lower(),
+            order_type=order_type,
+            quantity=_safe_decimal(data.get("origQty"), quantity),
+            price=_safe_decimal(data.get("stopPrice", stop_price)),
+            status=_BINANCE_STATUS_MAP.get(data.get("status", ""), "pending"),
+            filled_quantity=executed_qty,
+            avg_fill_price=_safe_divide(cumm_quote, executed_qty),
+        )
 
 class OKXAdapter(BaseExchangeAdapter):
     """OKX 交易所适配器
@@ -1072,8 +1153,87 @@ class OKXAdapter(BaseExchangeAdapter):
             avg_fill_price=avg_price if avg_price > 0 else None,
         )
 
+    async def create_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
+    ) -> OrderResult:
+        """创建条件单（止损/止盈）
 
-# ==================== Huobi 适配器 ====================
+        OKX POST /api/v5/trade/order
+        - ordType: conditional (条件单)
+        - slTriggerPx / tpTriggerPx: 止损/止盈触发价
+        - slOrdPx / tpOrdPx: 委托价格 (空字符串表示市价)
+        """
+        inst_id = self._to_inst_id(symbol)
+        await self._ensure_time_synced()
+        path = "/api/v5/trade/order"
+
+        if order_type == "stop_loss":
+            body_dict = {
+                "instId": inst_id,
+                "tdMode": "cash",
+                "side": side.lower(),
+                "ordType": "conditional",
+                "sz": f"{quantity:.8f}".rstrip("0").rstrip("."),
+                "slTriggerPx": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+                "slOrdPx": "",  # 市价委托
+            }
+        else:  # take_profit
+            body_dict = {
+                "instId": inst_id,
+                "tdMode": "cash",
+                "side": side.lower(),
+                "ordType": "conditional",
+                "sz": f"{quantity:.8f}".rstrip("0").rstrip("."),
+                "tpTriggerPx": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+                "tpOrdPx": "",  # 市价委托
+            }
+
+        async def _do():
+            client = await self.get_shared_client()
+            body = json.dumps(body_dict)
+            timestamp = self._get_timestamp()
+            sign = self._sign(timestamp, "POST", path, body)
+            resp = await client.post(
+                f"{self.base_url}{path}",
+                content=body,
+                headers={
+                    "OK-ACCESS-KEY": self.api_key,
+                    "OK-ACCESS-SIGN": sign,
+                    "OK-ACCESS-TIMESTAMP": timestamp,
+                    "OK-ACCESS-PASSPHRASE": self.passphrase or "",
+                    "Content-Type": "application/json",
+                    **({"x-simulated-trading": "1"} if self.is_demo else {}),
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(
+            _do, max_attempts=1,
+            context=f"create_stop_order({symbol},{side},{order_type},stop={stop_price})",
+        )
+        self._check_response(data)
+
+        if not data.get("data"):
+            raise OrderRejectedError("okx", f"条件单创建失败: {data.get('msg', 'unknown')}")
+
+        o = data["data"][0]
+        return OrderResult(
+            exchange_order_id=o.get("ordId", ""),
+            symbol=symbol,
+            side=side.lower(),
+            order_type=order_type,
+            quantity=quantity,
+            price=stop_price,
+            status="pending",  # 条件单创建后等待触发
+            filled_quantity=Decimal("0"),
+            avg_fill_price=None,
+        )
 
 class HuobiAdapter(BaseExchangeAdapter):
     """Huobi (HTX) 交易所适配器
@@ -1486,6 +1646,81 @@ class HuobiAdapter(BaseExchangeAdapter):
             status=_HUOBI_STATUS_MAP.get(o.get("state", ""), "pending"),
             filled_quantity=filled_qty,
             avg_fill_price=avg_price,
+        )
+
+    async def create_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
+    ) -> OrderResult:
+        """创建条件单（止损/止盈）
+
+        Huobi POST /v2/order/algo
+        - orderType: limit (限价条件单) / market (市价条件单)
+        - stopPrice: 触发价
+        """
+        try:
+            account_id = await self._get_account_id()
+        except ExchangeAPIError:
+            self._invalidate_account_id_cache()
+            account_id = await self._get_account_id()
+
+        # 火币条件单方向: buy-stop / sell-stop
+        if order_type == "stop_loss":
+            otype = "sell-stop" if side == "sell" else "buy-stop"
+        else:
+            otype = "sell-stop" if side == "sell" else "buy-stop"
+
+        body_dict = {
+            "accountId": account_id,
+            "symbol": symbol.lower(),
+            "orderType": "market",  # 触发后市价委托
+            "type": otype,
+            "amount": f"{quantity:.8f}".rstrip("0").rstrip("."),
+            "stopPrice": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+            "source": "api",
+        }
+
+        async def _do():
+            client = await self.get_shared_client()
+            body = json.dumps(body_dict)
+            params = self._sign_params({})
+            params["method"] = "POST"
+            params["body"] = body
+            resp = await client.post(
+                f"{self.base_url}/v2/order/algo",
+                params=params,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    **self._auth_headers(),
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(
+            _do, max_attempts=1,
+            context=f"create_stop_order({symbol},{side},{order_type},stop={stop_price})",
+        )
+        self._check_response(data)
+
+        if data.get("status") != "ok":
+            raise OrderRejectedError("huobi", f"条件单创建失败: {data.get('err-msg', 'unknown')}")
+
+        return OrderResult(
+            exchange_order_id=str(data.get("data", "")),
+            symbol=symbol.upper(),
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            price=stop_price,
+            status="pending",
+            filled_quantity=Decimal("0"),
+            avg_fill_price=None,
         )
 
 

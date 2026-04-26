@@ -95,12 +95,16 @@ async def init_db():
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """获取数据库会话的依赖"""
+    """获取数据库会话的依赖
+
+    P1-6: 不再自动 commit，由路由层显式控制事务。
+    路由通过 Depends(get_db) 获取 session，自己决定何时 commit。
+    如果路由没有显式 commit，退出时自动 rollback（安全默认）。
+    """
     session_maker = await get_session_maker()
     async with session_maker() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise
@@ -116,12 +120,14 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
-    """获取数据库会话的上下文管理器（用于非依赖注入场景）"""
+    """获取数据库会话的上下文管理器（用于非依赖注入场景）
+
+    P1-6: 不自动 commit，调用方自行控制。安全起见退出时 rollback。
+    """
     session_maker = await get_session_maker()
     async with session_maker() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise

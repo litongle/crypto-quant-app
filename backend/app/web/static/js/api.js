@@ -74,11 +74,12 @@ class ApiClient {
       throw new Error(err.detail || '登录失败');
     }
     const json = await res.json();
-    this.accessToken = json.access_token;
-    this.refreshToken = json.refresh_token;
+    const data = json.data || json;  // APIResponse 包裹兼容
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token;
     localStorage.setItem('access_token', this.accessToken);
     localStorage.setItem('refresh_token', this.refreshToken);
-    return json;
+    return data;
   }
 
   async register(email, password, name) {
@@ -92,11 +93,12 @@ class ApiClient {
       throw new Error(err.detail || '注册失败');
     }
     const json = await res.json();
-    this.accessToken = json.access_token;
-    this.refreshToken = json.refresh_token;
+    const data = json.data || json;  // APIResponse 包裹兼容
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token;
     localStorage.setItem('access_token', this.accessToken);
     localStorage.setItem('refresh_token', this.refreshToken);
-    return json;
+    return data;
   }
 
   logout() {
@@ -282,8 +284,9 @@ class ApiClient {
   }
 
   async emergencyCloseAll(accountId) {
-    const qs = accountId ? `?account_id=${accountId}` : '';
-    const json = await this.post(`/trading/emergency-close-all${qs}`);
+    const body = { confirm: true };
+    if (accountId) body.account_id = accountId;
+    const json = await this.post('/trading/emergency-close-all', body);
     return json.data || json;
   }
 

@@ -360,9 +360,10 @@ class StrategyRunner:
                     logger.warning("[StrategyRunner] 未知信号动作: %s", signal.action)
                     return
 
-                # 计算下单数量（使用账户可用余额的 95%）
+                # 计算下单数量（P1-7: 使用可配置比例，默认30%）
+                max_invest_pct = Decimal(str(config.params.get("max_invest_percent", 30))) / 100
                 quantity = self._calculate_order_quantity(
-                    account.balance, signal.entry_price, config.symbol, side
+                    account.balance, signal.entry_price, config.symbol, side, max_invest_pct
                 )
                 if quantity <= 0:
                     logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0，跳过", instance_id)
@@ -411,13 +412,17 @@ class StrategyRunner:
         entry_price: Decimal | None,
         symbol: str,
         side: str,
+        max_invest_percent: Decimal = Decimal("0.30"),  # P1-7: 默认30%，可配置
     ) -> Decimal:
-        """计算下单数量"""
+        """计算下单数量
+
+        Args:
+            max_invest_percent: 最大使用余额比例，默认0.30(30%)
+        """
         if not entry_price or entry_price <= 0:
             return Decimal("0")
 
-        # 使用可用余额的 95%
-        invest_amount = balance * Decimal("0.95")
+        invest_amount = balance * max_invest_percent
         quantity = invest_amount / entry_price
 
         # 根据交易对确定最小下单量

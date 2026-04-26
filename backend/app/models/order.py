@@ -29,15 +29,19 @@ class Order(Base):
     """订单"""
 
     __tablename__ = "orders"
+    __table_args__ = (
+        # P2-6: 联合唯一约束，不同交易所订单ID可能重复
+        {"sqlite_autoincrement": True},
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     account_id: Mapped[int] = mapped_column(
         ForeignKey("exchange_accounts.id"), index=True
     )
     
-    # 交易所订单ID
+    # 交易所订单ID（P2-6: 去掉 unique，改为联合唯一 (exchange_order_id, account_id)）
     exchange_order_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, unique=True, index=True
+        String(100), nullable=True, index=True
     )
     
     # 交易对

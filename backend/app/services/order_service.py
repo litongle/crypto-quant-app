@@ -43,16 +43,23 @@ class OrderService:
         """获取用户的交易所账户"""
         return await self.account_repo.get_active_by_user(user_id)
 
-    async def sync_account_balance(self, account_id: int) -> ExchangeAccount:
+    async def sync_account_balance(self, account_id: int, user_id: int | None = None) -> ExchangeAccount:
         """从交易所同步账户真实余额
 
         调用交易所 get_balance() API，将 USDT 余额写回 ExchangeAccount。
+        IDOR 修复：如果传入 user_id，验证账户所有权。
         """
         account = await self.account_repo.get_by_id(account_id)
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="账户不存在",
+            )
+        # IDOR 修复：验证账户所有权
+        if user_id is not None and account.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权操作此账户",
             )
 
         try:
@@ -441,7 +448,7 @@ class OrderService:
         return all_positions
 
     async def close_position(self, position_id: int, user_id: int) -> Position:
-        """平仓"""
+        """平仓 — P1-1: 交易所成功后再标记 closed，使用事务安全顺序"""
         position = await self.position_repo.get_by_id(position_id)
         if not position:
             raise HTTPException(
@@ -473,9 +480,11 @@ class OrderService:
             strategy_instance_id=position.strategy_instance_id,
         )
 
-        # 提交到交易所执行平仓
+        # P1-1: 先提交到交易所，成功后再更新 position 状态
+        # submit_order 内部已有异常处理，失败会抛出 HTTPException
         await self.submit_order(order.id, user_id)
 
+        # 只有交易所确认成功后才标记平仓
         position.status = "closed"
         position.closed_at = datetime.now(timezone.utc)
         await self.session.commit()
@@ -500,7 +509,7 @@ class OrderService:
     async def set_stop_loss(
         self, position_id: int, user_id: int, stop_price: Decimal
     ) -> Position:
-        """设置止损价格"""
+        """设置止损价格 — P0-3: 同时提交交易所条件单"""
         position = await self.position_repo.get_by_id(position_id)
         if not position:
             raise HTTPException(
@@ -533,6 +542,46 @@ class OrderService:
                 detail="空头止损价必须高于开仓价",
             )
 
+        # P0-3: 实际向交易所提交止损条件单
+        # 止损方向与持仓方向相反：多头持仓 → 卖出止损，空头持仓 → 买入止损
+        sl_side = "sell" if position.side == "long" else "buy"
+        try:
+            from app.core.exchange_adapter import get_exchange_adapter
+
+            adapter = get_exchange_adapter(
+                exchange=account.exchange,
+                api_key=account.get_api_key(),
+                secret_key=account.get_secret_key(),
+                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                testnet=account.is_testnet,
+                is_demo=account.is_demo,
+            )
+
+            result = await adapter.create_stop_order(
+                symbol=position.symbol,
+                side=sl_side,
+                quantity=position.quantity,
+                stop_price=stop_price,
+                order_type="stop_loss",
+            )
+
+            # 保存交易所条件单ID
+            if result.exchange_order_id:
+                position.stop_loss_order_id = result.exchange_order_id
+
+            logger.info(
+                "[OrderService] 止损条件单已提交: position_id=%d, symbol=%s, "
+                "stop_price=%s, exchange_order_id=%s",
+                position_id, position.symbol, stop_price, result.exchange_order_id,
+            )
+
+        except Exception as exc:
+            # 条件单提交失败时仍保存本地止损价（降级模式）
+            logger.warning(
+                "[OrderService] 止损条件单提交失败，降级为本地止损: position_id=%d, error=%s",
+                position_id, str(exc),
+            )
+
         position.stop_loss_price = stop_price
         await self.session.commit()
         await self.session.refresh(position)
@@ -541,7 +590,7 @@ class OrderService:
     async def set_take_profit(
         self, position_id: int, user_id: int, tp_price: Decimal
     ) -> Position:
-        """设置止盈价格"""
+        """设置止盈价格 — P0-3: 同时提交交易所条件单"""
         position = await self.position_repo.get_by_id(position_id)
         if not position:
             raise HTTPException(
@@ -572,6 +621,46 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="空头止盈价必须低于开仓价",
+            )
+
+        # P0-3: 实际向交易所提交止盈条件单
+        # 止盈方向与持仓方向相反：多头持仓 → 卖出止盈，空头持仓 → 买入止盈
+        tp_side = "sell" if position.side == "long" else "buy"
+        try:
+            from app.core.exchange_adapter import get_exchange_adapter
+
+            adapter = get_exchange_adapter(
+                exchange=account.exchange,
+                api_key=account.get_api_key(),
+                secret_key=account.get_secret_key(),
+                passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                testnet=account.is_testnet,
+                is_demo=account.is_demo,
+            )
+
+            result = await adapter.create_stop_order(
+                symbol=position.symbol,
+                side=tp_side,
+                quantity=position.quantity,
+                stop_price=tp_price,
+                order_type="take_profit",
+            )
+
+            # 保存交易所条件单ID
+            if result.exchange_order_id:
+                position.take_profit_order_id = result.exchange_order_id
+
+            logger.info(
+                "[OrderService] 止盈条件单已提交: position_id=%d, symbol=%s, "
+                "tp_price=%s, exchange_order_id=%s",
+                position_id, position.symbol, tp_price, result.exchange_order_id,
+            )
+
+        except Exception as exc:
+            # 条件单提交失败时仍保存本地止盈价（降级模式）
+            logger.warning(
+                "[OrderService] 止盈条件单提交失败，降级为本地止盈: position_id=%d, error=%s",
+                position_id, str(exc),
             )
 
         position.take_profit_price = tp_price

@@ -50,6 +50,7 @@ class Subscription:
     channels: set[str] = field(default_factory=set)  # ticker/kline/orderbook
     symbols: set[str] = field(default_factory=set)    # BTCUSDT/ETHUSDT/...
     ws: WebSocket | None = None
+    user_id: str | None = None  # P1-2: 正式字段替代 monkey-patch _user_id
 
 
 class WSConnectionManager:
@@ -606,14 +607,43 @@ async def ws_market(websocket: WebSocket):
     """WebSocket 行情推送端点
 
     协议:
-    - 连接: ws://localhost:8000/api/v1/ws/market?symbol=BTCUSDT&exchange=binance
+    - 连接: ws://localhost:8000/api/v1/ws/market?symbol=BTCUSDT&exchange=binance&token=JWT_TOKEN
+    - 认证: 通过 query params 传入 JWT access_token（必须）
     - 订阅: {"action": "subscribe", "channels": ["ticker"], "symbols": ["BTCUSDT"]}
     - 取消: {"action": "unsubscribe", "channels": ["ticker"], "symbols": ["BTCUSDT"]}
     - 心跳: {"action": "ping"}
     """
+    # === P0-3: WS 认证 ===
+    token = websocket.query_params.get("token", "")
+    if not token:
+        await websocket.close(code=4001, reason="Missing authentication token")
+        return
+
+    try:
+        from app.core.security import verify_token
+        payload = verify_token(token, token_type="access")
+        user_id = payload.get("sub")
+        if not user_id:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+    except (ValueError, Exception) as e:
+        await websocket.close(code=4001, reason=f"Authentication failed: {str(e)[:50]}")
+        return
+
+    # === 连接数限制（单用户最多 5 个 WS 连接）===
+    user_conn_count = sum(
+        1 for sub in manager._subs.values()
+        if sub.user_id == user_id
+    )
+    if user_conn_count >= 5:
+        await websocket.close(code=4002, reason="Too many connections (max 5)")
+        return
+
     await websocket.accept()
     conn_id = f"conn-{id(websocket)}-{int(time.time()*1000)}"
-    manager.register(conn_id, websocket)
+    sub = Subscription(ws=websocket, user_id=user_id)  # P1-2: 使用正式字段
+    manager._subs[conn_id] = sub
+    logger.info("[WSManager] 连接注册: %s (user=%s), 当前连接数: %d", conn_id, user_id, len(manager._subs))
 
     # 从 query params 读取初始订阅
     initial_symbol = websocket.query_params.get("symbol", "BTCUSDT").upper()
@@ -737,9 +767,8 @@ async def _fetch_initial_ticker(
                 "volume_24h": d.get("volume", "0"),
             }
         elif exchange == "okx":
-            # BTCUSDT → BTC-USDT
-            inst_id = BinanceWSProxy.__bases__[0]._to_inst_id(None, symbol) if hasattr(BinanceWSProxy, '__bases__') else symbol
-            # 简单转换
+            # BTCUSDT → BTC-USDT (P1-5: 删除了错误 hack，只保留简单转换)
+            inst_id = symbol
             for sc in ("USDT", "USDC", "BUSD"):
                 if symbol.endswith(sc):
                     inst_id = f"{symbol[:-len(sc)]}-{sc}"

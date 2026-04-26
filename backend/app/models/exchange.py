@@ -164,6 +164,13 @@ class Position(Base):
     take_profit_price: Mapped[Decimal | None] = mapped_column(
         Numeric(20, 8), nullable=True
     )
+    # P0-3: 交易所条件单ID（止损/止盈实际提交到交易所后的订单号）
+    stop_loss_order_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="交易所止损条件单ID"
+    )
+    take_profit_order_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="交易所止盈条件单ID"
+    )
     
     # 状态
     status: Mapped[str] = mapped_column(

@@ -5,13 +5,18 @@ FastAPI 主入口
 - 不再模块级缓存 settings，每次从 get_settings() 取
 - 根路径 / 和 /web/ 增加 setup 跳转
 - 注册安装向导 API
+- P1-3: 行情 API 限流中间件
+- P2-9: 改进全局异常处理器
 """
 import logging
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.core.exceptions import AppException
@@ -92,6 +97,42 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
+    # P1-3: 行情 API 限流中间件（IP 级别，每分钟 60 次）
+    _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+    MARKET_RATE_LIMIT = 60  # 每分钟请求上限
+    MARKET_RATE_WINDOW = 60  # 窗口大小（秒）
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next):
+        """行情 API 限流"""
+        # 仅对行情相关端点限流
+        path = request.url.path
+        if not (path.startswith("/api/v1/market") or path.startswith("/api/v1/ws/")):
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        # 清理过期记录
+        timestamps = _rate_limit_store[client_ip]
+        _rate_limit_store[client_ip] = [t for t in timestamps if now - t < MARKET_RATE_WINDOW]
+
+        # 检查限流
+        if len(_rate_limit_store[client_ip]) >= MARKET_RATE_LIMIT:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "success": False,
+                    "error": {
+                        "code": "RATE_LIMITED",
+                        "message": "请求频率超限，请稍后重试",
+                    },
+                },
+            )
+
+        _rate_limit_store[client_ip].append(now)
+        return await call_next(request)
+
     # 异常处理
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
@@ -103,24 +144,73 @@ def create_app() -> FastAPI:
             },
         )
 
-    # 全局异常处理
+    # 全局异常处理 — P2-9: 区分 502/500，便于前端决定是否重试
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        # 判断是否为网络/外部服务类错误（可重试）
+        error_name = type(exc).__name__
+        is_retryable = any(
+            kw in error_name.lower()
+            for kw in ("network", "timeout", "connection", "gateway")
+        )
+        # 判断是否为交易所相关异常
+        is_exchange_error = "exchange" in error_name.lower() or "api" in error_name.lower()
+
+        status_code = 502 if (is_retryable or is_exchange_error) else 500
+        error_code = "EXTERNAL_SERVICE_ERROR" if status_code == 502 else "INTERNAL_ERROR"
+
+        logger.error(
+            "[GlobalExceptionHandler] %s: %s (path=%s, retryable=%s)",
+            error_name, str(exc)[:200], request.url.path, is_retryable,
+        )
+
         return JSONResponse(
-            status_code=500,
+            status_code=status_code,
             content={
                 "success": False,
                 "error": {
-                    "code": "INTERNAL_ERROR",
-                    "message": "服务器内部错误",
+                    "code": error_code,
+                    "message": "外部服务异常，请稍后重试" if status_code == 502 else "服务器内部错误",
+                    "retryable": is_retryable,
                 },
             },
         )
 
-    # 健康检查
+    # P3-3: 健康检查详细信息
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "version": get_settings().app_version}
+        checks = {"api": True, "version": get_settings().app_version}
+
+        # 数据库连接检查
+        try:
+            from app.database import get_engine
+            engine = await get_engine()
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            checks["database"] = True
+        except Exception as exc:
+            checks["database"] = False
+            checks["database_error"] = str(exc)[:100]
+
+        # Redis 连接检查
+        try:
+            from app.services.market_service import get_redis_client
+            r = await get_redis_client()
+            if r:
+                await r.ping()
+                checks["redis"] = True
+            else:
+                checks["redis"] = False
+                checks["redis_error"] = "client not initialized"
+        except Exception as exc:
+            checks["redis"] = False
+            checks["redis_error"] = str(exc)[:100]
+
+        is_healthy = checks.get("database", False)
+        return JSONResponse(
+            status_code=200 if is_healthy else 503,
+            content={"status": "healthy" if is_healthy else "degraded", **checks},
+        )
 
     # 根路径：根据安装状态跳转
     @app.get("/")

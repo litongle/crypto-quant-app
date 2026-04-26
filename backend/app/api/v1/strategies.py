@@ -1,22 +1,33 @@
 """
 策略 API - 移动端对接版
+
+P1-5: 删除冗余 inst_ 前缀，ID 直接用整数
+P1-6: 策略实例创建上限（每用户最多 20 个）
+补充: 业务错误统一用 HTTPException
 """
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models.user import User
 from app.models.order import Order
+from app.models.strategy import StrategyInstance
 from app.api.deps import get_current_user
 from app.services.strategy_service import StrategyService
 from app.core.schemas import APIResponse
 from app.core.performance import PerformanceCalculator, PerformanceReport
 
 router = APIRouter()
+
+
+# ============ 常量 ============
+
+# P1-6: 每用户最多策略实例数
+MAX_INSTANCES_PER_USER = 20
 
 
 # ============ 请求模型 ============
@@ -138,6 +149,50 @@ _STR_ID_MAP = {
 _TEMPLATE_ID_TO_CODE = {v: k for k, v in _STR_ID_MAP.items()}
 
 
+# ============ 辅助函数 ============
+
+def _parse_instance_id(instance_id: str | int) -> int:
+    """解析策略实例ID — 支持 "123" 和 "inst_123" 两种格式（兼容旧客户端）"""
+    if isinstance(instance_id, int):
+        return instance_id
+    s = str(instance_id)
+    # P1-5: 兼容旧客户端的 inst_ 前缀，新客户端直接传数字
+    if s.startswith("inst_"):
+        s = s[5:]
+    try:
+        return int(s)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="策略实例ID格式无效")
+
+
+def _format_instance(inst: StrategyInstance) -> dict:
+    """统一格式化策略实例响应 — P1-5: id 直接用整数，不再加 inst_ 前缀"""
+    template_code = _TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
+    template_name = "未知策略"
+    for t in PREDEFINED_TEMPLATES:
+        if t["id"] == template_code:
+            template_name = t["name"]
+            break
+
+    return {
+        "id": inst.id,  # 直接用整数 ID
+        "name": inst.name,
+        "templateId": template_code,
+        "templateName": template_name,
+        "status": inst.status,
+        "exchange": inst.exchange,
+        "symbol": inst.symbol,
+        "accountId": inst.account_id,
+        "isLive": inst.account_id is not None,
+        "totalPnl": float(inst.total_pnl or 0),
+        "totalPnlPercent": float(inst.total_pnl_percent or 0),
+        "winRate": float(inst.win_rate or 0),
+        "totalTrades": inst.total_trades or 0,
+        "createdAt": inst.created_at.isoformat() + "Z" if inst.created_at else "",
+        "updatedAt": inst.updated_at.isoformat() + "Z" if inst.updated_at else "",
+    }
+
+
 # ============ 路由 ============
 
 @router.get("/templates")
@@ -160,56 +215,39 @@ async def get_user_strategies(
     if status != "all":
         instances = [i for i in instances if i.status == status]
 
-    # 格式化为移动端响应
-    result = []
-    for inst in instances:
-        # 获取模板 code 和名称
-        template_code = _TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
-        template_name = "未知策略"
-        for t in PREDEFINED_TEMPLATES:
-            if t["id"] == template_code:
-                template_name = t["name"]
-                break
-
-        result.append({
-            "id": f"inst_{inst.id}",
-            "name": inst.name,
-            "templateId": template_code,
-            "templateName": template_name,
-            "status": inst.status,
-            "exchange": inst.exchange,
-            "symbol": inst.symbol,
-            "accountId": inst.account_id,
-            "isLive": inst.account_id is not None,
-            "totalPnl": float(inst.total_pnl or 0),
-            "totalPnlPercent": float(inst.total_pnl_percent or 0),
-            "winRate": float(inst.win_rate or 0),
-            "totalTrades": inst.total_trades or 0,
-            "createdAt": inst.created_at.isoformat() + "Z" if inst.created_at else "",
-            "updatedAt": inst.updated_at.isoformat() + "Z" if inst.updated_at else "",
-        })
-
-    return APIResponse(data=result)
+    return APIResponse(data=[_format_instance(i) for i in instances])
 
 
-@router.post("/instances")
+@router.post("/instances", status_code=status.HTTP_201_CREATED)
 async def create_strategy(
     request: CreateStrategyRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """创建策略实例"""
-    service = StrategyService(session)
+    # P1-6: 检查实例创建上限
+    count_result = await session.execute(
+        select(func.count(StrategyInstance.id)).where(
+            StrategyInstance.user_id == current_user.id
+        )
+    )
+    current_count = count_result.scalar() or 0
+    if current_count >= MAX_INSTANCES_PER_USER:
+        raise HTTPException(
+            status_code=429,
+            detail=f"策略实例数量已达上限 ({MAX_INSTANCES_PER_USER}个)，请删除后再创建",
+        )
 
     # 验证模板存在
     template_exists = any(t["id"] == request.templateId for t in PREDEFINED_TEMPLATES)
     if not template_exists:
-        return APIResponse(code=3001, message="策略模板不存在")
+        raise HTTPException(status_code=404, detail="策略模板不存在")
 
     # 映射 string templateId -> int template_id
     template_id = _STR_ID_MAP.get(request.templateId, 1)
 
     # 创建实例
+    service = StrategyService(session)
     instance = await service.create_instance(
         user=current_user,
         template_id=template_id,
@@ -223,7 +261,7 @@ async def create_strategy(
     )
 
     return APIResponse(data={
-        "id": f"inst_{instance.id}",
+        "id": instance.id,
         "status": instance.status,
     })
 
@@ -235,45 +273,18 @@ async def get_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """获取策略实例详情"""
-    # 解析 instance_id (格式: inst_123)
-    try:
-        if instance_id.startswith("inst_"):
-            instance_id = int(instance_id.replace("inst_", ""))
-        else:
-            instance_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
-    instance = await service.get_instance(instance_id)
+    instance = await service.get_instance(inst_id)
 
     if not instance:
-        return APIResponse(code=3001, message="策略不存在")
+        raise HTTPException(status_code=404, detail="策略不存在")
 
     if instance.user_id != current_user.id:
-        return APIResponse(code=1002, message="无权限访问")
+        raise HTTPException(status_code=403, detail="无权限访问")
 
-    # 获取模板 code 和名称
-    template_code = _TEMPLATE_ID_TO_CODE.get(instance.template_id, str(instance.template_id))
-    template_name = "未知策略"
-    for t in PREDEFINED_TEMPLATES:
-        if t["id"] == template_code:
-            template_name = t["name"]
-            break
-
-    return APIResponse(data={
-        "id": f"inst_{instance.id}",
-        "name": instance.name,
-        "templateId": template_code,
-        "templateName": template_name,
-        "status": instance.status,
-        "totalPnl": float(instance.total_pnl or 0),
-        "totalPnlPercent": float(instance.total_pnl_percent or 0),
-        "winRate": float(instance.win_rate or 0),
-        "totalTrades": instance.total_trades or 0,
-        "createdAt": instance.created_at.isoformat() + "Z" if instance.created_at else "",
-        "updatedAt": instance.updated_at.isoformat() + "Z" if instance.updated_at else "",
-    })
+    return APIResponse(data=_format_instance(instance))
 
 
 @router.put("/instances/{instance_id}")
@@ -284,13 +295,7 @@ async def update_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """更新策略参数"""
-    try:
-        if instance_id.startswith("inst_"):
-            instance_id = int(instance_id.replace("inst_", ""))
-        else:
-            instance_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
 
@@ -301,16 +306,16 @@ async def update_strategy(
         update_data["params"] = request.params
 
     instance = await service.update_instance(
-        instance_id=instance_id,
+        instance_id=inst_id,
         user_id=current_user.id,
         **update_data,
     )
 
     if not instance:
-        return APIResponse(code=3001, message="策略不存在")
+        raise HTTPException(status_code=404, detail="策略不存在或无权限")
 
     return APIResponse(data={
-        "id": f"inst_{instance.id}",
+        "id": instance.id,
         "name": instance.name,
         "status": instance.status,
         "updatedAt": instance.updated_at.isoformat() + "Z" if instance.updated_at else "",
@@ -324,22 +329,16 @@ async def start_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """启动策略"""
-    try:
-        if instance_id.startswith("inst_"):
-            instance_id = int(instance_id.replace("inst_", ""))
-        else:
-            instance_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
-    instance = await service.start_instance(instance_id, current_user.id)
+    instance = await service.start_instance(inst_id, current_user.id)
 
     if not instance:
-        return APIResponse(code=3001, message="策略不存在或无权限")
+        raise HTTPException(status_code=404, detail="策略不存在或无权限")
 
     return APIResponse(data={
-        "id": f"inst_{instance.id}",
+        "id": instance.id,
         "status": instance.status,
     })
 
@@ -351,22 +350,16 @@ async def stop_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """停止策略"""
-    try:
-        if instance_id.startswith("inst_"):
-            instance_id = int(instance_id.replace("inst_", ""))
-        else:
-            instance_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
-    instance = await service.stop_instance(instance_id, current_user.id)
+    instance = await service.stop_instance(inst_id, current_user.id)
 
     if not instance:
-        return APIResponse(code=3001, message="策略不存在或无权限")
+        raise HTTPException(status_code=404, detail="策略不存在或无权限")
 
     return APIResponse(data={
-        "id": f"inst_{instance.id}",
+        "id": instance.id,
         "status": instance.status,
     })
 
@@ -378,19 +371,13 @@ async def delete_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """删除策略"""
-    try:
-        if instance_id.startswith("inst_"):
-            instance_id = int(instance_id.replace("inst_", ""))
-        else:
-            instance_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
-    success = await service.delete_instance(instance_id, current_user.id)
+    success = await service.delete_instance(inst_id, current_user.id)
 
     if not success:
-        return APIResponse(code=3001, message="策略不存在或无权限")
+        raise HTTPException(status_code=404, detail="策略不存在或无权限")
 
     return APIResponse(message="删除成功")
 
@@ -402,19 +389,15 @@ async def get_strategy_performance(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """获取策略绩效报告"""
-    try:
-        if instance_id.startswith("inst_"):
-            inst_id = int(instance_id.replace("inst_", ""))
-        else:
-            inst_id = int(instance_id)
-    except ValueError:
-        return APIResponse(code=3001, message="策略实例ID无效")
+    inst_id = _parse_instance_id(instance_id)
 
     # 查询策略实例
     service = StrategyService(session)
     instance = await service.get_instance(inst_id)
-    if not instance or instance.user_id != current_user.id:
-        return APIResponse(code=3001, message="策略不存在或无权限")
+    if not instance:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    if instance.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限访问")
 
     # 查询该策略的所有已成交订单
     result = await session.execute(

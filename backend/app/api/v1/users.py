@@ -1,23 +1,11 @@
-"""用户 API"""
-from typing import Annotated
+"""
+用户 API — 已合并到 auth.py，此文件保留为空以防路由冲突
 
-from fastapi import APIRouter, Depends
-
-from app.api.deps import CurrentUser
-from app.models.user import User
+原 /me 端点已移至 auth/me，统一使用 APIResponse 格式。
+"""
+from fastapi import APIRouter
 
 router = APIRouter()
 
-
-@router.get("/me")
-async def get_current_user_info(
-    current_user: CurrentUser,
-) -> dict:
-    """获取当前用户信息（需认证）"""
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "name": current_user.name,
-        "risk_level": current_user.risk_level,
-        "status": current_user.status,
-    }
+# 用户相关端点已全部迁移至 auth.py:
+# - GET /me → GET /auth/me（统一返回 APIResponse）

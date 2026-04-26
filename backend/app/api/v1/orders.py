@@ -1,5 +1,5 @@
 """
-订单 API — 使用统一交易 Schema
+订单 API — 统一 APIResponse + IDOR 修复 + 一键平仓确认
 
 路由排列规则：静态路径优先，参数化路径靠后，避免 FastAPI 路由冲突
 """
@@ -7,8 +7,9 @@ import logging
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
@@ -21,6 +22,7 @@ from app.core.trade_schemas import (
     OrderSchema,
     PositionSchema,
 )
+from app.core.schemas import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -69,27 +71,33 @@ class SetTakeProfitRequest(BaseModel):
     take_profit_price: Decimal = Field(gt=0, description="止盈价格必须大于0")
 
 
+class EmergencyCloseConfirm(BaseModel):
+    """一键平仓确认请求"""
+    confirm: bool = Field(..., description="必须传 confirm=true 才会执行平仓")
+    account_id: int | None = Field(default=None, description="指定账户ID，不传则平所有账户")
+
+
 # ============================================================
 # 交易所账户管理（静态路径优先注册，避免被 /{id} 路由拦截）
 # ============================================================
 
-@router.get("/accounts", response_model=list[AccountInfoSchema])
+@router.get("/accounts")
 async def get_accounts(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """获取用户的交易所账户"""
     service = OrderService(session)
     accounts = await service.get_user_accounts(current_user.id)
-    return [AccountInfoSchema.from_model(a) for a in accounts]
+    return APIResponse(data=[AccountInfoSchema.from_model(a).model_dump() for a in accounts])
 
 
-@router.post("/accounts", response_model=AccountInfoSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/accounts", status_code=status.HTTP_201_CREATED)
 async def create_exchange_account(
     request: CreateExchangeAccountRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """添加交易所账户（API Key 加密存储 + 自动同步余额）"""
     account = ExchangeAccount(
         user_id=current_user.id,
@@ -113,35 +121,21 @@ async def create_exchange_account(
     # 创建后自动从交易所同步余额
     try:
         service = OrderService(session)
-        account = await service.sync_account_balance(account.id)
+        account = await service.sync_account_balance(account.id, current_user.id)
     except Exception as exc:
         logger.warning("[create_exchange_account] 余额同步失败（账户已创建）: %s", exc)
-        # 同步失败不影响账户创建，账户已入库
 
-    return AccountInfoSchema.from_model(account)
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
 
 
-@router.post("/accounts/{account_id}/sync", response_model=AccountInfoSchema)
+@router.post("/accounts/{account_id}/sync")
 async def sync_account_balance(
     account_id: int,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """手动同步交易所账户余额"""
-    service = OrderService(session)
-    account = await service.sync_account_balance(account_id)
-    return AccountInfoSchema.from_model(account)
-
-
-@router.delete("/accounts/{account_id}")
-async def delete_exchange_account(
-    account_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-):
-    """删除交易所账户"""
-    from sqlalchemy import select
-
+    # IDOR 修复：验证账户所有权
     result = await session.execute(
         select(ExchangeAccount).where(
             ExchangeAccount.id == account_id,
@@ -150,12 +144,33 @@ async def delete_exchange_account(
     )
     account = result.scalar_one_or_none()
     if not account:
-        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="账户不存在或无权操作")
+
+    service = OrderService(session)
+    account = await service.sync_account_balance(account_id, current_user.id)
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
+
+
+@router.delete("/accounts/{account_id}")
+async def delete_exchange_account(
+    account_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """删除交易所账户"""
+    result = await session.execute(
+        select(ExchangeAccount).where(
+            ExchangeAccount.id == account_id,
+            ExchangeAccount.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
         raise HTTPException(status_code=404, detail="账户不存在")
 
     await session.delete(account)
     await session.commit()
-    return {"message": "账户已删除"}
+    return APIResponse(message="账户已删除")
 
 
 # ============================================================
@@ -164,41 +179,47 @@ async def delete_exchange_account(
 
 @router.post("/emergency-close-all")
 async def emergency_close_all(
+    request: EmergencyCloseConfirm,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    account_id: int | None = None,
-):
-    """紧急一键平仓"""
+) -> APIResponse:
+    """紧急一键平仓（需 confirm=true 确认）"""
+    if not request.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请确认操作：必须传 confirm=true",
+        )
+
     service = OrderService(session)
-    closed = await service.emergency_close_all(current_user.id, account_id)
-    return {
-        "message": f"已平仓 {len(closed)} 个仓位",
+    closed = await service.emergency_close_all(current_user.id, request.account_id)
+    return APIResponse(data={
         "closed_count": len(closed),
-    }
+        "message": f"已平仓 {len(closed)} 个仓位",
+    })
 
 
-@router.get("/positions", response_model=list[PositionSchema])
+@router.get("/positions")
 async def get_positions(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
     account_id: int | None = None,
-):
+) -> APIResponse:
     """获取持仓"""
     service = OrderService(session)
     positions = await service.get_open_positions(current_user.id, account_id)
-    return [PositionSchema.from_model(p) for p in positions]
+    return APIResponse(data=[PositionSchema.from_model(p).model_dump() for p in positions])
 
 
 # ============================================================
 # 订单 CRUD（参数化路径放最后）
 # ============================================================
 
-@router.post("", response_model=OrderSchema, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_order(
     request: CreateOrderRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """创建订单"""
     service = OrderService(session)
 
@@ -220,17 +241,17 @@ async def create_order(
 
     # 提交订单
     order = await service.submit_order(order.id, current_user.id)
-    return OrderSchema.from_model(order)
+    return APIResponse(data=OrderSchema.from_model(order).model_dump())
 
 
-@router.get("", response_model=list[OrderSchema])
+@router.get("")
 async def get_orders(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
     account_id: int | None = None,
     symbol: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
-):
+) -> APIResponse:
     """获取订单历史"""
     service = OrderService(session)
     orders = await service.get_order_history(
@@ -239,28 +260,28 @@ async def get_orders(
         symbol=symbol,
         limit=limit,
     )
-    return [OrderSchema.from_model(o) for o in orders]
+    return APIResponse(data=[OrderSchema.from_model(o).model_dump() for o in orders])
 
 
-@router.post("/{order_id}/cancel", response_model=OrderSchema)
+@router.post("/{order_id}/cancel")
 async def cancel_order(
     order_id: int,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """取消订单"""
     service = OrderService(session)
     order = await service.cancel_order(order_id, current_user.id)
-    return OrderSchema.from_model(order)
+    return APIResponse(data=OrderSchema.from_model(order).model_dump())
 
 
-@router.post("/{position_id}/stop-loss", response_model=PositionSchema)
+@router.post("/{position_id}/stop-loss")
 async def set_stop_loss(
     position_id: int,
     request: SetStopLossRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """设置止损"""
     service = OrderService(session)
     position = await service.set_stop_loss(
@@ -268,16 +289,16 @@ async def set_stop_loss(
         user_id=current_user.id,
         stop_price=request.stop_price,
     )
-    return PositionSchema.from_model(position)
+    return APIResponse(data=PositionSchema.from_model(position).model_dump())
 
 
-@router.post("/{position_id}/take-profit", response_model=PositionSchema)
+@router.post("/{position_id}/take-profit")
 async def set_take_profit(
     position_id: int,
     request: SetTakeProfitRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """设置止盈"""
     service = OrderService(session)
     position = await service.set_take_profit(
@@ -285,16 +306,16 @@ async def set_take_profit(
         user_id=current_user.id,
         tp_price=request.take_profit_price,
     )
-    return PositionSchema.from_model(position)
+    return APIResponse(data=PositionSchema.from_model(position).model_dump())
 
 
-@router.post("/{position_id}/close", response_model=PositionSchema)
+@router.post("/{position_id}/close")
 async def close_position(
     position_id: int,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-):
+) -> APIResponse:
     """平仓"""
     service = OrderService(session)
     position = await service.close_position(position_id, current_user.id)
-    return PositionSchema.from_model(position)
+    return APIResponse(data=PositionSchema.from_model(position).model_dump())

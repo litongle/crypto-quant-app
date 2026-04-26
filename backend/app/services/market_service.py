@@ -14,6 +14,48 @@ from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
 
+# P1-3: 模块级 httpx.AsyncClient 单例，复用连接池
+_http_client: httpx.AsyncClient | None = None
+
+# P1-4: 模块级 Redis 客户端单例，复用连接
+_redis_client = None
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    """获取全局 httpx.AsyncClient 单例（懒加载）"""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=10.0)
+    return _http_client
+
+
+async def get_redis_client():
+    """P1-4: 获取全局 Redis 客户端单例（懒加载，复用连接池）"""
+    global _redis_client
+    if _redis_client is None:
+        try:
+            from app.redis import get_redis_pool
+            import redis.asyncio as aioredis
+            pool = await get_redis_pool()
+            _redis_client = aioredis.Redis(connection_pool=pool)
+        except Exception:
+            return None
+    return _redis_client
+
+
+async def close_market_resources():
+    """关闭市场服务的全局资源（应用关闭时调用）"""
+    global _http_client, _redis_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+    if _redis_client:
+        try:
+            await _redis_client.aclose()
+        except Exception:
+            pass
+        _redis_client = None
+
 
 # 支持的交易对
 SUPPORTED_SYMBOLS = {
@@ -49,59 +91,53 @@ class MarketService:
                 message=f"不支持的交易对: {symbol}",
             )
 
-        # PRF-05: 尝试从 Redis 缓存获取
+        # PRF-05: 尝试从 Redis 缓存获取（P1-4: 复用 Redis 客户端）
         cache_key = f"ticker:{exchange}:{symbol}"
         try:
-            from app.redis import get_redis_pool
-            import redis.asyncio as aioredis
-            pool = await get_redis_pool()
-            client = aioredis.Redis(connection_pool=pool)
-            cached = await client.get(cache_key)
-            await client.aclose()
-            if cached:
-                return json.loads(cached)
+            r = await get_redis_client()
+            if r:
+                cached = await r.get(cache_key)
+                if cached:
+                    return json.loads(cached)
         except Exception:
             logger.debug("Redis cache miss for %s", cache_key)
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                if exchange == "binance":
-                    url = "https://api.binance.com/api/v3/ticker/24hr"
-                    params = {"symbol": symbol}
-                elif exchange == "okx":
-                    url = "https://www.okx.com/api/v5/market/ticker"
-                    params = {"instId": self._to_okx_inst_id(symbol)}
-                elif exchange == "huobi":
-                    url = "https://api.huobi.pro/market/detail/merged"
-                    params = {"symbol": symbol.lower()}
-                else:
-                    raise AppException(
-                        code="UNSUPPORTED_EXCHANGE",
-                        message=f"不支持的交易所: {exchange}",
-                    )
+            client = await get_http_client()
+            if exchange == "binance":
+                url = "https://api.binance.com/api/v3/ticker/24hr"
+                params = {"symbol": symbol}
+            elif exchange == "okx":
+                url = "https://www.okx.com/api/v5/market/ticker"
+                params = {"instId": self._to_okx_inst_id(symbol)}
+            elif exchange == "huobi":
+                url = "https://api.huobi.pro/market/detail/merged"
+                params = {"symbol": symbol.lower()}
+            else:
+                raise AppException(
+                    code="UNSUPPORTED_EXCHANGE",
+                    message=f"不支持的交易所: {exchange}",
+                )
 
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
 
-                # OKX / Huobi: 检查 API 层错误码
-                self._check_api_error(data, exchange)
+            # OKX / Huobi: 检查 API 层错误码
+            self._check_api_error(data, exchange)
 
-                # 统一格式化
-                result = self._format_ticker(data, exchange, symbol)
+            # 统一格式化
+            result = self._format_ticker(data, exchange, symbol)
 
-                # 写入 Redis 缓存，TTL 10秒
-                try:
-                    from app.redis import get_redis_pool
-                    import redis.asyncio as aioredis
-                    pool = await get_redis_pool()
-                    r = aioredis.Redis(connection_pool=pool)
+            # 写入 Redis 缓存，TTL 10秒（P1-4: 复用 Redis 客户端）
+            try:
+                r = await get_redis_client()
+                if r:
                     await r.setex(cache_key, 10, json.dumps(result, default=str))
-                    await r.aclose()
-                except Exception:
-                    logger.debug("Redis cache write failed for %s", cache_key)
+            except Exception:
+                logger.debug("Redis cache write failed for %s", cache_key)
 
-                return result
+            return result
 
         except httpx.HTTPError as e:
             raise AppException(
@@ -146,42 +182,42 @@ class MarketService:
             )
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                if exchange == "binance":
-                    url = "https://api.binance.com/api/v3/klines"
-                    params = {
-                        "symbol": symbol,
-                        "interval": interval,
-                        "limit": limit,
-                    }
-                elif exchange == "okx":
-                    url = "https://www.okx.com/api/v5/market/candles"
-                    params = {
-                        "instId": self._to_okx_inst_id(symbol),
-                        "bar": self._to_okx_bar(interval),
-                        "limit": str(limit),
-                    }
-                elif exchange == "huobi":
-                    url = "https://api.huobi.pro/market/history/kline"
-                    params = {
-                        "symbol": symbol.lower(),
-                        "period": self._to_huobi_period(interval),
-                        "size": limit,
-                    }
-                else:
-                    raise AppException(
-                        code="UNSUPPORTED_EXCHANGE",
-                        message=f"不支持的交易所: {exchange}",
-                    )
+            client = await get_http_client()
+            if exchange == "binance":
+                url = "https://api.binance.com/api/v3/klines"
+                params = {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "limit": limit,
+                }
+            elif exchange == "okx":
+                url = "https://www.okx.com/api/v5/market/candles"
+                params = {
+                    "instId": self._to_okx_inst_id(symbol),
+                    "bar": self._to_okx_bar(interval),
+                    "limit": str(limit),
+                }
+            elif exchange == "huobi":
+                url = "https://api.huobi.pro/market/history/kline"
+                params = {
+                    "symbol": symbol.lower(),
+                    "period": self._to_huobi_period(interval),
+                    "size": limit,
+                }
+            else:
+                raise AppException(
+                    code="UNSUPPORTED_EXCHANGE",
+                    message=f"不支持的交易所: {exchange}",
+                )
 
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
 
-                # OKX / Huobi: 检查 API 层错误码
-                self._check_api_error(data, exchange)
+            # OKX / Huobi: 检查 API 层错误码
+            self._check_api_error(data, exchange)
 
-                return self._format_klines(data, exchange)
+            return self._format_klines(data, exchange)
 
         except httpx.HTTPError as e:
             raise AppException(
@@ -196,29 +232,29 @@ class MarketService:
         symbol = symbol.upper()
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                if exchange == "binance":
-                    url = "https://api.binance.com/api/v3/depth"
-                    params = {"symbol": symbol, "limit": limit}
-                elif exchange == "okx":
-                    url = "https://www.okx.com/api/v5/market/books"
-                    params = {"instId": self._to_okx_inst_id(symbol), "sz": str(limit)}
-                elif exchange == "huobi":
-                    url = "https://api.huobi.pro/market/depth"
-                    params = {"symbol": symbol.lower(), "type": "step0", "depth": limit}
-                else:
-                    raise AppException(
-                        code="UNSUPPORTED_EXCHANGE",
-                        message=f"不支持的交易所: {exchange}",
-                    )
+            client = await get_http_client()
+            if exchange == "binance":
+                url = "https://api.binance.com/api/v3/depth"
+                params = {"symbol": symbol, "limit": limit}
+            elif exchange == "okx":
+                url = "https://www.okx.com/api/v5/market/books"
+                params = {"instId": self._to_okx_inst_id(symbol), "sz": str(limit)}
+            elif exchange == "huobi":
+                url = "https://api.huobi.pro/market/depth"
+                params = {"symbol": symbol.lower(), "type": "step0", "depth": limit}
+            else:
+                raise AppException(
+                    code="UNSUPPORTED_EXCHANGE",
+                    message=f"不支持的交易所: {exchange}",
+                )
 
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
 
-                self._check_api_error(data, exchange)
+            self._check_api_error(data, exchange)
 
-                return self._format_orderbook(data, exchange)
+            return self._format_orderbook(data, exchange)
 
         except httpx.HTTPError as e:
             raise AppException(

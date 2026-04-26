@@ -9,11 +9,13 @@ services:
       - ./backend:/app
       - backend_data:/app/data
     environment:
-      - ENVIRONMENT=development
-      - DEBUG=true
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/crypto_quant
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-me}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-key-change-me}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/crypto_quant
       - REDIS_URL=redis://redis:6379/0
-      - CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,7 +30,8 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=crypto_quant
     ports:
       - "5432:5432"

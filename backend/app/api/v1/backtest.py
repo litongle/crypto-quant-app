@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,14 +55,14 @@ async def run_backtest(
     # 解析日期
     end_date = request.endDate or datetime.now().strftime("%Y-%m-%d")
 
-    # 日期校验
+    # 日期校验 — 返回正确的 HTTP 4xx 状态码
     today = datetime.now().strftime("%Y-%m-%d")
     if request.startDate > today:
-        return APIResponse(code=4001, message="开始日期不能是未来日期")
+        raise HTTPException(status_code=422, detail="开始日期不能是未来日期")
     if end_date > today:
-        return APIResponse(code=4001, message="结束日期不能是未来日期")
+        raise HTTPException(status_code=422, detail="结束日期不能是未来日期")
     if request.startDate > end_date:
-        return APIResponse(code=4001, message="开始日期不能晚于结束日期")
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
 
     # 执行回测
     service = BacktestService()
@@ -78,10 +78,9 @@ async def run_backtest(
 
     # 检查错误
     if "error" in result:
-        return APIResponse(
-            code=result.get("code", 5000),
-            message=result["error"],
-            data={"detail": result.get("detail", "")},
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"],
         )
 
     # 存储回测历史（异步，不阻塞返回）
@@ -173,7 +172,7 @@ async def get_backtest_result(
     record = result.scalar_one_or_none()
 
     if not record:
-        return APIResponse(code=3001, message="回测记录不存在")
+        raise HTTPException(status_code=404, detail="回测记录不存在")
 
     # 解析存储的详细数据
     equity_curve = json.loads(record.equity_curve) if record.equity_curve else []
