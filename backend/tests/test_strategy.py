@@ -3,6 +3,7 @@
 """
 import pytest
 from decimal import Decimal
+from datetime import datetime
 from app.core.strategy_runner import StrategyRunner
 from app.core.strategy_engine import StrategyConfig, Signal, get_strategy
 
@@ -93,23 +94,33 @@ class TestOrderQuantityCalculation:
 class TestStrategyEngine:
     """策略引擎基本测试"""
 
+    def _make_config(self):
+        """构造合法的 StrategyConfig"""
+        return StrategyConfig(
+            symbol="BTCUSDT",
+            exchange="binance",
+            direction="both",
+            params={"period": 20},
+            risk_params={"stop_loss_pct": 2.0},
+        )
+
     def test_get_strategy_ma(self):
         """获取 MA 策略"""
-        config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
+        config = self._make_config()
         strategy = get_strategy("ma", config)
         assert strategy is not None
         assert strategy.strategy_type == "ma"
 
     def test_get_strategy_rsi(self):
         """获取 RSI 策略"""
-        config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
+        config = self._make_config()
         strategy = get_strategy("rsi", config)
         assert strategy is not None
         assert strategy.strategy_type == "rsi"
 
     def test_get_strategy_invalid(self):
         """获取不存在的策略"""
-        config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
+        config = self._make_config()
         with pytest.raises(ValueError):
             get_strategy("nonexistent", config)
 
@@ -123,7 +134,10 @@ class TestSignalModel:
             action="buy",
             confidence=0.85,
             entry_price=Decimal("50000"),
+            stop_loss_price=Decimal("48000"),
+            take_profit_price=Decimal("55000"),
             reason="MA golden cross",
+            timestamp=datetime.utcnow(),
         )
         assert signal.action == "buy"
         assert signal.confidence == 0.85
@@ -138,6 +152,7 @@ class TestSignalModel:
             stop_loss_price=Decimal("48000"),
             take_profit_price=Decimal("55000"),
             reason="RSI oversold",
+            timestamp=datetime.utcnow(),
         )
         assert signal.stop_loss_price == Decimal("48000")
         assert signal.take_profit_price == Decimal("55000")

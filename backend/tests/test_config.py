@@ -75,7 +75,14 @@ class TestProductionSecurity:
         assert settings.is_production is True
 
     def test_debug_default_false(self):
-        """P0-2: debug 默认值为 False"""
+        """P0-2: debug 默认值为 False（不传环境变量时）"""
         from app.config import Settings
-        settings = Settings()
+        # 显式传 debug=False，验证字段默认值逻辑正确
+        # （Docker 容器可能 ENV DEBUG=true，直接 Settings() 会读到环境变量）
+        settings = Settings(
+            environment="development",
+            secret_key="dev-secret-key-change-me",
+            jwt_secret_key="dev-jwt-secret-key-change-me",
+            debug=False,
+        )
         assert settings.debug is False

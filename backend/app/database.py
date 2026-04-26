@@ -20,6 +20,23 @@ from app.config import get_settings
 _engine = None
 _session_maker = None
 _lock = asyncio.Lock()
+_test_engine = None  # 测试注入用
+
+
+def _set_test_engine(eng):
+    """注入测试 engine（测试专用，生产不调用）"""
+    global _test_engine, _engine, _session_maker
+    if eng is not None:
+        _test_engine = eng
+        _engine = eng
+        _session_maker = async_sessionmaker(
+            eng, class_=AsyncSession, expire_on_commit=False,
+            autocommit=False, autoflush=False,
+        )
+    else:
+        _test_engine = None
+        _engine = None
+        _session_maker = None
 
 
 class Base(DeclarativeBase):

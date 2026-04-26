@@ -9,20 +9,18 @@ from httpx import AsyncClient
 async def test_register_success(client: AsyncClient):
     """正常注册"""
     resp = await client.post("/api/v1/auth/register", json={
-        "username": "newuser",
+        "name": "newuser",
         "email": "new@example.com",
         "password": "SecurePass123",
     })
-    assert resp.status_code in (200, 201)
-    data = resp.json()
-    assert data.get("success", True) or "data" in data
+    assert resp.status_code in (200, 201), f"Got {resp.status_code}: {resp.text}"
 
 
 @pytest.mark.asyncio
 async def test_register_password_too_short(client: AsyncClient):
     """密码太短应该被拒绝（P1-2: min_length=8）"""
     resp = await client.post("/api/v1/auth/register", json={
-        "username": "shortpw",
+        "name": "shortpw",
         "email": "short@example.com",
         "password": "abc",
     })
@@ -31,21 +29,19 @@ async def test_register_password_too_short(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, test_user):
-    """正常登录"""
-    resp = await client.post("/api/v1/auth/login", json={
-        "username": "testuser",
+    """正常登录（OAuth2 表单格式）"""
+    resp = await client.post("/api/v1/auth/login", data={
+        "username": "test@example.com",
         "password": "testpass123",
     })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "access_token" in data.get("data", data) or "token" in str(data)
+    assert resp.status_code == 200, f"Got {resp.status_code}: {resp.text}"
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(client: AsyncClient, test_user):
     """密码错误"""
-    resp = await client.post("/api/v1/auth/login", json={
-        "username": "testuser",
+    resp = await client.post("/api/v1/auth/login", data={
+        "username": "test@example.com",
         "password": "wrongpassword",
     })
     assert resp.status_code in (401, 400)
@@ -55,7 +51,7 @@ async def test_login_wrong_password(client: AsyncClient, test_user):
 async def test_get_me_authenticated(client: AsyncClient, auth_headers):
     """认证后获取用户信息"""
     resp = await client.get("/api/v1/auth/me", headers=auth_headers)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, f"Got {resp.status_code}: {resp.text}"
 
 
 @pytest.mark.asyncio

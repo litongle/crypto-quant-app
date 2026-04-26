@@ -10,7 +10,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
-from app.database import Base, get_engine, get_session_maker, get_db
+from app.database import Base, get_db, get_session
 from app.config import Settings, get_settings
 
 
@@ -18,12 +18,12 @@ from app.config import Settings, get_settings
 
 class TestSettings(Settings):
     """测试配置 — 覆盖所有默认值，避免依赖 .env"""
-    debug: bool = True
+    debug: bool = True  # 测试环境需要 debug
     environment: str = "test"
-    secret_key: str = "test-secret-key-for-testing-only"
-    jwt_secret_key: str = "test-jwt-secret-key-for-testing-only"
+    secret_key: str = "test-secret-key-for-testing-only-min-32-chars"
+    jwt_secret_key: str = "test-jwt-secret-key-for-testing-only-min-32"
     database_url: str = "sqlite+aiosqlite:///./test_data/test.db"
-    redis_url: str = "redis://localhost:6379/15"  # 使用 DB 15 避免冲突
+    redis_url: str = "redis://localhost:6379/15"
     cors_origins: str = "http://localhost:8000"
 
 
@@ -37,20 +37,9 @@ def test_settings():
 def override_settings(test_settings):
     """覆盖 get_settings 缓存"""
     get_settings.cache_clear()
-    # 直接注入测试配置
-    from app.config import Settings as _Settings
-    original_init = _Settings.__init__
-
-    def patched_init(self, **kwargs):
-        # 让 validate_production_secrets 在测试环境不报错
-        super(_Settings, self).__init__(**kwargs)
-
-    _Settings.__init__ = patched_init
-    get_settings.cache_clear()
-
+    # 注入测试配置到缓存
+    get_settings._cache = test_settings
     yield test_settings
-
-    _Settings.__init__ = original_init
     get_settings.cache_clear()
 
 
@@ -83,7 +72,6 @@ async def engine():
     await eng.dispose()
 
     # 删除测试数据库文件
-    import os
     try:
         os.remove("./test_data/test.db")
     except Exception:
@@ -111,32 +99,50 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
 
     app = create_app()
 
-    # 覆盖 get_db 依赖
+    # 覆盖 get_db 和 get_session 依赖（auth 路由用 get_session）
     async def override_get_db():
         yield db_session
 
+    async def override_get_session():
+        yield db_session
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_session] = override_get_session
+
+    # 使用测试 SQLite engine 替换 app 内部 engine，避免连 PostgreSQL
+    from app.database import _set_test_engine
+    _set_test_engine(db_session.get_bind())
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     app.dependency_overrides.clear()
+    _set_test_engine(None)
 
 
 # ==================== 用户 Fixtures ====================
 
 @pytest_asyncio.fixture
 async def test_user(db_session):
-    """创建测试用户"""
+    """创建测试用户（幂等：已存在则返回）"""
     from app.models.user import User
     from app.core.security import hash_password
+    from sqlalchemy import select
+
+    # 先查是否已存在（register 测试可能已创建）
+    result = await db_session.execute(
+        select(User).where(User.email == "test@example.com")
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
 
     user = User(
-        username="testuser",
+        name="testuser",
         email="test@example.com",
         hashed_password=hash_password("testpass123"),
-        is_active=True,
+        status="active",
     )
     db_session.add(user)
     await db_session.commit()

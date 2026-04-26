@@ -1,0 +1,81 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 40 items
+
+tests/test_auth.py::test_register_success PASSED                         [  2%]
+tests/test_auth.py::test_register_password_too_short PASSED              [  5%]
+tests/test_auth.py::test_login_success PASSED                            [  7%]
+tests/test_auth.py::test_login_wrong_password PASSED                     [ 10%]
+tests/test_auth.py::test_get_me_authenticated PASSED                     [ 12%]
+tests/test_auth.py::test_get_me_unauthenticated PASSED                   [ 15%]
+tests/test_config.py::TestProductionSecurity::test_dev_env_allows_default_keys PASSED [ 17%]
+tests/test_config.py::TestProductionSecurity::test_prod_env_rejects_default_secret_key PASSED [ 20%]
+tests/test_config.py::TestProductionSecurity::test_prod_env_rejects_default_jwt_key PASSED [ 22%]
+tests/test_config.py::TestProductionSecurity::test_prod_env_rejects_debug_true PASSED [ 25%]
+tests/test_config.py::TestProductionSecurity::test_prod_env_accepts_valid_config PASSED [ 27%]
+tests/test_config.py::TestProductionSecurity::test_staging_is_production PASSED [ 30%]
+tests/test_config.py::TestProductionSecurity::test_debug_default_false PASSED [ 32%]
+tests/test_security.py::TestPasswordHashing::test_hash_and_verify PASSED [ 35%]
+tests/test_security.py::TestPasswordHashing::test_wrong_password PASSED  [ 37%]
+tests/test_security.py::TestPasswordHashing::test_empty_password PASSED  [ 40%]
+tests/test_security.py::TestPasswordHashing::test_long_password_truncation PASSED [ 42%]
+tests/test_security.py::TestPasswordHashing::test_unicode_password PASSED [ 45%]
+tests/test_security.py::TestJWTTokens::test_create_access_token PASSED   [ 47%]
+tests/test_security.py::TestJWTTokens::test_create_refresh_token PASSED  [ 50%]
+tests/test_security.py::TestJWTTokens::test_verify_access_token PASSED   [ 52%]
+tests/test_security.py::TestJWTTokens::test_verify_refresh_token PASSED  [ 55%]
+tests/test_security.py::TestJWTTokens::test_token_type_mismatch PASSED   [ 57%]
+tests/test_security.py::TestJWTTokens::test_invalid_token PASSED         [ 60%]
+tests/test_security.py::TestAPIKeyEncryption::test_encrypt_decrypt PASSED [ 62%]
+tests/test_security.py::TestAPIKeyEncryption::test_empty_string PASSED   [ 65%]
+tests/test_security.py::TestAPIKeyEncryption::test_different_keys_produce_different_ciphertext PASSED [ 67%]
+tests/test_security.py::TestAPIKeyEncryption::test_same_key_produces_different_ciphertext PASSED [ 70%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_default_30_percent PASSED [ 72%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_custom_percentage PASSED [ 75%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_zero_entry_price PASSED [ 77%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_none_entry_price PASSED [ 80%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_sell_always_returns_quantity PASSED [ 82%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_minimum_quantity_btc PASSED [ 85%]
+tests/test_strategy.py::TestOrderQuantityCalculation::test_minimum_quantity_eth PASSED [ 87%]
+tests/test_strategy.py::TestStrategyEngine::test_get_strategy_ma PASSED  [ 90%]
+tests/test_strategy.py::TestStrategyEngine::test_get_strategy_rsi PASSED [ 92%]
+tests/test_strategy.py::TestStrategyEngine::test_get_strategy_invalid PASSED [ 95%]
+tests/test_strategy.py::TestSignalModel::test_signal_creation PASSED     [ 97%]
+tests/test_strategy.py::TestSignalModel::test_signal_with_stop_loss PASSED [100%]
+
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/passlib/utils/__init__.py:854
+  /usr/local/lib/python3.12/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+tests/test_auth.py::test_register_success
+tests/test_auth.py::test_register_success
+tests/test_auth.py::test_register_success
+  /usr/local/lib/python3.12/site-packages/pydantic/_internal/_config.py:271: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.5/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+tests/test_auth.py::test_get_me_authenticated
+tests/test_security.py::TestJWTTokens::test_verify_access_token
+tests/test_security.py::TestJWTTokens::test_verify_refresh_token
+tests/test_security.py::TestJWTTokens::test_token_type_mismatch
+  /usr/local/lib/python3.12/site-packages/jose/jwt.py:311: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = timegm(datetime.utcnow().utctimetuple())
+
+tests/test_strategy.py::TestSignalModel::test_signal_creation
+  /app/tests/test_strategy.py:140: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+tests/test_strategy.py::TestSignalModel::test_signal_with_stop_loss
+  /app/tests/test_strategy.py:155: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+tests/test_strategy.py::TestSignalModel::test_signal_with_stop_loss
+  sys:1: SAWarning: Can't sort tables for DROP; an unresolvable foreign key dependency exists between tables: orders, signals; and backend does not support ALTER.  To restore at least a partial sort, apply use_alter=True to ForeignKey and ForeignKeyConstraint objects involved in the cycle to mark these as known cycles that will be ignored.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 40 passed, 11 warnings in 7.19s ========================

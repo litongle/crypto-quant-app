@@ -29,6 +29,8 @@ RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     aiosqlite==0.20.0 \
     alembic==1.13.1 \
+    pytest==8.3.4 \
+    pytest-asyncio==0.24.0 \
     && pip cache purge
 
 COPY pyproject.toml ./
