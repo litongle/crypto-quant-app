@@ -52,6 +52,19 @@ class BaseStrategy(ABC):
         """分析K线并生成信号"""
         pass
 
+    # Step 3: 状态序列化 — 默认空,有状态策略(如 RsiLayered)需重写
+    #
+    # 默认无状态: MA / RSI(简化版) / Rule 三个内置策略不持有 tick 间状态,
+    # 重启可从零开始算。RsiLayered 这类复杂状态机必须 override 这两个方法。
+
+    def to_dict(self) -> dict[str, Any]:
+        """导出策略状态(用于持久化)。无状态策略返回空 dict。"""
+        return {}
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        """从字典恢复策略状态。无状态策略空操作。"""
+        return None
+
 
 class MAStrategy(BaseStrategy):
     """移动平均线策略"""

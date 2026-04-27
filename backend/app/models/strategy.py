@@ -86,6 +86,12 @@ class StrategyInstance(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Step 3: 策略状态机持久化(每 tick 末由 runner 写入,启动时恢复)
+    # 形如 {"mode": "long", "entry_price": 50000.0, ...},内容由具体策略 to_dict 决定
+    state_json: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=None,
+        comment="策略状态机快照 — 重启不丢仓位/极值/cooling_count",
+    )
 
     # 关系
     user: Mapped["User"] = relationship("User", back_populates="strategies")

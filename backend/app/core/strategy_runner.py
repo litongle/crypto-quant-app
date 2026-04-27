@@ -183,6 +183,21 @@ class StrategyRunner:
             logger.error("[StrategyRunner] 不支持的策略类型: %s (实例 #%d)", strategy_type, inst.id)
             return
 
+        # Step 3: 启动时从 DB 恢复策略状态机(重启不丢仓位/极值/cooling)
+        if inst.state_json:
+            try:
+                strategy.from_dict(inst.state_json)
+                logger.info(
+                    "[StrategyRunner] 策略 #%d 状态已从 DB 恢复",
+                    inst.id,
+                )
+            except Exception as exc:
+                # 恢复失败不阻塞启动 — 退化为从零开始,记录告警
+                logger.warning(
+                    "[StrategyRunner] 策略 #%d 状态恢复失败,从零开始: %s",
+                    inst.id, exc,
+                )
+
         self._strategies[inst.id] = strategy
         self._runners[inst.id] = asyncio.create_task(
             self._run_loop(inst.id, strategy, config),
@@ -215,8 +230,8 @@ class StrategyRunner:
                 if signal:
                     await self._handle_signal(instance_id, signal, config)
 
-                # 4. 更新 last_run_at
-                await self._update_last_run(instance_id)
+                # 4. 更新 last_run_at + Step 3: 持久化策略状态
+                await self._update_last_run_and_state(instance_id, strategy)
 
                 await asyncio.sleep(interval)
 
@@ -751,8 +766,23 @@ class StrategyRunner:
                     pass
             return False
 
-    async def _update_last_run(self, instance_id: int) -> None:
-        """更新策略实例的 last_run_at"""
+    async def _update_last_run_and_state(
+        self, instance_id: int, strategy: BaseStrategy,
+    ) -> None:
+        """更新 last_run_at + 持久化策略状态机(Step 3)。
+
+        每 tick 末调用一次。即使 to_dict 返回 {}(无状态策略)也照样写,
+        保持简单一致。失败不阻塞主循环。
+        """
+        try:
+            state = strategy.to_dict()
+        except Exception as exc:
+            logger.warning(
+                "[StrategyRunner] 策略 #%d to_dict 失败,跳过状态持久化: %s",
+                instance_id, exc,
+            )
+            state = None
+
         try:
             async with self._session_maker() as session:
                 result = await session.execute(
@@ -761,9 +791,11 @@ class StrategyRunner:
                 inst = result.scalar_one_or_none()
                 if inst:
                     inst.last_run_at = datetime.now(timezone.utc)
+                    if state is not None:
+                        inst.state_json = state
                     await session.commit()
         except Exception as exc:
-            logger.debug("[StrategyRunner] 更新 last_run_at 失败: %s", exc)
+            logger.debug("[StrategyRunner] 更新 last_run_at/state_json 失败: %s", exc)
 
     async def update_stats(
         self,
