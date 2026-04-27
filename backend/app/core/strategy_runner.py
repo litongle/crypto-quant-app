@@ -39,6 +39,50 @@ from app.models.strategy import StrategyInstance, StrategyTemplate
 
 logger = logging.getLogger(__name__)
 
+# 信号 metadata.intent 取值,与 RsiLayered 等富语义策略对齐:
+#   open       开新仓
+#   add        加仓 (Step 2b 完整支持)
+#   take_profit / stop_loss / timeout  平掉现有持仓
+#   reverse    反手 (Step 2b 完整支持)
+# 其他 intent 或缺省 metadata → 退回到 signal.action 旧路径
+CLOSE_INTENTS = frozenset({"take_profit", "stop_loss", "timeout"})
+DEFERRED_INTENTS = frozenset({"add", "reverse"})  # Step 2b 处理
+
+
+def select_position_to_close(
+    positions: list,
+    instance_id: int,
+    direction: str | None,
+):
+    """从开仓 Position 列表里选出本次平仓的目标。
+
+    抽成纯函数便于单测。规则:
+      1. 列表为空 → 返回 None
+      2. 优先匹配 strategy_instance_id == instance_id 的(该实例自己开的)
+      3. 再用 direction(long/short) 过滤,过滤后无结果就回退到上一步
+      4. 取第一个;有多个时调用方应该 log warning
+
+    Args:
+        positions: 已查到的 status=open 的 Position 列表
+        instance_id: 当前策略实例 ID
+        direction: metadata.direction("long" / "short" / None)
+
+    Returns:
+        选中的 Position 或 None
+    """
+    if not positions:
+        return None
+
+    same_instance = [p for p in positions if p.strategy_instance_id == instance_id]
+    candidates = same_instance or positions
+
+    if direction in ("long", "short"):
+        filtered = [p for p in candidates if p.side == direction]
+        if filtered:
+            candidates = filtered
+
+    return candidates[0] if candidates else None
+
 
 class StrategyRunner:
     """实时策略运行器 — 单例模式"""
@@ -338,6 +382,37 @@ class StrategyRunner:
                         await self._update_signal_status(signal_id, "rejected", reason="交易所账户不可用")
                     return
 
+                # ── intent 路由(Step 2a) ────────────────────────
+                # 富语义策略(如 RsiLayered)在 metadata.intent 里告诉我们
+                # 这是开仓/加仓/平仓/反手。没 metadata 的旧策略走旧路径。
+                meta = signal.metadata or {}
+                intent = meta.get("intent")
+                direction = meta.get("direction")
+
+                if intent in CLOSE_INTENTS:
+                    await self._auto_close_position(
+                        session=session,
+                        instance_id=instance_id,
+                        account=account,
+                        config=config,
+                        user_id=inst.user_id,
+                        direction=direction,
+                        intent=intent,
+                        signal_id=signal_id,
+                    )
+                    return
+
+                if intent in DEFERRED_INTENTS:
+                    # Step 2b 才完整支持。当前先按普通开仓走,但记录警告。
+                    # 对 add: 不会爆掉,只是仓位会按 30% 余额而不是递减加仓。
+                    # 对 reverse: 不会爆掉,但反向开仓时不会先平掉原仓 →
+                    # 可能导致多空对冲或资金不足,谨慎开 auto_trade。
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d intent=%s 暂未在 Step 2a 完整支持,"
+                        "按普通开仓处理。Step 2b 将完整实现。",
+                        instance_id, intent,
+                    )
+
                 # 确定下单方向
                 if signal.action in ("buy", "sell"):
                     side = signal.action
@@ -467,6 +542,100 @@ class StrategyRunner:
                     await session.commit()
         except Exception as exc:
             logger.error("[StrategyRunner] 更新信号状态失败: %s", exc)
+
+    async def _auto_close_position(
+        self,
+        *,
+        session,
+        instance_id: int,
+        account,
+        config: StrategyConfig,
+        user_id: int,
+        direction: str | None,
+        intent: str,
+        signal_id: int | None,
+    ) -> None:
+        """处理平仓类信号(take_profit / stop_loss / timeout)
+
+        策略已自管持仓状态(在它自己的状态机里),所以这里它说要平,
+        我们就找匹配的开仓 Position 并通过 OrderService 反向平掉。
+
+        匹配优先级:
+          1. account_id + symbol + status=open 必须满足
+          2. 优先匹配 strategy_instance_id == instance_id (该实例自己开的仓)
+          3. 然后用 metadata.direction 过滤(long/short)
+          4. 找不到 → 拒绝信号(策略与 DB 状态不一致,告警但不爆炸)
+        """
+        from app.models.exchange import Position
+        from app.services.order_service import OrderService
+
+        try:
+            # 找该账户在该交易对上所有 open 持仓
+            result = await session.execute(
+                select(Position).where(
+                    Position.account_id == account.id,
+                    Position.symbol == config.symbol,
+                    Position.status == "open",
+                )
+            )
+            positions = list(result.scalars().all())
+
+            if not positions:
+                logger.warning(
+                    "[StrategyRunner] 策略 #%d intent=%s 但 DB 无开仓,跳过平仓。"
+                    "策略状态可能与 DB 不一致(手工平仓 / 上次平仓未持久化?)",
+                    instance_id, intent,
+                )
+                if signal_id:
+                    await self._update_signal_status(
+                        signal_id, "rejected",
+                        reason=f"intent={intent} 但 DB 无开仓",
+                    )
+                return
+
+            position = select_position_to_close(positions, instance_id, direction)
+            if position is None:
+                # 理论上 not positions 已先返回,这里走不到。保险起见再处理一次。
+                logger.warning(
+                    "[StrategyRunner] 策略 #%d intent=%s 选不出平仓目标,跳过",
+                    instance_id, intent,
+                )
+                if signal_id:
+                    await self._update_signal_status(
+                        signal_id, "rejected", reason=f"intent={intent} 无匹配持仓",
+                    )
+                return
+
+            if len(positions) > 1:
+                logger.warning(
+                    "[StrategyRunner] 策略 #%d intent=%s 该 symbol 上有 %d 个开仓,"
+                    "选择 #%d (其余暂不处理,需手动检视)",
+                    instance_id, intent, len(positions), position.id,
+                )
+
+            # 调 OrderService.close_position(已有事务安全顺序:
+            # 先提交交易所成功后再标记 closed)
+            order_service = OrderService(session)
+            await order_service.close_position(position.id, user_id)
+
+            logger.info(
+                "[StrategyRunner] 策略 #%d intent=%s 平仓成功: position_id=%d",
+                instance_id, intent, position.id,
+            )
+            if signal_id:
+                await self._update_signal_status(signal_id, "executed")
+        except Exception as exc:
+            logger.error(
+                "[StrategyRunner] 策略 #%d intent=%s 平仓失败: %s",
+                instance_id, intent, exc,
+            )
+            if signal_id:
+                try:
+                    await self._update_signal_status(
+                        signal_id, "rejected", reason=str(exc),
+                    )
+                except Exception:
+                    pass
 
     async def _update_last_run(self, instance_id: int) -> None:
         """更新策略实例的 last_run_at"""
