@@ -22,7 +22,11 @@ class StrategyConfig(BaseModel):
 
 
 class Signal(BaseModel):
-    """策略生成的信号"""
+    """策略生成的信号
+
+    metadata 由具体策略填充结构化语义（intent/direction 等），
+    runner 可据此判断这是开仓 / 加仓 / 平仓 / 反手。Step 2 起会被消费。
+    """
     action: Literal["buy", "sell", "hold"]
     confidence: float = 1.0
     entry_price: Decimal | None = None
@@ -30,6 +34,7 @@ class Signal(BaseModel):
     take_profit_price: Decimal | None = None
     reason: str | None = None
     timestamp: datetime = datetime.now(timezone.utc)
+    metadata: dict[str, Any] = {}
 
 
 class BaseStrategy(ABC):
@@ -89,5 +94,8 @@ def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
     elif strategy_type == "rule":
         from app.core.rule_engine import RuleStrategy
         return RuleStrategy(config)
+    elif strategy_type == "rsi_layered":
+        from app.core.strategies.rsi_layered import RsiLayeredStrategy
+        return RsiLayeredStrategy(config)
     else:
         raise ValueError(f"不支持的策略类型: {strategy_type}")
