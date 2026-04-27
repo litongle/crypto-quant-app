@@ -1,17 +1,21 @@
 """
-Step 2a 测试 — _auto_trade 的 intent 路由
+Step 2a/2b 测试 — _auto_trade 的 intent 路由
 
 覆盖:
-- select_position_to_close 纯函数
+- select_position_to_close 纯函数(Step 2a)
   - 空列表返回 None
   - 优先选本 instance 开的仓
   - direction 过滤 + 找不到时回退
   - 多个候选时取第一个
-- 常量 CLOSE_INTENTS / DEFERRED_INTENTS 形态
+- 常量 CLOSE_INTENTS 形态(Step 2a)
+- RsiLayered intent 契约(Step 2a/2b)
+  - take_profit/stop_loss/timeout 路由到 close
+  - reverse 不在 CLOSE_INTENTS(单独分支)
+  - add 不在 CLOSE_INTENTS(走开仓路径)
 
-不覆盖(留给集成测试):
-- 实际 DB 查询和 OrderService.close_position 调用 — 需要 conftest 完整
-  fixture 链(User/Account/Position/Strategy),Step 2b 一并补
+不覆盖(留给后续集成测试):
+- 实际 DB 查询和 OrderService.close_position 调用 — 需要完整
+  fixture 链(User/Account/Position/Strategy + 交易所 mock)
 """
 from dataclasses import dataclass
 
@@ -19,7 +23,6 @@ import pytest
 
 from app.core.strategy_runner import (
     CLOSE_INTENTS,
-    DEFERRED_INTENTS,
     select_position_to_close,
 )
 
@@ -41,14 +44,7 @@ class TestIntentConstants:
         assert "timeout" in CLOSE_INTENTS
         assert "open" not in CLOSE_INTENTS
         assert "add" not in CLOSE_INTENTS
-
-    def test_deferred_intents_set_membership(self):
-        assert "add" in DEFERRED_INTENTS
-        assert "reverse" in DEFERRED_INTENTS
-        assert "open" not in DEFERRED_INTENTS
-
-    def test_close_and_deferred_disjoint(self):
-        assert CLOSE_INTENTS.isdisjoint(DEFERRED_INTENTS)
+        assert "reverse" not in CLOSE_INTENTS  # reverse 单独分支处理
 
 
 # ── 纯函数选位逻辑 ────────────────────────────────────────
@@ -188,3 +184,55 @@ class TestRsiLayeredSignalContract:
             direction="long", reason="test",
         )
         assert sig.metadata["intent"] not in CLOSE_INTENTS
+
+    def test_reverse_intent_not_in_close_intents(self):
+        """reverse 走单独 _auto_reverse_position 分支,不应被 CLOSE_INTENTS 截走"""
+        from app.core.strategies.rsi_layered import RsiLayeredStrategy
+        from app.core.strategy_engine import StrategyConfig
+
+        s = RsiLayeredStrategy(StrategyConfig(symbol="BTCUSDT", exchange="binance"))
+        kline = {"close": 100.0, "timestamp": 1_700_000_000_000}
+        sig = s._make_signal(
+            action="sell", kline=kline, intent="reverse",
+            direction="short", reason="test",
+        )
+        assert sig.metadata["intent"] == "reverse"
+        assert sig.metadata["intent"] not in CLOSE_INTENTS
+
+    def test_add_intent_not_in_close_intents(self):
+        """add 走开仓路径,不在 CLOSE_INTENTS 内"""
+        from app.core.strategies.rsi_layered import RsiLayeredStrategy
+        from app.core.strategy_engine import StrategyConfig
+
+        s = RsiLayeredStrategy(StrategyConfig(symbol="BTCUSDT", exchange="binance"))
+        kline = {"close": 100.0, "timestamp": 1_700_000_000_000}
+        sig = s._make_signal(
+            action="buy", kline=kline, intent="add",
+            direction="long", reason="test",
+        )
+        assert sig.metadata["intent"] == "add"
+        assert sig.metadata["intent"] not in CLOSE_INTENTS
+
+    def test_reverse_metadata_direction_is_target(self):
+        """RsiLayered 的反手信号: metadata.direction 是反手后的目标方向"""
+        from app.core.strategies.rsi_layered import RsiLayeredStrategy
+        from app.core.strategy_engine import StrategyConfig
+
+        s = RsiLayeredStrategy(StrategyConfig(symbol="BTCUSDT", exchange="binance"))
+        kline_open = {"close": 100.0, "timestamp": 1_700_000_000_000}
+        # 先开多仓
+        s._open_position("long", kline_open)
+        s._holding_periods = 60  # 触发超时反手条件
+        s._short_monitoring = True
+        s._short_extreme_value = 80.0
+
+        # 模拟反手到空
+        kline = {"close": 100.0, "timestamp": 1_700_000_000_001}
+        sig = s._on_long(rsi=78.0, kline=kline)  # 短信号回撤 2,触发反手
+
+        assert sig is not None
+        assert sig.metadata["intent"] == "reverse"
+        # direction 是目标方向(short),不是被平方向
+        assert sig.metadata["direction"] == "short"
+        # action 与目标方向匹配:开空 = sell
+        assert sig.action == "sell"

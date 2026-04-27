@@ -40,13 +40,12 @@ from app.models.strategy import StrategyInstance, StrategyTemplate
 logger = logging.getLogger(__name__)
 
 # 信号 metadata.intent 取值,与 RsiLayered 等富语义策略对齐:
-#   open       开新仓
-#   add        加仓 (Step 2b 完整支持)
-#   take_profit / stop_loss / timeout  平掉现有持仓
-#   reverse    反手 (Step 2b 完整支持)
+#   open                            开新仓
+#   add                             加仓 — 与开仓走同一路径(余额自然递减)
+#   take_profit/stop_loss/timeout   平掉现有持仓 → _auto_close_position
+#   reverse                         反手(先平再开) → _auto_reverse_position
 # 其他 intent 或缺省 metadata → 退回到 signal.action 旧路径
 CLOSE_INTENTS = frozenset({"take_profit", "stop_loss", "timeout"})
-DEFERRED_INTENTS = frozenset({"add", "reverse"})  # Step 2b 处理
 
 
 def select_position_to_close(
@@ -402,75 +401,31 @@ class StrategyRunner:
                     )
                     return
 
-                if intent in DEFERRED_INTENTS:
-                    # Step 2b 才完整支持。当前先按普通开仓走,但记录警告。
-                    # 对 add: 不会爆掉,只是仓位会按 30% 余额而不是递减加仓。
-                    # 对 reverse: 不会爆掉,但反向开仓时不会先平掉原仓 →
-                    # 可能导致多空对冲或资金不足,谨慎开 auto_trade。
-                    logger.warning(
-                        "[StrategyRunner] 策略 #%d intent=%s 暂未在 Step 2a 完整支持,"
-                        "按普通开仓处理。Step 2b 将完整实现。",
-                        instance_id, intent,
+                # 反手 (Step 2b): 先平掉现有仓,再开反向仓
+                if intent == "reverse":
+                    await self._auto_reverse_position(
+                        session=session,
+                        instance_id=instance_id,
+                        account=account,
+                        config=config,
+                        user_id=inst.user_id,
+                        signal=signal,
+                        signal_id=signal_id,
                     )
-
-                # 确定下单方向
-                if signal.action in ("buy", "sell"):
-                    side = signal.action
-                elif signal.action == "close":
-                    # 平仓信号 → 查找持仓确定方向
-                    from app.models.exchange import Position
-                    pos_result = await session.execute(
-                        select(Position).where(
-                            Position.account_id == account.id,
-                            Position.symbol == config.symbol,
-                            Position.status == "open",
-                        )
-                    )
-                    position = pos_result.scalar_one_or_none()
-                    if not position:
-                        logger.info("[StrategyRunner] 策略 #%d close 信号但无持仓，跳过", instance_id)
-                        return
-                    side = "sell" if position.side == "long" else "buy"
-                else:
-                    logger.warning("[StrategyRunner] 未知信号动作: %s", signal.action)
                     return
 
-                # 计算下单数量（P1-7: 使用可配置比例，默认30%）
-                max_invest_pct = Decimal(str(config.params.get("max_invest_percent", 30))) / 100
-                quantity = self._calculate_order_quantity(
-                    account.balance, signal.entry_price, config.symbol, side, max_invest_pct
-                )
-                if quantity <= 0:
-                    logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0，跳过", instance_id)
-                    if signal_id:
-                        await self._update_signal_status(signal_id, "rejected", reason="余额不足")
-                    return
+                # 加仓 (intent=add): 与开仓逻辑一致 — 在同方向再开一单。
+                # 余额自然递减,策略层用 max_additional_positions 控制次数。
+                # open / add / 无 metadata / 旧策略(MA/Rule) 全走这里。
 
-                # 创建订单
-                from app.services.order_service import OrderService
-                order_service = OrderService(session)
-                order = await order_service.create_order(
+                await self._auto_open_position(
+                    session=session,
+                    instance_id=instance_id,
+                    account=account,
+                    config=config,
                     user_id=inst.user_id,
-                    account_id=account.id,
-                    symbol=config.symbol,
-                    side=side,
-                    order_type="market",
-                    quantity=quantity,
-                    strategy_instance_id=instance_id,
-                )
-
-                # 提交到交易所
-                await order_service.submit_order(order.id, inst.user_id)
-
-                # 更新信号状态
-                if signal_id:
-                    await self._update_signal_status(
-                        signal_id, "executed", order_id=order.id
-                    )
-
-                logger.info(
-                    "[StrategyRunner] 策略 #%d 自动下单成功: order_id=%d, side=%s, qty=%s",
-                    instance_id, order.id, side, quantity,
+                    signal=signal,
+                    signal_id=signal_id,
                 )
 
         except Exception as exc:
@@ -480,6 +435,159 @@ class StrategyRunner:
                     await self._update_signal_status(signal_id, "rejected", reason=str(exc))
                 except Exception:
                     pass
+
+    async def _auto_open_position(
+        self,
+        *,
+        session,
+        instance_id: int,
+        account,
+        config: StrategyConfig,
+        user_id: int,
+        signal: Signal,
+        signal_id: int | None,
+    ) -> bool:
+        """开仓 / 加仓: 把信号转换成市价单提交到交易所。
+
+        side 决策:
+          - signal.action ∈ {buy, sell} → 直接使用
+          - signal.action == "close" → 查持仓决定反向(向后兼容旧策略)
+          - 其他 → 拒绝
+
+        Returns:
+            True  — 订单已提交成功
+            False — 跳过/拒绝/失败
+        """
+        from app.services.order_service import OrderService
+
+        # 决定 side
+        if signal.action in ("buy", "sell"):
+            side = signal.action
+        elif signal.action == "close":
+            # 旧路径: 没 metadata.intent 但 action=close 的策略,查持仓反推方向
+            from app.models.exchange import Position
+            pos_result = await session.execute(
+                select(Position).where(
+                    Position.account_id == account.id,
+                    Position.symbol == config.symbol,
+                    Position.status == "open",
+                )
+            )
+            position = pos_result.scalar_one_or_none()
+            if not position:
+                logger.info("[StrategyRunner] 策略 #%d close 信号但无持仓,跳过", instance_id)
+                return False
+            side = "sell" if position.side == "long" else "buy"
+        else:
+            logger.warning("[StrategyRunner] 未知信号动作: %s", signal.action)
+            return False
+
+        # 计算下单数量
+        max_invest_pct = Decimal(str(config.params.get("max_invest_percent", 30))) / 100
+        quantity = self._calculate_order_quantity(
+            account.balance, signal.entry_price, config.symbol, side, max_invest_pct,
+        )
+        if quantity <= 0:
+            logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0,跳过", instance_id)
+            if signal_id:
+                await self._update_signal_status(signal_id, "rejected", reason="余额不足")
+            return False
+
+        order_service = OrderService(session)
+        order = await order_service.create_order(
+            user_id=user_id,
+            account_id=account.id,
+            symbol=config.symbol,
+            side=side,
+            order_type="market",
+            quantity=quantity,
+            strategy_instance_id=instance_id,
+        )
+        await order_service.submit_order(order.id, user_id)
+
+        if signal_id:
+            await self._update_signal_status(signal_id, "executed", order_id=order.id)
+
+        logger.info(
+            "[StrategyRunner] 策略 #%d 下单成功: order_id=%d, side=%s, qty=%s",
+            instance_id, order.id, side, quantity,
+        )
+        return True
+
+    async def _auto_reverse_position(
+        self,
+        *,
+        session,
+        instance_id: int,
+        account,
+        config: StrategyConfig,
+        user_id: int,
+        signal: Signal,
+        signal_id: int | None,
+    ) -> bool:
+        """反手 (Step 2b): 先平掉现有反方向仓,再开 metadata.direction 方向新仓。
+
+        语义注意:
+          metadata.direction 是 "目标方向"(反手后的新仓方向),
+          所以要平掉的是 "另一方向" 的现有仓。
+
+          示例: RsiLayered 从多翻空发出
+            action=sell, intent=reverse, direction=short
+          这里我们应该:
+            1. 平掉账户上 status=open 的 long 仓(direction 反过来传 None
+               让 select 不过滤,直接选第一个开仓 — 策略已自管,
+               理论上同 symbol 只有一个仓)
+            2. 开新空仓(direction=short, side=sell)
+
+        失败处理:
+          - 平仓失败 → 不开新仓,信号 reject(_auto_close_position 已写入)
+          - 平仓成功但开新仓失败 → 信号 reject。账户处于"无仓"状态,
+            下一根 K 线策略会重新评估。
+        """
+        meta = signal.metadata or {}
+        intent = meta.get("intent", "reverse")
+        target_direction = meta.get("direction")
+
+        # 1. 先平: 用 direction=None 不过滤 — 反手时 symbol 上理应只有一个仓
+        closed = await self._auto_close_position(
+            session=session,
+            instance_id=instance_id,
+            account=account,
+            config=config,
+            user_id=user_id,
+            direction=None,
+            intent=intent,
+            signal_id=None,  # signal_id 留给开新仓后再更新,避免重复 reject/executed
+        )
+
+        if not closed:
+            # _auto_close_position 已 log,但没更新 signal_id(我们传的 None)
+            # 这里统一做拒绝
+            logger.warning(
+                "[StrategyRunner] 策略 #%d reverse 失败: 平原仓未成功,放弃开新仓",
+                instance_id,
+            )
+            if signal_id:
+                await self._update_signal_status(
+                    signal_id, "rejected", reason="reverse 平原仓失败",
+                )
+            return False
+
+        # 2. 再开: 调 _auto_open_position
+        logger.info(
+            "[StrategyRunner] 策略 #%d reverse 平仓成功,开新 %s 仓",
+            instance_id, target_direction,
+        )
+        opened = await self._auto_open_position(
+            session=session,
+            instance_id=instance_id,
+            account=account,
+            config=config,
+            user_id=user_id,
+            signal=signal,
+            signal_id=signal_id,
+        )
+        return opened
 
     def _calculate_order_quantity(
         self,
@@ -554,7 +662,7 @@ class StrategyRunner:
         direction: str | None,
         intent: str,
         signal_id: int | None,
-    ) -> None:
+    ) -> bool:
         """处理平仓类信号(take_profit / stop_loss / timeout)
 
         策略已自管持仓状态(在它自己的状态机里),所以这里它说要平,
@@ -565,6 +673,10 @@ class StrategyRunner:
           2. 优先匹配 strategy_instance_id == instance_id (该实例自己开的仓)
           3. 然后用 metadata.direction 过滤(long/short)
           4. 找不到 → 拒绝信号(策略与 DB 状态不一致,告警但不爆炸)
+
+        Returns:
+            True  — 平仓订单已提交成功(交易所确认 + position 标记 closed)
+            False — 跳过(无开仓)或失败(异常 / 选不出目标)
         """
         from app.models.exchange import Position
         from app.services.order_service import OrderService
@@ -591,7 +703,7 @@ class StrategyRunner:
                         signal_id, "rejected",
                         reason=f"intent={intent} 但 DB 无开仓",
                     )
-                return
+                return False
 
             position = select_position_to_close(positions, instance_id, direction)
             if position is None:
@@ -604,7 +716,7 @@ class StrategyRunner:
                     await self._update_signal_status(
                         signal_id, "rejected", reason=f"intent={intent} 无匹配持仓",
                     )
-                return
+                return False
 
             if len(positions) > 1:
                 logger.warning(
@@ -624,6 +736,7 @@ class StrategyRunner:
             )
             if signal_id:
                 await self._update_signal_status(signal_id, "executed")
+            return True
         except Exception as exc:
             logger.error(
                 "[StrategyRunner] 策略 #%d intent=%s 平仓失败: %s",
@@ -636,6 +749,7 @@ class StrategyRunner:
                     )
                 except Exception:
                     pass
+            return False
 
     async def _update_last_run(self, instance_id: int) -> None:
         """更新策略实例的 last_run_at"""
