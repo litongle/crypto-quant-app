@@ -56,6 +56,9 @@ htmlcov/
 coverage.xml
 *.cover
 
+# pytest
+.pytest_cache/
+
 # Database
 *.db
 *.sqlite3
