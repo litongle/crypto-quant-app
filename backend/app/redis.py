@@ -36,12 +36,17 @@ async def get_redis_pool() -> ConnectionPool:
 
 
 async def get_redis_client() -> Redis:
-    """获取全局 Redis 客户端单例（复用连接池）"""
+    """获取全局 Redis 客户端单例（复用连接池）
+
+    P0 修复: 不能在持有 _pool_lock 时再调 get_redis_pool 否则死锁
+    (asyncio.Lock 不可重入)。先在锁外拿到 pool,再进锁创建 client。
+    """
     global _redis_client
     if _redis_client is None:
+        # 锁外先拿 pool(它内部会用 _pool_lock 自己保护)
+        pool = await get_redis_pool()
         async with _pool_lock:
             if _redis_client is None:
-                pool = await get_redis_pool()
                 _redis_client = Redis(connection_pool=pool)
     return _redis_client
 
