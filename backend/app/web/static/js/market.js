@@ -255,7 +255,13 @@ function startMarketWs() {
   }
 
   const wsBase = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}`;
+  // WS 端点要求 JWT(在 endpoints.py L18 校验);从 api 客户端取 access token
+  const token = (typeof api !== 'undefined' && api.accessToken) || localStorage.getItem('access_token') || '';
+  if (!token) {
+    console.warn('[Market WS] 缺少 access token,跳过 WS 连接(请先登录)');
+    return;
+  }
+  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&token=${encodeURIComponent(token)}`;
 
   try {
     marketWs = new WebSocket(wsUrl);
