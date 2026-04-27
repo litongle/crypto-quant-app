@@ -274,6 +274,14 @@ async function showCreateForm(templateId) {
 }
 
 /* ── 渲染参数滑块 ── */
+/**
+ * 渲染参数控件,按 type 分发:
+ *   int / double                → range slider(原行为)
+ *   bool                        → checkbox
+ *   array_int / array_double    → 单行文本(逗号分隔)
+ *   json                        → 多行 textarea(JSON 格式)
+ *   rules / 其他                → 跳过(由专用构建器处理)
+ */
 function renderParamSliders(params) {
   const el = document.getElementById('param-sliders');
   if (!params || params.length === 0) {
@@ -281,16 +289,107 @@ function renderParamSliders(params) {
     return;
   }
 
-  el.innerHTML = params.map(p => `
-    <div class="cq-param-group">
-      <div class="cq-param-header">
-        <span class="cq-param-label">${p.name}</span>
-        <span class="cq-param-value" id="val-${p.key}">${p.default}</span>
-      </div>
-      <input type="range" class="cq-slider" id="sl-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
-        oninput="document.getElementById('val-${p.key}').textContent=this.value">
-    </div>
-  `).join('');
+  el.innerHTML = params.map(p => {
+    const t = p.type || 'double';
+    const desc = p.description
+      ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">${p.description}</div>`
+      : '';
+
+    // 跳过专用构建器处理的类型
+    if (t === 'rules') return '';
+
+    if (t === 'bool') {
+      const checked = p.default ? 'checked' : '';
+      return `
+        <div class="cq-param-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="param-${p.key}" data-key="${p.key}" data-type="bool" ${checked}>
+            <span class="cq-param-label">${p.name}</span>
+          </label>
+          ${desc}
+        </div>`;
+    }
+
+    if (t === 'array_int' || t === 'array_double') {
+      const val = Array.isArray(p.default) ? p.default.join(', ') : (p.default ?? '');
+      return `
+        <div class="cq-param-group">
+          <div class="cq-param-header">
+            <span class="cq-param-label">${p.name}</span>
+          </div>
+          <input type="text" class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="${t}"
+            value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
+            style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;">
+          ${desc}
+        </div>`;
+    }
+
+    if (t === 'json') {
+      const val = typeof p.default === 'string' ? p.default : JSON.stringify(p.default);
+      return `
+        <div class="cq-param-group">
+          <div class="cq-param-header">
+            <span class="cq-param-label">${p.name}</span>
+          </div>
+          <textarea class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="json"
+            rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);">${val}</textarea>
+          ${desc}
+        </div>`;
+    }
+
+    // int / double — range slider
+    return `
+      <div class="cq-param-group">
+        <div class="cq-param-header">
+          <span class="cq-param-label">${p.name}</span>
+          <span class="cq-param-value" id="val-${p.key}">${p.default}</span>
+        </div>
+        <input type="range" class="cq-slider" id="sl-${p.key}" data-key="${p.key}" data-type="${t}"
+          min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
+          oninput="document.getElementById('val-${p.key}').textContent=this.value">
+        ${desc}
+      </div>`;
+  }).join('');
+}
+
+/**
+ * 收集 #param-sliders 内所有控件的值,按类型解析。
+ * 返回 { paramKey: parsedValue, ... };遇 JSON 解析错抛异常上层捕获。
+ */
+function collectStrategyParams() {
+  const out = {};
+  const root = document.getElementById('param-sliders');
+
+  // bool: checkbox
+  root.querySelectorAll('input[type="checkbox"][data-key]').forEach(el => {
+    out[el.dataset.key] = el.checked;
+  });
+
+  // array_int / array_double: text 逗号分隔
+  root.querySelectorAll('input[type="text"][data-key]').forEach(el => {
+    const t = el.dataset.type;
+    const parts = el.value.split(',').map(s => s.trim()).filter(s => s !== '');
+    out[el.dataset.key] = parts.map(s => t === 'array_int' ? parseInt(s, 10) : parseFloat(s));
+  });
+
+  // json: textarea
+  root.querySelectorAll('textarea[data-key]').forEach(el => {
+    const txt = el.value.trim();
+    if (txt === '') { out[el.dataset.key] = null; return; }
+    try {
+      out[el.dataset.key] = JSON.parse(txt);
+    } catch (e) {
+      throw new Error(`参数 "${el.dataset.key}" JSON 格式错误: ${e.message}`);
+    }
+  });
+
+  // int / double: range slider(排除规则构建器内部的)
+  root.querySelectorAll('input[type="range"][data-key]:not(.cq-rule-builder input)').forEach(el => {
+    const t = el.dataset.type;
+    out[el.dataset.key] = t === 'int' ? parseInt(el.value, 10) : parseFloat(el.value);
+  });
+
+  return out;
 }
 
 /* ── 创建策略实例 ── */
@@ -305,11 +404,13 @@ async function createStrategyInstance() {
   const accountEl = document.getElementById('new-strategy-account');
   const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
 
-  const params = {};
-  document.querySelectorAll('#param-sliders input[type="range"]:not(.cq-rule-builder input)').forEach(sl => {
-    const key = sl.id.replace('sl-', '');
-    params[key] = parseFloat(sl.value);
-  });
+  let params;
+  try {
+    params = collectStrategyParams();
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
 
   // 规则策略：从构建器生成 rules JSON
   const isRuleTemplate = (window._cachedTemplates || []).find(t => t.id === selectedTemplateId)?.strategyType === 'rule';

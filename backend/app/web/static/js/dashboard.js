@@ -11,7 +11,7 @@ const ICONS = {
 async function loadDashboard() {
   const [summary, positions, equity] = await Promise.all([
     api.getAssetSummary().catch(() => null),
-    api.getPositions().catch(() => null),
+    api.getPortfolioPositions().catch(() => null),
     api.getEquityCurve(30).catch(() => null),
   ]);
 

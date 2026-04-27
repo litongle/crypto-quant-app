@@ -144,6 +144,46 @@ STRATEGY_TEMPLATES = [
             ],
         },
     },
+    {
+        "code": "rsi_layered",
+        "name": "RSI 分层极值追踪",
+        "description": (
+            "进阶 RSI 策略：监控 RSI 进入超买/超卖三层阈值,追踪区间极值,"
+            "回撤触发开仓。支持加仓/分层浮动止盈/固定止损/超时平仓/反手交易/"
+            "冷却期。可重启不丢仓位状态。"
+        ),
+        "strategy_type": "rsi_layered",
+        "risk_level": "high",
+        "params_schema": {
+            "params": [
+                {"key": "rsi_period", "name": "RSI 周期", "type": "int",
+                 "default": 14, "min": 5, "max": 50, "step": 1},
+                {"key": "long_levels", "name": "多头三层阈值",
+                 "type": "array_int", "default": [30, 25, 20],
+                 "description": "RSI 跌破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深"},
+                {"key": "short_levels", "name": "空头三层阈值",
+                 "type": "array_int", "default": [70, 75, 80],
+                 "description": "RSI 突破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深"},
+                {"key": "retracement_points", "name": "极值回撤触发(点)",
+                 "type": "double", "default": 2.0, "min": 0.5, "max": 10.0, "step": 0.5},
+                {"key": "max_additional_positions", "name": "最大加仓次数",
+                 "type": "int", "default": 4, "min": 0, "max": 10, "step": 1},
+                {"key": "fixed_stop_loss_points", "name": "固定止损(价格点)",
+                 "type": "double", "default": 6.0, "min": 1.0, "max": 100.0, "step": 1.0},
+                {"key": "max_holding_candles", "name": "最大持仓 K 线数",
+                 "type": "int", "default": 60, "min": 5, "max": 500, "step": 5},
+                {"key": "cooling_candles", "name": "平仓后冷却 K 线",
+                 "type": "int", "default": 3, "min": 0, "max": 50, "step": 1},
+                {"key": "profit_taking_config", "name": "分层浮动止盈",
+                 "type": "json", "default": [[10, 3.0, 2.0], [30, 5.0, 3.0], [60, 10.0, 5.0]],
+                 "description": "[[窗口K线数, 回撤点数, 最小盈利], ...]"},
+                {"key": "auto_trade", "name": "自动下单(谨慎)",
+                 "type": "bool", "default": False,
+                 "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号"},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        },
+    },
 ]
 
 

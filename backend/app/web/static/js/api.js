@@ -124,7 +124,8 @@ class ApiClient {
     return json.data || json;
   }
 
-  async getPositions(exchange = 'all', side = 'all') {
+  // 资产页:账户全持仓视图(跨账户聚合);避免与 trading.getPositions 同名
+  async getPortfolioPositions(exchange = 'all', side = 'all') {
     const json = await this.get(`/asset/positions?exchange=${exchange}&side=${side}`);
     return json.data || json;
   }
