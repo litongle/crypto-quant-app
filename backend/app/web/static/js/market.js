@@ -24,6 +24,9 @@ async function loadMarketPage() {
   // 加载K线图
   await loadMarketKline();
 
+  // 立即拉一次实时价格,避免首次进页面卡在 "-- --"
+  refreshLivePriceNow();
+
   // 启动 WebSocket
   startMarketWs();
 
@@ -83,6 +86,29 @@ function formatTickerPrice(price) {
   return Number(price).toFixed(4);
 }
 
+/**
+ * 立即用 REST 拉一次 ticker 填进实时价格区,避免切 symbol 后等 WS 那 1-2 秒
+ * 卡在 "-- --"。WS 推消息后会再覆盖一次,无需等待。
+ */
+async function refreshLivePriceNow() {
+  const liveEl = document.getElementById('market-live-price');
+  const liveChange = document.getElementById('market-live-change');
+  if (!liveEl) return;
+  try {
+    const t = await api.getTicker(marketSymbol, marketExchange);
+    const rawPrice = t.price ?? t.lastPrice ?? t.last;
+    if (rawPrice != null) liveEl.textContent = '$' + formatTickerPrice(rawPrice);
+    const change = t.price_change_percent ?? t.changePercent24h ?? t.changePercent ?? t.priceChangePercent ?? null;
+    if (liveChange && change != null) {
+      const numChange = Number(change);
+      liveChange.textContent = `${numChange >= 0 ? '+' : ''}${numChange.toFixed(2)}%`;
+      liveChange.style.color = numChange >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
+    }
+  } catch (e) {
+    // 拿不到就让 WS 兜底,什么都不做
+  }
+}
+
 /* ── 点击选择交易对 ── */
 function selectMarketSymbol(symbol) {
   marketSymbol = symbol;
@@ -92,6 +118,8 @@ function selectMarketSymbol(symbol) {
   if (active) active.classList.add('is-active');
   // 重新加载K线
   loadMarketKline();
+  // 立即填一次价格
+  refreshLivePriceNow();
   // 重连 WS
   startMarketWs();
 }
@@ -111,6 +139,7 @@ function changeMarketExchange(exchange) {
   const active = document.querySelector(`.cq-exchange-btn[data-exchange="${exchange}"]`);
   if (active) active.classList.add('is-active');
   loadMarketKline();
+  refreshLivePriceNow();
   startMarketWs();
 }
 
@@ -344,6 +373,7 @@ function initMarketSymbolSelector() {
         onChange: (val) => {
           marketSymbol = val;
           loadMarketKline();
+          refreshLivePriceNow();
           startMarketWs();
         },
       });

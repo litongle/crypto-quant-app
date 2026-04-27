@@ -34,17 +34,11 @@ const SYMBOL_DATA = [
   { symbol: 'ATOMUSDT', name: 'ATOM/USDT', base: 'ATOM', type: 'spot',    category: '热门',   exchanges: ['binance','okx','htx'] },
   { symbol: 'AAVEUSDT', name: 'AAVE/USDT', base: 'AAVE', type: 'spot',    category: '热门',   exchanges: ['binance','okx'] },
 
-  // ─── 永续合约 U本本 ───
-  { symbol: 'BTCUSDT.P',  name: 'BTC/USDT 永续',  base: 'BTC',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'ETHUSDT.P',  name: 'ETH/USDT 永续',  base: 'ETH',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'SOLUSDT.P',  name: 'SOL/USDT 永续',  base: 'SOL',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'BNBUSDT.P',  name: 'BNB/USDT 永续',  base: 'BNB',  type: 'perp', category: '永续合约', exchanges: ['binance'] },
-  { symbol: 'XRPUSDT.P',  name: 'XRP/USDT 永续',  base: 'XRP',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'DOGEUSDT.P', name: 'DOGE/USDT 永续', base: 'DOGE', type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'ADAUSDT.P',  name: 'ADA/USDT 永续',  base: 'ADA',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'AVAXUSDT.P', name: 'AVAX/USDT 永续', base: 'AVAX', type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'LINKUSDT.P', name: 'LINK/USDT 永续', base: 'LINK', type: 'perp', category: '永续合约', exchanges: ['binance','okx','htx'] },
-  { symbol: 'PEPEUSDT.P', name: 'PEPE/USDT 永续', base: 'PEPE', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  // ─── 永续合约 ───
+  // 暂不支持: 后端 market service 仅对接现货 ticker / kline API。
+  // 等接入交易所合约接口(binance fapi / okx swap / htx linear)后再启用。
+  // 以前列在这里会让前端选了 BTCUSDT.P 直接打到现货 endpoint,
+  // 后端返回 "不支持的交易对: BTCUSDT.P" → 用户体验差。
 ];
 
 // ===== 币种颜色映射 =====
@@ -134,7 +128,9 @@ class SymbolSelector {
           <div class="sym-sel__filters">
             <button class="sym-sel__filter active" data-type="all">全部</button>
             <button class="sym-sel__filter" data-type="spot">现货</button>
-            <button class="sym-sel__filter" data-type="perp">永续合约</button>
+            <!-- <button class="sym-sel__filter" data-type="perp">永续合约</button> -->
+            <!-- 永续合约暂不支持(见 SUPPORTED_SYMBOLS 顶部注释) -->
+
           </div>
           <div class="sym-sel__list"></div>
         </div>
