@@ -52,11 +52,25 @@ class UpdateStrategyRequest(BaseModel):
 # ============ 响应模型 ============
 
 class ParamSchema(BaseModel):
-    """参数定义"""
+    """参数定义
+
+    type 取值与前端 strategy.js renderer 对齐:
+      int / double      -> range slider
+      select            -> dropdown(需 options)
+      rules             -> 规则构建器(rule_custom 专用)
+      bool              -> checkbox
+      array_int         -> 逗号分隔文本,解析为 int 列表
+      array_double      -> 逗号分隔文本,解析为 float 列表
+      json              -> textarea + JSON.parse
+    """
     key: str
     name: str
-    type: Literal["int", "double", "select", "rules"]
-    default: int | float | str | None = None
+    type: Literal[
+        "int", "double", "select", "rules",
+        "bool", "array_int", "array_double", "json",
+    ]
+    # default 容纳标量 / 列表 / 嵌套(json/array_*) / bool
+    default: int | float | str | bool | list | dict | None = None
     min: int | float | None = None
     max: int | float | None = None
     step: int | float | None = None
@@ -71,6 +85,11 @@ class StrategyTemplateResponse(BaseModel):
     description: str
     icon: str
     isActive: bool = True
+    # 策略类型(对应工厂里的 strategy_type 注册键),前端据此分发渲染:
+    #   "rule" → 规则构建器(rule_custom 专用)
+    #   其他   → 通用参数表单
+    # 缺失会让 backtest.js / strategy.js 都把 rules 类型 param 当 slider 渲染。
+    strategyType: str = ""
     params: list[ParamSchema] = []
 
 

@@ -305,7 +305,7 @@ async function runBacktest() {
 
   const selectedTemplate = (window._backtestTemplates || []).find(t => t.id === templateId);
   const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
-  const params = {};
+  let params = {};
   if (isRuleTemplate) {
     const buyEmpty = _backtestRuleState.buyRules.length === 0;
     const sellEmpty = _backtestRuleState.sellRules.length === 0;
@@ -315,10 +315,12 @@ async function runBacktest() {
     }
     params.rules = buildBacktestRulesDSL();
   } else {
-    document.querySelectorAll('#backtest-params input[type="range"]').forEach(sl => {
-      const key = sl.id.replace('sl-bt-', '');
-      params[key] = parseFloat(sl.value);
-    });
+    try {
+      params = collectBacktestParams();
+    } catch (e) {
+      showToast(e.message, 'error');
+      return;
+    }
   }
 
   const btn = document.getElementById('run-backtest-btn');
@@ -545,17 +547,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tmpl && tmpl.strategyType === 'rule') {
           resetBacktestRuleState();
           renderBacktestRuleBuilder();
-        } else if (tmpl && tmpl.params) {
-          document.getElementById('backtest-params').innerHTML = tmpl.params.map(p => `
-            <div style="margin-bottom:var(--cq-space-3);">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
-                <label class="cq-label" style="margin-bottom:0;">${p.name}</label>
-                <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary-hover);" id="val-bt-${p.key}">${p.default}</span>
-              </div>
-              <input type="range" class="cq-slider" id="sl-bt-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
-                oninput="document.getElementById('val-bt-${p.key}').textContent=this.value">
-            </div>
-          `).join('');
+        } else if (tmpl && tmpl.params && tmpl.params.length > 0) {
+          renderBacktestParamControls(tmpl.params);
         } else {
           document.getElementById('backtest-params').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
         }
@@ -634,4 +627,104 @@ async function viewBacktestDetail(id) {
   } catch (err) {
     showToast('加载回测详情失败', 'error');
   }
+}
+
+/**
+ * 渲染回测参数控件,与 strategy.js 的 renderParamSliders 同套类型支持。
+ * type: int/double  → range slider
+ *       bool        → checkbox
+ *       array_int / array_double → 逗号分隔文本
+ *       json        → textarea
+ *       rules / 其他 → 跳过(rules 由 renderBacktestRuleBuilder 处理)
+ */
+function renderBacktestParamControls(params) {
+  const root = document.getElementById('backtest-params');
+  root.innerHTML = params.map(p => {
+    const t = p.type || 'double';
+    const desc = p.description
+      ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">${p.description}</div>`
+      : '';
+
+    if (t === 'rules') return '';  // rule_custom 不会走到这里(已被 strategyType==='rule' 拦截)
+
+    if (t === 'bool') {
+      const checked = p.default ? 'checked' : '';
+      return `
+        <div style="margin-bottom:var(--cq-space-3);">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="bt-param-${p.key}" data-key="${p.key}" data-type="bool" ${checked}>
+            <span class="cq-label" style="margin-bottom:0;">${p.name}</span>
+          </label>
+          ${desc}
+        </div>`;
+    }
+
+    if (t === 'array_int' || t === 'array_double') {
+      const val = Array.isArray(p.default) ? p.default.join(', ') : (p.default ?? '');
+      return `
+        <div style="margin-bottom:var(--cq-space-3);">
+          <label class="cq-label">${p.name}</label>
+          <input type="text" id="bt-param-${p.key}" data-key="${p.key}" data-type="${t}"
+            value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
+            style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;background:transparent;color:var(--cq-text-primary);">
+          ${desc}
+        </div>`;
+    }
+
+    if (t === 'json') {
+      const val = typeof p.default === 'string' ? p.default : JSON.stringify(p.default);
+      return `
+        <div style="margin-bottom:var(--cq-space-3);">
+          <label class="cq-label">${p.name}</label>
+          <textarea id="bt-param-${p.key}" data-key="${p.key}" data-type="json"
+            rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);background:transparent;color:var(--cq-text-primary);">${val}</textarea>
+          ${desc}
+        </div>`;
+    }
+
+    // int / double — slider
+    return `
+      <div style="margin-bottom:var(--cq-space-3);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
+          <label class="cq-label" style="margin-bottom:0;">${p.name}</label>
+          <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary-hover);" id="val-bt-${p.key}">${p.default}</span>
+        </div>
+        <input type="range" class="cq-slider" id="sl-bt-${p.key}" data-key="${p.key}" data-type="${t}"
+          min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
+          oninput="document.getElementById('val-bt-${p.key}').textContent=this.value">
+        ${desc}
+      </div>`;
+  }).join('');
+}
+
+/**
+ * 收集回测参数,按类型解析。json 解析失败抛错由调用方 toast。
+ */
+function collectBacktestParams() {
+  const out = {};
+  const root = document.getElementById('backtest-params');
+
+  root.querySelectorAll('input[type="checkbox"][data-key]').forEach(el => {
+    out[el.dataset.key] = el.checked;
+  });
+  root.querySelectorAll('input[type="text"][data-key]').forEach(el => {
+    const t = el.dataset.type;
+    const parts = el.value.split(',').map(s => s.trim()).filter(s => s !== '');
+    out[el.dataset.key] = parts.map(s => t === 'array_int' ? parseInt(s, 10) : parseFloat(s));
+  });
+  root.querySelectorAll('textarea[data-key]').forEach(el => {
+    const txt = el.value.trim();
+    if (txt === '') { out[el.dataset.key] = null; return; }
+    try {
+      out[el.dataset.key] = JSON.parse(txt);
+    } catch (e) {
+      throw new Error(`参数 "${el.dataset.key}" JSON 格式错误: ${e.message}`);
+    }
+  });
+  root.querySelectorAll('input[type="range"][data-key]').forEach(el => {
+    const t = el.dataset.type;
+    out[el.dataset.key] = t === 'int' ? parseInt(el.value, 10) : parseFloat(el.value);
+  });
+
+  return out;
 }
