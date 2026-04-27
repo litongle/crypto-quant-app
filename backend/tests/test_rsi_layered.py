@@ -45,7 +45,7 @@ def make_klines(closes: list[float], start_ts_ms: int = 1_700_000_000_000) -> li
 
 def run(coro):
     """同步运行协程的小工具"""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def make_strategy(**param_overrides) -> RsiLayeredStrategy:

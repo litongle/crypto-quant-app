@@ -29,7 +29,7 @@ from app.core.strategy_engine import (
 
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def make_kline(close: float, ts: int) -> dict:

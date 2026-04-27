@@ -3,8 +3,12 @@ seed_data 模板契约测试
 
 确保所有 strategy_type 注册在 get_strategy() 工厂的策略,seed_data
 都有对应模板,前端"创建策略"才能选到。否则后端能跑但前端看不见。
+
+含 upsert 行为测试(in-memory SQLite,不依赖外部 DB)。
 """
-from app.seed_data import STRATEGY_TEMPLATES
+import asyncio
+
+from app.seed_data import STRATEGY_TEMPLATES, upsert_strategy_templates
 
 
 def get_template(code: str) -> dict | None:
@@ -137,3 +141,175 @@ class TestTemplateFactoryAlignment:
                 if strategy_type in ("bollinger", "grid", "martingale"):
                     continue
                 raise
+
+
+# ── upsert 行为测试 ──────────────────────────────────────
+
+async def _build_in_memory_session():
+    """构造一个隔离的 in-memory SQLite session_maker(每个测试独立)。"""
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+    from app.database import Base
+    import app.models  # noqa: F401 — 注册所有模型
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    return engine, Session
+
+
+class TestUpsertBehavior:
+    def test_upsert_into_empty_db_inserts_all(self):
+        """空表 → upsert → 所有模板插入,updated=0"""
+        async def go():
+            engine, Session = await _build_in_memory_session()
+            try:
+                async with Session() as s:
+                    inserted, updated = await upsert_strategy_templates(s)
+                    await s.commit()
+                async with Session() as s:
+                    from sqlalchemy import select
+                    from app.models.strategy import StrategyTemplate
+                    rows = (await s.execute(select(StrategyTemplate))).scalars().all()
+                return inserted, updated, [r.code for r in rows]
+            finally:
+                await engine.dispose()
+
+        inserted, updated, codes = asyncio.run(go())
+        assert inserted == len(STRATEGY_TEMPLATES)
+        assert updated == 0
+        assert "rsi_layered" in codes
+        assert len(codes) == len(STRATEGY_TEMPLATES)
+
+    def test_upsert_idempotent(self):
+        """连续两次 upsert,第二次应该全部跳过(0 新增 0 更新)"""
+        async def go():
+            engine, Session = await _build_in_memory_session()
+            try:
+                async with Session() as s:
+                    await upsert_strategy_templates(s)
+                    await s.commit()
+                async with Session() as s:
+                    inserted2, updated2 = await upsert_strategy_templates(s)
+                    await s.commit()
+                return inserted2, updated2
+            finally:
+                await engine.dispose()
+
+        inserted2, updated2 = asyncio.run(go())
+        assert inserted2 == 0
+        assert updated2 == 0  # 数据无变化,不应记为 updated
+
+    def test_upsert_updates_changed_fields(self):
+        """已有模板字段被外部改过 → upsert 应改回最新值"""
+        async def go():
+            engine, Session = await _build_in_memory_session()
+            try:
+                # 先 seed 一次
+                async with Session() as s:
+                    await upsert_strategy_templates(s)
+                    await s.commit()
+                # 篡改 rsi_layered 模板的 name
+                async with Session() as s:
+                    from sqlalchemy import select
+                    from app.models.strategy import StrategyTemplate
+                    t = (await s.execute(
+                        select(StrategyTemplate).where(StrategyTemplate.code == "rsi_layered")
+                    )).scalar_one()
+                    t.name = "被改坏的名字"
+                    t.is_active = False
+                    await s.commit()
+                # 再 upsert,应该恢复
+                async with Session() as s:
+                    inserted, updated = await upsert_strategy_templates(s)
+                    await s.commit()
+                async with Session() as s:
+                    from sqlalchemy import select
+                    from app.models.strategy import StrategyTemplate
+                    t = (await s.execute(
+                        select(StrategyTemplate).where(StrategyTemplate.code == "rsi_layered")
+                    )).scalar_one()
+                    return inserted, updated, t.name, t.is_active
+            finally:
+                await engine.dispose()
+
+        inserted, updated, name, is_active = asyncio.run(go())
+        assert inserted == 0
+        assert updated >= 1  # 至少 rsi_layered 被改
+        assert name == "RSI 分层极值追踪"  # 恢复
+        assert is_active is True  # 恢复
+
+    def test_upsert_does_not_remove_unknown_codes(self):
+        """DB 里有 STRATEGY_TEMPLATES 不包含的 code(用户手加) → 应保留"""
+        async def go():
+            engine, Session = await _build_in_memory_session()
+            try:
+                # 手动插一条非种子模板
+                async with Session() as s:
+                    from app.models.strategy import StrategyTemplate
+                    s.add(StrategyTemplate(
+                        code="user_custom_zzz",
+                        name="用户手加",
+                        description="测试用",
+                        strategy_type="ma",
+                        risk_level="low",
+                        params_schema={"params": []},
+                        is_active=True,
+                    ))
+                    await s.commit()
+                # upsert
+                async with Session() as s:
+                    await upsert_strategy_templates(s)
+                    await s.commit()
+                # 验证手加的还在
+                async with Session() as s:
+                    from sqlalchemy import select
+                    from app.models.strategy import StrategyTemplate
+                    rows = (await s.execute(select(StrategyTemplate))).scalars().all()
+                    return [r.code for r in rows]
+            finally:
+                await engine.dispose()
+
+        codes = asyncio.run(go())
+        assert "user_custom_zzz" in codes  # 保留
+        assert "rsi_layered" in codes      # 种子也插入了
+
+    def test_upsert_inserts_new_template_after_existing(self):
+        """模拟"加新模板"场景:先 seed 一份旧的(只有 5 个),
+        再 STRATEGY_TEMPLATES 含 7 个时再 upsert,应只插入 2 个。"""
+        async def go():
+            engine, Session = await _build_in_memory_session()
+            try:
+                # 先插 5 条(模拟旧版本)
+                async with Session() as s:
+                    from app.models.strategy import StrategyTemplate
+                    for tmpl in STRATEGY_TEMPLATES[:5]:
+                        s.add(StrategyTemplate(
+                            code=tmpl["code"],
+                            name=tmpl["name"],
+                            description=tmpl["description"],
+                            strategy_type=tmpl["strategy_type"],
+                            risk_level=tmpl["risk_level"],
+                            params_schema=tmpl["params_schema"],
+                            is_active=True,
+                        ))
+                    await s.commit()
+                # 现在 upsert(STRATEGY_TEMPLATES 是完整列表)
+                async with Session() as s:
+                    inserted, updated = await upsert_strategy_templates(s)
+                    await s.commit()
+                return inserted, updated
+            finally:
+                await engine.dispose()
+
+        inserted, updated = asyncio.run(go())
+        # 应只插入差额条数,且不更新已有 5 条
+        assert inserted == len(STRATEGY_TEMPLATES) - 5
+        assert updated == 0

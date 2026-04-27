@@ -187,36 +187,78 @@ STRATEGY_TEMPLATES = [
 ]
 
 
+UPSERT_FIELDS = ("name", "description", "strategy_type", "risk_level", "params_schema")
+
+
+async def upsert_strategy_templates(session) -> tuple[int, int]:
+    """按 code upsert STRATEGY_TEMPLATES 到 session(不 commit)。
+
+    - code 已存在 → 更新 name / description / strategy_type / risk_level /
+      params_schema 五个字段(以及 is_active=True)
+    - code 不存在 → INSERT
+    - 不删除 DB 里有但 STRATEGY_TEMPLATES 没的(用户可能手动加了模板),
+      想清空请手动 DELETE 后重启
+
+    幂等:多次调用结果一致,可放在每次应用启动时跑。
+
+    Returns:
+        (inserted, updated)
+    """
+    from sqlalchemy import select
+
+    result = await session.execute(select(StrategyTemplate))
+    existing_by_code = {t.code: t for t in result.scalars().all()}
+
+    inserted = 0
+    updated = 0
+
+    for tmpl_data in STRATEGY_TEMPLATES:
+        code = tmpl_data["code"]
+        existing = existing_by_code.get(code)
+
+        if existing is None:
+            session.add(StrategyTemplate(
+                code=code,
+                name=tmpl_data["name"],
+                description=tmpl_data["description"],
+                strategy_type=tmpl_data["strategy_type"],
+                risk_level=tmpl_data["risk_level"],
+                params_schema=tmpl_data["params_schema"],
+                is_active=True,
+            ))
+            inserted += 1
+        else:
+            changed = False
+            for field in UPSERT_FIELDS:
+                new_val = tmpl_data[field]
+                if getattr(existing, field) != new_val:
+                    setattr(existing, field, new_val)
+                    changed = True
+            if not existing.is_active:
+                existing.is_active = True
+                changed = True
+            if changed:
+                updated += 1
+
+    return inserted, updated
+
+
 async def init_strategy_templates():
-    """初始化策略模板数据"""
+    """初始化/更新策略模板(应用启动时调用)。
+
+    采用 upsert 而非"已有数据就跳过":
+      · 加新策略模板 → 重启应用即生效
+      · 改 params_schema/描述 → 重启应用即生效
+      · 删除模板需要手工 DELETE FROM strategy_templates WHERE code='...'
+    """
     session_maker = await get_session_maker()
     async with session_maker() as session:
-        # 检查是否已有数据
-        from sqlalchemy import select
-        result = await session.execute(select(StrategyTemplate))
-        existing = result.scalars().first()
-
-        if existing:
-            logger.info("策略模板已存在，跳过初始化")
-            return
-
-        # 创建模板
-        templates = []
-        for template_data in STRATEGY_TEMPLATES:
-            template = StrategyTemplate(
-                code=template_data["code"],
-                name=template_data["name"],
-                description=template_data["description"],
-                strategy_type=template_data["strategy_type"],
-                risk_level=template_data["risk_level"],
-                params_schema=template_data["params_schema"],
-                is_active=True,
-            )
-            templates.append(template)
-            session.add(template)
-
+        inserted, updated = await upsert_strategy_templates(session)
         await session.commit()
-        logger.info("成功初始化 %d 个策略模板", len(templates))
+        logger.info(
+            "策略模板 upsert 完成: 新增 %d, 更新 %d, 总计 %d",
+            inserted, updated, len(STRATEGY_TEMPLATES),
+        )
 
 
 async def init_db():
