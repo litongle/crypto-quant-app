@@ -1,4 +1,6 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/models/market_coin.dart';
@@ -58,9 +60,7 @@ class _MarketCoinRow extends StatelessWidget {
     final isPositive = change >= 0;
 
     return InkWell(
-      onTap: () {
-        // TODO: 跳转到币种详情
-      },
+      onTap: () => context.push('/market/${coin.symbol}'),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
@@ -119,6 +119,17 @@ class _MarketCoinRow extends StatelessWidget {
               ),
             ),
 
+            // 迷你 sparkline
+            if (coin.miniChartData != null && coin.miniChartData!.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: SizedBox(
+                  width: 56,
+                  height: 32,
+                  child: _buildSparkline(coin.miniChartData!, isPositive),
+                ),
+              ),
+
             // 价格
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -151,6 +162,35 @@ class _MarketCoinRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSparkline(List<double> data, bool isPositive) {
+    final color = isPositive ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
+    final spots = data.asMap().entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+    return LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        lineTouchData: const LineTouchData(enabled: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: color,
+            barWidth: 1.5,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: color.withOpacity(0.1),
+            ),
+          ),
+        ],
       ),
     );
   }
