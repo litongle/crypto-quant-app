@@ -182,18 +182,19 @@ class ApiClient {
   }
 
   // ===== 行情数据 =====
-  async getTicker(symbol, exchange = 'binance') {
-    const json = await this.get(`/market/ticker/${symbol}?exchange=${exchange}`);
+  // market: 'spot' | 'perp'(永续合约)
+  async getTicker(symbol, exchange = 'binance', market = 'spot') {
+    const json = await this.get(`/market/ticker/${symbol}?exchange=${exchange}&market=${market}`);
     return json.data || json;
   }
 
-  async getKline(symbol, interval = '1h', limit = 100, exchange = 'binance') {
-    const json = await this.get(`/market/kline/${symbol}?interval=${interval}&limit=${limit}&exchange=${exchange}`);
+  async getKline(symbol, interval = '1h', limit = 100, exchange = 'binance', market = 'spot') {
+    const json = await this.get(`/market/kline/${symbol}?interval=${interval}&limit=${limit}&exchange=${exchange}&market=${market}`);
     return json.data || json;
   }
 
-  async getOrderbook(symbol, limit = 20, exchange = 'binance') {
-    const json = await this.get(`/market/orderbook/${symbol}?limit=${limit}&exchange=${exchange}`);
+  async getOrderbook(symbol, limit = 20, exchange = 'binance', market = 'spot') {
+    const json = await this.get(`/market/orderbook/${symbol}?limit=${limit}&exchange=${exchange}&market=${market}`);
     return json.data || json;
   }
 

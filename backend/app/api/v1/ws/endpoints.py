@@ -43,22 +43,32 @@ async def ws_market(websocket: WebSocket):
 
     initial_symbol = websocket.query_params.get("symbol", "BTCUSDT").upper()
     initial_exchange = websocket.query_params.get("exchange", "binance").lower()
+    initial_market = websocket.query_params.get("market", "spot").lower()
+    if initial_market not in ("spot", "perp"):
+        initial_market = "spot"
     manager.subscribe(conn_id, ["ticker"], [initial_symbol])
 
     proxy = manager._proxies.get(initial_exchange)
-    if proxy: await proxy.start_if_needed("ticker", initial_symbol)
+    if proxy:
+        await proxy.start_if_needed("ticker", initial_symbol, market_type=initial_market)
 
     try:
         await websocket.send_text(WSMessage(
             type="connected",
-            data={"connection_id": conn_id, "subscribed": initial_symbol, "exchange": initial_exchange},
+            data={
+                "connection_id": conn_id, "subscribed": initial_symbol,
+                "exchange": initial_exchange, "market": initial_market,
+            },
         ).model_dump_json())
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            ticker_data = await _fetch_initial_ticker(client, initial_symbol, initial_exchange)
+            ticker_data = await _fetch_initial_ticker(
+                client, initial_symbol, initial_exchange, initial_market,
+            )
             if ticker_data:
                 await websocket.send_text(WSMessage(
-                    type="ticker", exchange=initial_exchange, symbol=initial_symbol, data=ticker_data,
+                    type="ticker", exchange=initial_exchange,
+                    symbol=initial_symbol, data=ticker_data,
                 ).model_dump_json())
 
         while True:
@@ -72,40 +82,76 @@ async def ws_market(websocket: WebSocket):
                 channels = cmd.get("channels", ["ticker"])
                 symbols = cmd.get("symbols", [initial_symbol])
                 exchange = cmd.get("exchange", initial_exchange)
+                market = cmd.get("market", initial_market)
+                if market not in ("spot", "perp"):
+                    market = "spot"
                 manager.subscribe(conn_id, channels, symbols)
                 p = manager._proxies.get(exchange)
                 if p:
                     for ch in channels:
-                        for sym in symbols: await p.start_if_needed(ch, sym)
-                await websocket.send_text(WSMessage(type="subscribed", data={"channels": channels, "symbols": symbols}).model_dump_json())
+                        for sym in symbols:
+                            await p.start_if_needed(ch, sym, market_type=market)
+                await websocket.send_text(WSMessage(
+                    type="subscribed",
+                    data={"channels": channels, "symbols": symbols, "market": market},
+                ).model_dump_json())
             elif action == "unsubscribe":
                 channels = cmd.get("channels", ["ticker"])
                 symbols = cmd.get("symbols", [])
+                market = cmd.get("market", initial_market)
+                if market not in ("spot", "perp"):
+                    market = "spot"
                 manager.unsubscribe(conn_id, channels, symbols)
                 for p in manager._proxies.values():
                     for ch in channels:
-                        for sym in symbols: await p.stop_if_idle(ch, sym)
-                await websocket.send_text(WSMessage(type="unsubscribed", data={"channels": channels, "symbols": symbols}).model_dump_json())
+                        for sym in symbols:
+                            await p.stop_if_idle(ch, sym, market_type=market)
+                await websocket.send_text(WSMessage(
+                    type="unsubscribed",
+                    data={"channels": channels, "symbols": symbols, "market": market},
+                ).model_dump_json())
     except WebSocketDisconnect: pass
     except Exception as exc: logger.error("[WS] 异常: %s: %s", conn_id, exc)
     finally: manager.unregister(conn_id)
 
-async def _fetch_initial_ticker(client, symbol, exchange):
+async def _fetch_initial_ticker(client, symbol, exchange, market_type="spot"):
+    """初始拉一次 ticker, 给 WS 客户端立即推送一条"""
     try:
         if exchange == "binance":
-            resp = await client.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}")
+            host = "fapi.binance.com/fapi/v1" if market_type == "perp" else "api.binance.com/api/v3"
+            resp = await client.get(f"https://{host}/ticker/24hr?symbol={symbol}")
             d = resp.json()
-            return {"symbol": symbol, "price": d.get("lastPrice", "0"), "price_change_percent": d.get("priceChangePercent", "0")}
+            return {
+                "symbol": symbol,
+                "price": d.get("lastPrice", "0"),
+                "price_change_percent": d.get("priceChangePercent", "0"),
+            }
         elif exchange == "okx":
             inst_id = f"{symbol[:-4]}-{symbol[-4:]}" if symbol.endswith("USDT") else symbol
+            if market_type == "perp":
+                inst_id = f"{inst_id}-SWAP"
             resp = await client.get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}")
             t = resp.json().get("data", [{}])[0]
-            return {"symbol": symbol, "price": t.get("last", "0"), "price_change_percent": t.get("changeUtc24h", "0")}
+            return {
+                "symbol": symbol,
+                "price": t.get("last", "0"),
+                "price_change_percent": t.get("changeUtc24h", "0"),
+            }
         elif exchange == "huobi":
-            resp = await client.get(f"https://api.huobi.pro/market/detail/merged?symbol={symbol.lower()}")
+            if market_type == "perp":
+                # contract_code: BTCUSDT → BTC-USDT
+                code = f"{symbol[:-4]}-{symbol[-4:]}" if symbol.endswith("USDT") else symbol
+                resp = await client.get(
+                    f"https://futures.htx.com/linear-swap-ex/market/detail/merged?contract_code={code}"
+                )
+            else:
+                resp = await client.get(
+                    f"https://api.huobi.pro/market/detail/merged?symbol={symbol.lower()}"
+                )
             tick = resp.json().get("tick", {})
             return {"symbol": symbol, "price": str(tick.get("close", 0))}
-    except Exception: return None
+    except Exception:
+        return None
 
 async def init_ws_proxies():
     try:

@@ -9,6 +9,7 @@ const DEFAULT_WATCHLIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'DOGEUSDT
 let marketSymbol = 'BTCUSDT';
 let marketInterval = '1h';
 let marketExchange = 'binance';
+let marketType = 'spot';   // F1: 'spot' | 'perp'
 let marketWs = null;
 let marketWsReconnectTimer = null;
 
@@ -95,7 +96,7 @@ async function refreshLivePriceNow() {
   const liveChange = document.getElementById('market-live-change');
   if (!liveEl) return;
   try {
-    const t = await api.getTicker(marketSymbol, marketExchange);
+    const t = await api.getTicker(marketSymbol, marketExchange, marketType);
     const rawPrice = t.price ?? t.lastPrice ?? t.last;
     if (rawPrice != null) liveEl.textContent = '$' + formatTickerPrice(rawPrice);
     const change = t.price_change_percent ?? t.changePercent24h ?? t.changePercent ?? t.priceChangePercent ?? null;
@@ -150,7 +151,7 @@ async function loadMarketKline() {
   container.innerHTML = '<div class="cq-skeleton" style="height:300px;"></div>';
 
   try {
-    const result = await api.getKline(marketSymbol, marketInterval, 200, marketExchange);
+    const result = await api.getKline(marketSymbol, marketInterval, 200, marketExchange, marketType);
     const klines = result.klines || [];
     if (klines.length === 0) {
       container.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>暂无K线数据</h3></div>';
@@ -290,7 +291,7 @@ function startMarketWs() {
     console.warn('[Market WS] 缺少 access token,跳过 WS 连接(请先登录)');
     return;
   }
-  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&token=${encodeURIComponent(token)}`;
+  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&market=${marketType}&token=${encodeURIComponent(token)}`;
 
   try {
     marketWs = new WebSocket(wsUrl);
@@ -303,6 +304,7 @@ function startMarketWs() {
         channels: ['ticker'],
         symbols: [marketSymbol],
         exchange: marketExchange,
+        market: marketType,
       }));
     };
 
@@ -371,7 +373,10 @@ function initMarketSymbolSelector() {
         containerId: 'market-symbol-selector',
         value: marketSymbol,
         onChange: (val) => {
-          marketSymbol = val;
+          // val 形如 BTCUSDT(现货) 或 BTCUSDT.P(永续) — 拆出 market
+          const parsed = (typeof splitMarket === 'function') ? splitMarket(val) : { symbol: val, market: 'spot' };
+          marketSymbol = parsed.symbol;
+          marketType = parsed.market;
           loadMarketKline();
           refreshLivePriceNow();
           startMarketWs();

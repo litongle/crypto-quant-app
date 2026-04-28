@@ -34,12 +34,34 @@ const SYMBOL_DATA = [
   { symbol: 'ATOMUSDT', name: 'ATOM/USDT', base: 'ATOM', type: 'spot',    category: '热门',   exchanges: ['binance','okx','htx'] },
   { symbol: 'AAVEUSDT', name: 'AAVE/USDT', base: 'AAVE', type: 'spot',    category: '热门',   exchanges: ['binance','okx'] },
 
-  // ─── 永续合约 ───
-  // 暂不支持: 后端 market service 仅对接现货 ticker / kline API。
-  // 等接入交易所合约接口(binance fapi / okx swap / htx linear)后再启用。
-  // 以前列在这里会让前端选了 BTCUSDT.P 直接打到现货 endpoint,
-  // 后端返回 "不支持的交易对: BTCUSDT.P" → 用户体验差。
+  // ─── 永续合约(USDT 本位) ───
+  // F1: 后端 market_service 已支持 perp 路由
+  // (binance fapi / okx SWAP instId / htx linear-swap-ex)
+  // .P 后缀仅前端语义,getValue() 时拆成 (symbol, market='perp')
+  { symbol: 'BTCUSDT.P',  name: 'BTC/USDT 永续',  base: 'BTC',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'ETHUSDT.P',  name: 'ETH/USDT 永续',  base: 'ETH',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'SOLUSDT.P',  name: 'SOL/USDT 永续',  base: 'SOL',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'BNBUSDT.P',  name: 'BNB/USDT 永续',  base: 'BNB',  type: 'perp', category: '永续合约', exchanges: ['binance'] },
+  { symbol: 'XRPUSDT.P',  name: 'XRP/USDT 永续',  base: 'XRP',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'DOGEUSDT.P', name: 'DOGE/USDT 永续', base: 'DOGE', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'ADAUSDT.P',  name: 'ADA/USDT 永续',  base: 'ADA',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'AVAXUSDT.P', name: 'AVAX/USDT 永续', base: 'AVAX', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'LINKUSDT.P', name: 'LINK/USDT 永续', base: 'LINK', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'PEPEUSDT.P', name: 'PEPE/USDT 永续', base: 'PEPE', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
 ];
+
+/**
+ * 把前端选择器里的 "BTCUSDT.P" 拆成 { symbol, market }
+ * 现货返回 market='spot',永续(.P 后缀)返回 market='perp' 并去掉 .P。
+ * F1 起 getValue() 直接返回字符串(向后兼容),用此 helper 拆。
+ */
+function splitMarket(symbolWithSuffix) {
+  if (!symbolWithSuffix) return { symbol: 'BTCUSDT', market: 'spot' };
+  if (symbolWithSuffix.endsWith('.P')) {
+    return { symbol: symbolWithSuffix.slice(0, -2), market: 'perp' };
+  }
+  return { symbol: symbolWithSuffix, market: 'spot' };
+}
 
 // ===== 币种颜色映射 =====
 const COIN_COLORS = {
@@ -128,8 +150,7 @@ class SymbolSelector {
           <div class="sym-sel__filters">
             <button class="sym-sel__filter active" data-type="all">全部</button>
             <button class="sym-sel__filter" data-type="spot">现货</button>
-            <!-- <button class="sym-sel__filter" data-type="perp">永续合约</button> -->
-            <!-- 永续合约暂不支持(见 SUPPORTED_SYMBOLS 顶部注释) -->
+            <button class="sym-sel__filter" data-type="perp">永续合约</button>
 
           </div>
           <div class="sym-sel__list"></div>

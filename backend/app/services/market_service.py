@@ -47,14 +47,18 @@ async def close_market_resources():
     # Redis 资源由 app.redis.close_redis 统一关闭
 
 
-# 支持的交易对
+# 支持的交易对(现货 + 永续共用,perp 需要在交易所有对应合约)
 SUPPORTED_SYMBOLS = {
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT",
     "ADAUSDT", "XRPUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT",
+    "AVAXUSDT", "PEPEUSDT",  # 加几个常用合约币
 }
 
 # K线周期
 KLINE_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+
+# 市场类型
+SUPPORTED_MARKET_TYPES = {"spot", "perp"}
 
 
 class MarketService:
@@ -63,26 +67,25 @@ class MarketService:
     def __init__(self, session: AsyncSession | None = None):
         self.session = session
 
-    async def get_ticker(self, symbol: str, exchange: str = "binance") -> dict:
+    async def get_ticker(
+        self,
+        symbol: str,
+        exchange: str = "binance",
+        market_type: str = "spot",
+    ) -> dict:
         """
-        获取实时行情（带 Redis 缓存，PRF-05）
-        
+        获取实时行情(带 Redis 缓存,PRF-05)
+
         Args:
-            symbol: 交易对，如 BTCUSDT
-            exchange: 交易所
-        
-        Returns:
-            dict: 行情数据
+            symbol: 交易对,如 BTCUSDT
+            exchange: 交易所(binance / okx / huobi)
+            market_type: 市场类型 spot 现货 / perp 永续合约
         """
         symbol = symbol.upper()
-        if symbol not in SUPPORTED_SYMBOLS:
-            raise AppException(
-                code="INVALID_SYMBOL",
-                message=f"不支持的交易对: {symbol}",
-            )
+        self._validate_symbol_market(symbol, market_type)
 
-        # PRF-05: 尝试从 Redis 缓存获取（P1-4: 复用 Redis 客户端）
-        cache_key = f"ticker:{exchange}:{symbol}"
+        # 缓存 key 必须区分 market_type, 否则 spot/perp 价格会串
+        cache_key = f"ticker:{exchange}:{market_type}:{symbol}"
         try:
             r = await get_redis_client()
             if r:
@@ -94,21 +97,7 @@ class MarketService:
 
         try:
             client = await get_http_client()
-            if exchange == "binance":
-                url = "https://api.binance.com/api/v3/ticker/24hr"
-                params = {"symbol": symbol}
-            elif exchange == "okx":
-                url = "https://www.okx.com/api/v5/market/ticker"
-                params = {"instId": self._to_okx_inst_id(symbol)}
-            elif exchange == "huobi":
-                url = "https://api.huobi.pro/market/detail/merged"
-                params = {"symbol": symbol.lower()}
-            else:
-                raise AppException(
-                    code="UNSUPPORTED_EXCHANGE",
-                    message=f"不支持的交易所: {exchange}",
-                )
-
+            url, params = self._build_ticker_request(exchange, symbol, market_type)
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -141,25 +130,20 @@ class MarketService:
         interval: str = "1h",
         limit: int = 100,
         exchange: str = "binance",
+        market_type: str = "spot",
     ) -> list[dict]:
         """
         获取K线数据
-        
+
         Args:
             symbol: 交易对
             interval: K线周期 (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
             limit: 数据条数 (1-1000)
             exchange: 交易所
-        
-        Returns:
-            list[dict]: K线数据列表
+            market_type: 市场类型 spot / perp
         """
         symbol = symbol.upper()
-        if symbol not in SUPPORTED_SYMBOLS:
-            raise AppException(
-                code="INVALID_SYMBOL",
-                message=f"不支持的交易对: {symbol}",
-            )
+        self._validate_symbol_market(symbol, market_type)
         if interval not in KLINE_INTERVALS:
             raise AppException(
                 code="INVALID_INTERVAL",
@@ -173,33 +157,9 @@ class MarketService:
 
         try:
             client = await get_http_client()
-            if exchange == "binance":
-                url = "https://api.binance.com/api/v3/klines"
-                params = {
-                    "symbol": symbol,
-                    "interval": interval,
-                    "limit": limit,
-                }
-            elif exchange == "okx":
-                url = "https://www.okx.com/api/v5/market/candles"
-                params = {
-                    "instId": self._to_okx_inst_id(symbol),
-                    "bar": self._to_okx_bar(interval),
-                    "limit": str(limit),
-                }
-            elif exchange == "huobi":
-                url = "https://api.huobi.pro/market/history/kline"
-                params = {
-                    "symbol": symbol.lower(),
-                    "period": self._to_huobi_period(interval),
-                    "size": limit,
-                }
-            else:
-                raise AppException(
-                    code="UNSUPPORTED_EXCHANGE",
-                    message=f"不支持的交易所: {exchange}",
-                )
-
+            url, params = self._build_kline_request(
+                exchange, symbol, interval, limit, market_type,
+            )
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -216,33 +176,21 @@ class MarketService:
             )
 
     async def get_orderbook(
-        self, symbol: str, limit: int = 20, exchange: str = "binance"
+        self,
+        symbol: str,
+        limit: int = 20,
+        exchange: str = "binance",
+        market_type: str = "spot",
     ) -> dict:
         """获取订单簿"""
         symbol = symbol.upper()
-        if symbol not in SUPPORTED_SYMBOLS:
-            raise AppException(
-                code="INVALID_SYMBOL",
-                message=f"不支持的交易对: {symbol}",
-            )
+        self._validate_symbol_market(symbol, market_type)
 
         try:
             client = await get_http_client()
-            if exchange == "binance":
-                url = "https://api.binance.com/api/v3/depth"
-                params = {"symbol": symbol, "limit": limit}
-            elif exchange == "okx":
-                url = "https://www.okx.com/api/v5/market/books"
-                params = {"instId": self._to_okx_inst_id(symbol), "sz": str(limit)}
-            elif exchange == "huobi":
-                url = "https://api.huobi.pro/market/depth"
-                params = {"symbol": symbol.lower(), "type": "step0", "depth": limit}
-            else:
-                raise AppException(
-                    code="UNSUPPORTED_EXCHANGE",
-                    message=f"不支持的交易所: {exchange}",
-                )
-
+            url, params = self._build_orderbook_request(
+                exchange, symbol, limit, market_type,
+            )
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -396,16 +344,151 @@ class MarketService:
                 ],
             }
 
+    # ==================== 校验 ====================
+
+    @staticmethod
+    def _validate_symbol_market(symbol: str, market_type: str) -> None:
+        """统一校验 symbol + market_type"""
+        if symbol not in SUPPORTED_SYMBOLS:
+            raise AppException(
+                code="INVALID_SYMBOL",
+                message=f"不支持的交易对: {symbol}",
+            )
+        if market_type not in SUPPORTED_MARKET_TYPES:
+            raise AppException(
+                code="INVALID_MARKET_TYPE",
+                message=f"不支持的市场类型: {market_type}(应为 spot 或 perp)",
+            )
+
+    # ==================== URL 构建(spot / perp 路由) ====================
+    #
+    # 每家交易所的现货和永续是不同的 host / path / symbol 格式:
+    #   binance: api.binance.com → fapi.binance.com (USDT-M perpetual)
+    #   okx:     instId BTC-USDT → BTC-USDT-SWAP (同 host)
+    #   huobi:   api.huobi.pro → futures.htx.com/linear-swap-ex,
+    #            symbol=btcusdt → contract_code=BTC-USDT
+    #
+    # 公开方法保持薄薄一层,所有路由集中在这三个 _build_* 里,
+    # 加新市场类型(如 USDC-M / inverse)只需在这里扩展。
+
+    def _build_ticker_request(
+        self, exchange: str, symbol: str, market_type: str,
+    ) -> tuple[str, dict]:
+        if exchange == "binance":
+            if market_type == "perp":
+                return ("https://fapi.binance.com/fapi/v1/ticker/24hr",
+                        {"symbol": symbol})
+            return ("https://api.binance.com/api/v3/ticker/24hr",
+                    {"symbol": symbol})
+        if exchange == "okx":
+            inst_id = self._to_okx_inst_id(symbol, market_type)
+            return ("https://www.okx.com/api/v5/market/ticker",
+                    {"instId": inst_id})
+        if exchange == "huobi":
+            if market_type == "perp":
+                return ("https://futures.htx.com/linear-swap-ex/market/detail/merged",
+                        {"contract_code": self._to_huobi_perp_code(symbol)})
+            return ("https://api.huobi.pro/market/detail/merged",
+                    {"symbol": symbol.lower()})
+        raise AppException(
+            code="UNSUPPORTED_EXCHANGE",
+            message=f"不支持的交易所: {exchange}",
+        )
+
+    def _build_kline_request(
+        self,
+        exchange: str,
+        symbol: str,
+        interval: str,
+        limit: int,
+        market_type: str,
+    ) -> tuple[str, dict]:
+        if exchange == "binance":
+            base = (
+                "https://fapi.binance.com/fapi/v1/klines"
+                if market_type == "perp"
+                else "https://api.binance.com/api/v3/klines"
+            )
+            return (base, {"symbol": symbol, "interval": interval, "limit": limit})
+        if exchange == "okx":
+            return ("https://www.okx.com/api/v5/market/candles", {
+                "instId": self._to_okx_inst_id(symbol, market_type),
+                "bar": self._to_okx_bar(interval),
+                "limit": str(limit),
+            })
+        if exchange == "huobi":
+            if market_type == "perp":
+                return ("https://futures.htx.com/linear-swap-ex/market/history/kline", {
+                    "contract_code": self._to_huobi_perp_code(symbol),
+                    "period": self._to_huobi_period(interval),
+                    "size": limit,
+                })
+            return ("https://api.huobi.pro/market/history/kline", {
+                "symbol": symbol.lower(),
+                "period": self._to_huobi_period(interval),
+                "size": limit,
+            })
+        raise AppException(
+            code="UNSUPPORTED_EXCHANGE",
+            message=f"不支持的交易所: {exchange}",
+        )
+
+    def _build_orderbook_request(
+        self, exchange: str, symbol: str, limit: int, market_type: str,
+    ) -> tuple[str, dict]:
+        if exchange == "binance":
+            base = (
+                "https://fapi.binance.com/fapi/v1/depth"
+                if market_type == "perp"
+                else "https://api.binance.com/api/v3/depth"
+            )
+            return (base, {"symbol": symbol, "limit": limit})
+        if exchange == "okx":
+            return ("https://www.okx.com/api/v5/market/books", {
+                "instId": self._to_okx_inst_id(symbol, market_type),
+                "sz": str(limit),
+            })
+        if exchange == "huobi":
+            if market_type == "perp":
+                return ("https://futures.htx.com/linear-swap-ex/market/depth", {
+                    "contract_code": self._to_huobi_perp_code(symbol),
+                    "type": "step0",
+                })
+            return ("https://api.huobi.pro/market/depth", {
+                "symbol": symbol.lower(),
+                "type": "step0",
+                "depth": limit,
+            })
+        raise AppException(
+            code="UNSUPPORTED_EXCHANGE",
+            message=f"不支持的交易所: {exchange}",
+        )
+
     # ==================== 交易所辅助方法 ====================
 
     @staticmethod
-    def _to_okx_inst_id(symbol: str) -> str:
-        """BTCUSDT → BTC-USDT (OKX instId 格式)"""
+    def _to_okx_inst_id(symbol: str, market_type: str = "spot") -> str:
+        """BTCUSDT → BTC-USDT(spot)/ BTC-USDT-SWAP(perp)"""
         stablecoins = ("USDT", "USDC", "BUSD")
+        base = symbol
+        quote = ""
         for sc in stablecoins:
             if symbol.endswith(sc):
                 base = symbol[:-len(sc)]
-                return f"{base}-{sc}"
+                quote = sc
+                break
+        if not quote:
+            return symbol
+        inst = f"{base}-{quote}"
+        return f"{inst}-SWAP" if market_type == "perp" else inst
+
+    @staticmethod
+    def _to_huobi_perp_code(symbol: str) -> str:
+        """BTCUSDT → BTC-USDT(火币 USDT 本位永续 contract_code 格式)"""
+        stablecoins = ("USDT", "USDC")
+        for sc in stablecoins:
+            if symbol.endswith(sc):
+                return f"{symbol[:-len(sc)]}-{sc}"
         return symbol
 
     @staticmethod

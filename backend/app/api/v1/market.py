@@ -22,12 +22,13 @@ async def get_ticker(
     symbol: str,
     session: DbSession,
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
+    market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
 ) -> APIResponse[TickerSchema]:
     """
     获取实时行情 (P2-13: 类型化响应)
     """
     service = MarketService(session)
-    data = await service.get_ticker(symbol, exchange)
+    data = await service.get_ticker(symbol, exchange, market_type=market)
     return APIResponse(data=TickerSchema.model_validate(data))
 
 
@@ -38,14 +39,20 @@ async def get_kline(
     interval: str = Query(default="1h", pattern=r"^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     limit: int = Query(default=100, ge=1, le=1000),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
+    market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
 ) -> APIResponse[dict]:
     """
     获取K线数据
     """
     service = MarketService(session)
-    klines = await service.get_kline(symbol, interval, limit, exchange)
+    klines = await service.get_kline(symbol, interval, limit, exchange, market_type=market)
     # klines 已经是 list[dict]
-    return APIResponse(data={"symbol": symbol.upper(), "interval": interval, "klines": klines})
+    return APIResponse(data={
+        "symbol": symbol.upper(),
+        "interval": interval,
+        "market": market,
+        "klines": klines,
+    })
 
 
 @router.get("/orderbook/{symbol}")
@@ -54,12 +61,13 @@ async def get_orderbook(
     session: DbSession,
     limit: int = Query(default=20, ge=1, le=100),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
+    market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
 ) -> APIResponse[OrderBookSchema]:
     """
     获取订单簿 (P2-13: 类型化响应)
     """
     service = MarketService(session)
-    data = await service.get_orderbook(symbol, limit, exchange)
+    data = await service.get_orderbook(symbol, limit, exchange, market_type=market)
     return APIResponse(data=OrderBookSchema.model_validate(data))
 
 
