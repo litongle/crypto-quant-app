@@ -5,6 +5,9 @@ import '../../../../core/services/asset_service.dart' as asset_service;
 import '../../../../core/services/market_service.dart' as market_service;
 import '../../data/models/market_coin.dart';
 
+/// 当前选中的行情时间维度
+final marketPeriodProvider = StateProvider<MarketPeriod>((ref) => MarketPeriod.h24);
+
 /// 是否已登录
 final isLoggedInProvider = Provider<bool>((ref) {
   return ref.watch(authProvider).status == AuthStatus.authenticated;

@@ -1,4 +1,6 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/models/market_coin.dart';
@@ -6,10 +8,12 @@ import '../../data/models/market_coin.dart';
 /// 市场行情列表
 class MarketListTile extends StatelessWidget {
   final List<MarketCoin> coins;
+  final MarketPeriod period;
 
   const MarketListTile({
     super.key,
     required this.coins,
+    this.period = MarketPeriod.h24,
   });
 
   @override
@@ -29,6 +33,7 @@ class MarketListTile extends StatelessWidget {
           final coin = entry.value;
           return _MarketCoinRow(
             coin: coin,
+            period: period,
             isLast: index == coins.length - 1,
           );
         }).toList(),
@@ -39,21 +44,23 @@ class MarketListTile extends StatelessWidget {
 
 class _MarketCoinRow extends StatelessWidget {
   final MarketCoin coin;
+  final MarketPeriod period;
   final bool isLast;
 
   const _MarketCoinRow({
     required this.coin,
+    required this.period,
     this.isLast = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final priceFormat = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+    final change = coin.changeForPeriod(period);
+    final isPositive = change >= 0;
 
     return InkWell(
-      onTap: () {
-        // TODO: 跳转到币种详情
-      },
+      onTap: () => context.push('/market/${coin.symbol}'),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
@@ -112,6 +119,17 @@ class _MarketCoinRow extends StatelessWidget {
               ),
             ),
 
+            // 迷你 sparkline
+            if (coin.miniChartData != null && coin.miniChartData!.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: SizedBox(
+                  width: 56,
+                  height: 32,
+                  child: _buildSparkline(coin.miniChartData!, isPositive),
+                ),
+              ),
+
             // 价格
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -126,15 +144,15 @@ class _MarketCoinRow extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: coin.isPositive
+                    color: isPositive
                         ? Colors.green.withOpacity(0.1)
                         : Colors.red.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    '${coin.isPositive ? '+' : ''}${coin.changePercent.toStringAsFixed(2)}%',
+                    '${isPositive ? '+' : ''}${change.toStringAsFixed(2)}%',
                     style: TextStyle(
-                      color: coin.isPositive ? Colors.green : Colors.red,
+                      color: isPositive ? Colors.green : Colors.red,
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                     ),
@@ -144,6 +162,35 @@ class _MarketCoinRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSparkline(List<double> data, bool isPositive) {
+    final color = isPositive ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
+    final spots = data.asMap().entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+    return LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        lineTouchData: const LineTouchData(enabled: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: color,
+            barWidth: 1.5,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: color.withOpacity(0.1),
+            ),
+          ),
+        ],
       ),
     );
   }

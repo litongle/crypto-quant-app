@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/market_coin.dart';
 import '../providers/dashboard_provider.dart';
+
 import '../widgets/asset_summary_card.dart';
 import '../widgets/equity_chart.dart';
 import '../widgets/quick_signal_card.dart';
@@ -15,6 +16,7 @@ class DashboardPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dashboardAsync = ref.watch(dashboardProvider);
+    final selectedPeriod = ref.watch(marketPeriodProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -72,8 +74,15 @@ class DashboardPage extends ConsumerWidget {
                       ),
                       const SizedBox(height: 10),
 
+                      // 时间维度选择
+                      _buildPeriodSelector(context, ref, selectedPeriod),
+                      const SizedBox(height: 10),
+
                       // 市场行情列表
-                      MarketListTile(coins: dashboard.marketCoins),
+                      MarketListTile(
+                        coins: dashboard.marketCoins,
+                        period: selectedPeriod,
+                      ),
                       const SizedBox(height: 16),
 
                       // 持仓概览标题
@@ -231,6 +240,50 @@ class DashboardPage extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPeriodSelector(
+    BuildContext context,
+    WidgetRef ref,
+    MarketPeriod selected,
+  ) {
+    return Row(
+      children: MarketPeriod.values.map((period) {
+        final isSelected = period == selected;
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () {
+              ref.read(marketPeriodProvider.notifier).state = period;
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? const Color(0xFF06B6D4)
+                    : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isSelected
+                      ? const Color(0xFF06B6D4)
+                      : Theme.of(context).dividerColor,
+                ),
+              ),
+              child: Text(
+                period.label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.grey[500],
+                  fontWeight:
+                      isSelected ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 

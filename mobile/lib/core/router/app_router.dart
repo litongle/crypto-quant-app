@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/screens/login_page.dart';
 import '../../features/auth/presentation/screens/register_page.dart';
 import '../../features/dashboard/presentation/screens/dashboard_page.dart';
+import '../../features/market/presentation/screens/coin_detail_page.dart';
 import '../../features/settings/presentation/screens/settings_page.dart';
 import '../../features/strategies/presentation/screens/strategy_center_page.dart';
 import '../../features/backtest/presentation/screens/backtest_page.dart';
@@ -23,6 +24,16 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: '/dashboard',
     debugLogDiagnostics: true,
     routes: [
+      // 币种详情（全屏，覆盖底部导航）
+      GoRoute(
+        path: '/market/:symbol',
+        name: 'coinDetail',
+        builder: (context, state) {
+          final symbol = state.pathParameters['symbol']!;
+          return CoinDetailPage(symbol: symbol);
+        },
+      ),
+
       // 认证相关（无需登录）
       GoRoute(
         path: '/login',

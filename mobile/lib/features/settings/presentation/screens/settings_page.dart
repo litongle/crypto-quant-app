@@ -26,41 +26,111 @@ final notificationsEnabledProvider = StateProvider<bool>((ref) => true);
 final autoFollowEnabledProvider = StateProvider<bool>((ref) => false);
 final riskLimitProvider = StateProvider<double>((ref) => 5000);
 
-/// 交易所连接列表 Provider
-final exchangeConnectionsProvider = FutureProvider<List<ExchangeConnection>>((ref) async {
-  final isLoggedIn = ref.watch(authProvider).status == AuthStatus.authenticated;
-  if (!isLoggedIn) {
-    return [
-      const ExchangeConnection(
-        id: '1',
-        name: 'Binance',
-        status: 'disconnected',
-        lastSync: null,
-      ),
-      const ExchangeConnection(
-        id: '2',
-        name: 'OKX',
-        status: 'disconnected',
-        lastSync: null,
-      ),
+/// 交易所连接列表 StateNotifier
+class ExchangeConnectionsNotifier extends StateNotifier<List<ExchangeConnection>> {
+  ExchangeConnectionsNotifier()
+      : super(const [
+          ExchangeConnection(id: 'Binance', name: 'Binance', status: 'disconnected'),
+          ExchangeConnection(id: 'OKX', name: 'OKX', status: 'disconnected'),
+        ]);
+
+  void connect(String id, String name, String apiKey) {
+    final maskedKey = apiKey.length >= 4
+        ? '****${apiKey.substring(apiKey.length - 4)}'
+        : '****';
+    final updated = ExchangeConnection(
+      id: id,
+      name: name,
+      status: 'connected',
+      apiKey: maskedKey,
+      lastSync: DateTime.now(),
+    );
+    if (state.any((c) => c.id == id)) {
+      state = [for (final c in state) if (c.id == id) updated else c];
+    } else {
+      state = [...state, updated];
+    }
+  }
+
+  void disconnect(String id) {
+    state = [
+      for (final c in state)
+        if (c.id == id)
+          ExchangeConnection(id: c.id, name: c.name, status: 'disconnected')
+        else
+          c,
     ];
   }
-  await Future.delayed(const Duration(milliseconds: 500));
-  return [
-    ExchangeConnection(
-      id: '1',
-      name: 'Binance',
-      status: 'connected',
-      apiKey: '****8765',
-      lastSync: DateTime.now().subtract(const Duration(minutes: 5)),
-    ),
-    const ExchangeConnection(
-      id: '2',
-      name: 'OKX',
-      status: 'disconnected',
-    ),
-  ];
-});
+}
+
+/// 交易所连接列表 Provider
+final exchangeConnectionsProvider =
+    StateNotifierProvider<ExchangeConnectionsNotifier, List<ExchangeConnection>>(
+  (ref) => ExchangeConnectionsNotifier(),
+);
+
+void _showApiKeyInputDialog(
+  BuildContext context,
+  WidgetRef ref,
+  String exchangeId,
+  String exchangeName,
+) {
+  final apiKeyController = TextEditingController();
+  final apiSecretController = TextEditingController();
+
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text('连接 $exchangeName'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: apiKeyController,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                hintText: '请输入 API Key',
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: apiSecretController,
+              decoration: const InputDecoration(
+                labelText: 'API Secret',
+                hintText: '请输入 API Secret',
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final apiKey = apiKeyController.text.trim();
+              final apiSecret = apiSecretController.text.trim();
+              if (apiKey.isEmpty || apiSecret.isEmpty) return;
+              ref.read(exchangeConnectionsProvider.notifier).connect(
+                    exchangeId,
+                    exchangeName,
+                    apiKey,
+                  );
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('连接'),
+          ),
+        ],
+      );
+    },
+  ).then((_) {
+    apiKeyController.dispose();
+    apiSecretController.dispose();
+  });
+}
 
 
 
@@ -72,7 +142,7 @@ class SettingsPage extends ConsumerWidget {
     final notificationsEnabled = ref.watch(notificationsEnabledProvider);
     final autoFollowEnabled = ref.watch(autoFollowEnabledProvider);
     final riskLimit = ref.watch(riskLimitProvider);
-    final connectionsAsync = ref.watch(exchangeConnectionsProvider);
+    final connections = ref.watch(exchangeConnectionsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -88,14 +158,10 @@ class SettingsPage extends ConsumerWidget {
           // 交易所连接
           _buildSectionTitle(context, '交易所连接'),
           const SizedBox(height: 12),
-          connectionsAsync.when(
-            data: (connections) => Column(
-              children: connections.map((conn) {
-                return _ExchangeCard(connection: conn);
-              }).toList(),
-            ),
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Text('加载失败: $error'),
+          Column(
+            children: connections
+                .map((conn) => _ExchangeCard(connection: conn))
+                .toList(),
           ),
           const SizedBox(height: 8),
           _buildAddExchangeButton(context),
@@ -425,7 +491,7 @@ class SettingsPage extends ConsumerWidget {
     return InkWell(
       onTap: () {
         Navigator.pop(context);
-        _showApiKeyDialog(context, name);
+        _showApiKeyInputDialog(context, ref, id, name);
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
@@ -448,49 +514,6 @@ class SettingsPage extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-
-  void _showApiKeyDialog(BuildContext context, String exchangeName) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('连接 $exchangeName'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                decoration: const InputDecoration(
-                  labelText: 'API Key',
-                  hintText: '请输入 API Key',
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                decoration: const InputDecoration(
-                  labelText: 'API Secret',
-                  hintText: '请输入 API Secret',
-                ),
-                obscureText: true,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                // TODO: 验证并保存 API Key
-              },
-              child: const Text('连接'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -526,13 +549,13 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-class _ExchangeCard extends StatelessWidget {
+class _ExchangeCard extends ConsumerWidget {
   final ExchangeConnection connection;
 
   const _ExchangeCard({required this.connection});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isConnected = connection.status == 'connected';
 
     return Container(
@@ -613,14 +636,17 @@ class _ExchangeCard extends StatelessWidget {
           if (isConnected)
             IconButton(
               onPressed: () {
-                // TODO: 断开连接
+                ref
+                    .read(exchangeConnectionsProvider.notifier)
+                    .disconnect(connection.id);
               },
               icon: const Icon(Icons.link_off, color: Colors.red),
             )
           else
             IconButton(
               onPressed: () {
-                // TODO: 重新连接
+                _showApiKeyInputDialog(
+                    context, ref, connection.id, connection.name);
               },
               icon: const Icon(Icons.add_link, color: Colors.green),
             ),
