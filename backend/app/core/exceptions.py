@@ -125,6 +125,7 @@ class ExchangeAPIError(OrderError):
     ):
         super().__init__(f"{exchange}: {message}", exchange=exchange)
         self.code = "EXCHANGE_API_ERROR"
+        self.exchange = exchange
         self.retryable = retryable
         self.status_code = status_code
         self.detail_code = detail_code

@@ -151,7 +151,7 @@ class HuobiAdapter(BaseExchangeAdapter):
             price_change_percent=price_change_pct or Decimal("0"),
             high_24h=_safe_decimal(tick.get("high")), low_24h=_safe_decimal(tick.get("low")),
             volume_24h=_safe_decimal(tick.get("vol")), quote_volume_24h=_safe_decimal(tick.get("amount")),
-            timestamp=datetime.fromtimestamp(_safe_decimal(tick.get("version")) / 1000, tz=timezone.utc),
+            timestamp=datetime.fromtimestamp(float(_safe_decimal(tick.get("version")) / 1000), tz=timezone.utc),
         )
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
@@ -176,11 +176,11 @@ class HuobiAdapter(BaseExchangeAdapter):
         klines = []
         for k in data.get("data", []):
             klines.append(Kline(
-                timestamp=datetime.fromtimestamp(_safe_decimal(k.get("id")), tz=timezone.utc),
+                timestamp=datetime.fromtimestamp(float(_safe_decimal(k.get("id"))), tz=timezone.utc),
                 open=_safe_decimal(k.get("open")), high=_safe_decimal(k.get("high")),
                 low=_safe_decimal(k.get("low")), close=_safe_decimal(k.get("close")),
                 volume=_safe_decimal(k.get("vol")),
-                close_time=datetime.fromtimestamp(_safe_decimal(k.get("id")) + 60, tz=timezone.utc),
+                close_time=datetime.fromtimestamp(float(_safe_decimal(k.get("id")) + 60), tz=timezone.utc),
             ))
         return klines
 
