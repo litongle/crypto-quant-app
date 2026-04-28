@@ -142,7 +142,7 @@ class OKXAdapter(BaseExchangeAdapter):
             volume_24h=_safe_decimal(t.get("vol24h")),
             quote_volume_24h=_safe_decimal(t.get("volCcy24h")),
             timestamp=datetime.fromtimestamp(
-                _safe_decimal(t.get("ts")) / 1000, tz=timezone.utc
+                float(_safe_decimal(t.get("ts")) / 1000), tz=timezone.utc
             ),
         )
 
@@ -164,13 +164,13 @@ class OKXAdapter(BaseExchangeAdapter):
         klines = []
         for k in data.get("data", []):
             klines.append(Kline(
-                timestamp=datetime.fromtimestamp(_safe_decimal(k[0]) / 1000, tz=timezone.utc),
+                timestamp=datetime.fromtimestamp(float(_safe_decimal(k[0]) / 1000), tz=timezone.utc),
                 open=_safe_decimal(k[1]),
                 high=_safe_decimal(k[2]),
                 low=_safe_decimal(k[3]),
                 close=_safe_decimal(k[4]),
                 volume=_safe_decimal(k[5]),
-                close_time=datetime.fromtimestamp(_safe_decimal(k[6]) / 1000, tz=timezone.utc),
+                close_time=datetime.fromtimestamp(float(_safe_decimal(k[6]) / 1000), tz=timezone.utc),
             ))
         return klines
 
