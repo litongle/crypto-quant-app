@@ -1,5 +1,26 @@
 import 'package:equatable/equatable.dart';
 
+/// 市场行情时间维度
+enum MarketPeriod {
+  h1,
+  h24,
+  d7,
+  d30;
+
+  String get label {
+    switch (this) {
+      case MarketPeriod.h1:
+        return '1H';
+      case MarketPeriod.h24:
+        return '24H';
+      case MarketPeriod.d7:
+        return '7D';
+      case MarketPeriod.d30:
+        return '30D';
+    }
+  }
+}
+
 /// 行情币种模型
 class MarketCoin extends Equatable {
   final String symbol;
@@ -7,6 +28,9 @@ class MarketCoin extends Equatable {
   final double price;
   final double change24h;
   final double changePercent;
+  final double? change1hPercent;
+  final double? change7dPercent;
+  final double? change30dPercent;
   final double volume;
   final List<double>? miniChartData;
 
@@ -16,11 +40,27 @@ class MarketCoin extends Equatable {
     required this.price,
     required this.change24h,
     required this.changePercent,
+    this.change1hPercent,
+    this.change7dPercent,
+    this.change30dPercent,
     required this.volume,
     this.miniChartData,
   });
 
   bool get isPositive => changePercent >= 0;
+
+  double changeForPeriod(MarketPeriod period) {
+    switch (period) {
+      case MarketPeriod.h1:
+        return change1hPercent ?? changePercent / 4;
+      case MarketPeriod.h24:
+        return changePercent;
+      case MarketPeriod.d7:
+        return change7dPercent ?? changePercent * 3;
+      case MarketPeriod.d30:
+        return change30dPercent ?? changePercent * 8;
+    }
+  }
 
   @override
   List<Object?> get props => [symbol, price, change24h, changePercent, volume];
@@ -191,6 +231,9 @@ class DashboardData extends Equatable {
       price: 67543.21,
       change24h: 1234.56,
       changePercent: 1.86,
+      change1hPercent: 0.42,
+      change7dPercent: 5.73,
+      change30dPercent: 12.48,
       volume: 28500000000,
     ),
     const MarketCoin(
@@ -199,6 +242,9 @@ class DashboardData extends Equatable {
       price: 3456.78,
       change24h: -45.32,
       changePercent: -1.29,
+      change1hPercent: -0.31,
+      change7dPercent: 3.18,
+      change30dPercent: -8.64,
       volume: 15200000000,
     ),
     const MarketCoin(
@@ -207,6 +253,9 @@ class DashboardData extends Equatable {
       price: 178.90,
       change24h: 8.45,
       changePercent: 4.96,
+      change1hPercent: 1.23,
+      change7dPercent: 18.42,
+      change30dPercent: 34.17,
       volume: 3200000000,
     ),
     const MarketCoin(
@@ -215,6 +264,9 @@ class DashboardData extends Equatable {
       price: 598.12,
       change24h: 12.34,
       changePercent: 2.11,
+      change1hPercent: 0.58,
+      change7dPercent: 6.94,
+      change30dPercent: 9.33,
       volume: 1800000000,
     ),
     const MarketCoin(
@@ -223,6 +275,9 @@ class DashboardData extends Equatable {
       price: 0.1234,
       change24h: 0.0089,
       changePercent: 7.78,
+      change1hPercent: 2.14,
+      change7dPercent: -4.56,
+      change30dPercent: 22.91,
       volume: 890000000,
     ),
   ];
