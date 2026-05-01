@@ -216,6 +216,27 @@ function renderInstanceList(instances) {
     const winRate = inst.winRate ?? 0;
     const totalTrades = inst.totalTrades ?? 0;
 
+    // 运行时长
+    let runDuration = '';
+    if (inst.status === 'running' && inst.createdAt) {
+      const created = new Date(inst.createdAt);
+      const now = new Date();
+      const diffMs = now - created;
+      const hours = Math.floor(diffMs / 3600000);
+      const mins = Math.floor((diffMs % 3600000) / 60000);
+      if (hours >= 24) {
+        const days = Math.floor(hours / 24);
+        runDuration = `${days}天${hours % 24}时`;
+      } else if (hours > 0) {
+        runDuration = `${hours}时${mins}分`;
+      } else {
+        runDuration = `${mins}分钟`;
+      }
+    }
+    const runDurationTag = runDuration
+      ? `<span class="sep">·</span><span style=\"color:var(--cq-color-profit);\">⏱ ${runDuration}</span>`
+      : '';
+
     return `
     <div class="cq-card cq-instance-card">
       <div class="cq-instance-card__header">
@@ -233,6 +254,7 @@ function renderInstanceList(instances) {
             <span style="font-family:var(--cq-font-mono);">${inst.symbol || '—'}</span>
             <span class="sep">·</span>
             <span>${totalTrades} 笔交易</span>
+            ${runDurationTag}
           </div>
         </div>
         <div class="cq-instance-card__pnl">
@@ -782,16 +804,20 @@ function renderStrategyPerformance(perf) {
   const body = document.getElementById('strategy-perf-body');
   if (!body) return;
 
-  const totalReturn = perf.totalReturn ?? perf.total_return ?? 0;
-  const sharpeRatio = perf.sharpeRatio ?? perf.sharpe_ratio ?? 0;
-  const maxDrawdown = perf.maxDrawdown ?? perf.max_drawdown ?? 0;
-  const winRate = perf.winRate ?? perf.win_rate ?? 0;
-  const profitFactor = perf.profitFactor ?? perf.profit_factor ?? 0;
-  const totalTrades = perf.totalTrades ?? perf.total_trades ?? 0;
-  const annualReturn = perf.annualReturn ?? perf.annual_return ?? 0;
-  const calmarRatio = perf.calmarRatio ?? perf.calmar_ratio ?? 0;
-  const avgProfit = perf.avgProfit ?? perf.avg_profit ?? 0;
-  const avgLoss = perf.avgLoss ?? perf.avg_loss ?? 0;
+  const totalReturn = Number(perf.total_return_pct ?? perf.totalReturn ?? perf.total_return ?? 0);
+  const sharpeRatio = Number(perf.sharpe_ratio ?? perf.sharpeRatio ?? 0);
+  const maxDrawdown = Number(perf.max_drawdown_pct ?? perf.maxDrawdown ?? perf.max_drawdown ?? 0);
+  const winRate = Number(perf.win_rate ?? perf.winRate ?? 0);
+  const profitFactor = Number(perf.profit_loss_ratio ?? perf.profitFactor ?? perf.profit_factor ?? 0);
+  const totalTrades = Number(perf.total_trades ?? perf.totalTrades ?? 0);
+  const annualReturn = Number(perf.annualized_return_pct ?? perf.annualReturn ?? perf.annual_return ?? 0);
+  const calmarRatio = Number(perf.calmar_ratio ?? perf.calmarRatio ?? 0);
+  const avgProfit = Number(perf.avg_profit ?? perf.avgProfit ?? 0);
+  const avgLoss = Number(perf.avg_loss ?? perf.avgLoss ?? 0);
+  const tradingDays = Number(perf.trading_days ?? 0);
+  const maxConsecWins = Number(perf.max_consecutive_wins ?? 0);
+  const maxConsecLosses = Number(perf.max_consecutive_losses ?? 0);
+  const maxDrawdownHours = Number(perf.max_drawdown_duration_hours ?? 0);
 
   body.innerHTML = `
     <div class="cq-grid-3" style="margin-bottom:var(--cq-space-4);">
@@ -807,6 +833,10 @@ function renderStrategyPerformance(perf) {
       <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary-hover);">${calmarRatio.toFixed(2)}</span></div>
       <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">+${avgProfit.toFixed(2)}</span></div>
       <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${avgLoss.toFixed(2)}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${tradingDays} 天</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${maxConsecWins}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连亏</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${maxConsecLosses}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">回撤持续</span><span class="cq-metrics-detail__value cq-num">${maxDrawdownHours.toFixed(1)}h</span></div>
     </div>`;
 }
 

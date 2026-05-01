@@ -5,6 +5,7 @@ P1-5: 删除冗余 inst_ 前缀，ID 直接用整数
 P1-6: 策略实例创建上限（每用户最多 20 个）
 补充: 业务错误统一用 HTTPException
 """
+from decimal import Decimal
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
