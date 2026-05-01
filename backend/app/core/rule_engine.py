@@ -281,7 +281,7 @@ class RuleEngine:
 
         # 事件型指标
         if indicator in EVENT_INDICATORS:
-            return self._evaluate_event(result, operator)
+            return self._evaluate_event(result, operator, value, params, indicator)
 
         # 单值型指标
         if isinstance(result, np.ndarray) and len(result) > 0:
@@ -292,8 +292,14 @@ class RuleEngine:
 
         return False
 
-    def _evaluate_event(self, data: Any, operator: str) -> bool:
-        """评估交叉事件（需要前一根和当前根比较）"""
+    def _evaluate_event(self, data: Any, operator: str, value: Any = None, params: dict = None, indicator: str = "") -> bool:
+        """评估交叉事件
+
+        value 语义:
+          - None / '0' / 0 → 零线穿越 (fast - slow 穿零)
+          - str (指标 key)  → fast 穿越另一条指标线
+          - number          → fast 穿越该数值
+        """
         if not isinstance(data, tuple) or len(data) != 2:
             return False
 
@@ -303,8 +309,32 @@ class RuleEngine:
         if len(fast) < 2 or len(slow) < 2:
             return False
 
-        prev_diff = fast[-2] - slow[-2]
-        curr_diff = fast[-1] - slow[-1]
+        # 确定比较基线: diff = fast - baseline
+        if value is None or value == '0' or value == 0:
+            # 零线穿越: fast - slow 穿零
+            baseline = slow
+        elif isinstance(value, str) and value in ALL_INDICATORS:
+            # 上穿/下穿另一指标: fast - target_indicator
+            try:
+                target_params = params if indicator != value else {}
+                target = self._get_indicator_result(value, target_params)
+                if isinstance(target, np.ndarray) and len(target) >= len(fast):
+                    baseline = target
+                elif isinstance(target, tuple) and len(target) == 2:
+                    # 目标也是事件型，取 fast 线
+                    baseline = target[0] if target[0] is not None else slow
+                else:
+                    baseline = slow
+            except Exception:
+                baseline = slow
+        elif isinstance(value, (int, float)):
+            # 穿越固定数值
+            baseline = np.full_like(fast, float(value))
+        else:
+            baseline = slow
+
+        prev_diff = fast[-2] - baseline[-2]
+        curr_diff = fast[-1] - baseline[-1]
 
         if np.isnan(prev_diff) or np.isnan(curr_diff):
             return False

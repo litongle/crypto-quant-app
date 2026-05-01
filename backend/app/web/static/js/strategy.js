@@ -59,10 +59,10 @@ async function loadStrategyPage() {
       api.getStrategyInstances().catch(() => []),
     ]);
 
-    renderTemplatePills(templates);
-    renderInstanceList(instances);
     window._strategyInstances = instances;
     window._cachedTemplates = templates;
+    renderTemplatePills(templates);
+    renderInstanceList(instances);
   } catch (err) {
     container.innerHTML = `
       <div class="cq-card cq-empty-state">
@@ -74,32 +74,68 @@ async function loadStrategyPage() {
 
 const TEMPLATE_GROUPS = [
   {
+    title: '快速启动',
+    hint: '点击模板快速创建并启动策略实例',
+    ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale', 'rsi_layered', 'dca', 'multi_symbol'],
+  },
+  {
     title: '自定义创建',
     hint: '从规则构建器开始，组合指标条件生成策略',
     ids: ['rule_custom'],
   },
   {
     title: '我的策略',
-    hint: '你自研或重点维护的策略',
-    ids: ['rsi_layered'],
-  },
-  {
-    title: '系统模板',
-    hint: '内置示例模板，可直接配置运行',
-    ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale'],
+    hint: '你已创建的策略实例，点击可编辑',
+    ids: [],
+    dynamicKey: 'myStrategies',
   },
 ];
 
 function renderTemplateButton(t) {
+  const pillId = t.id;
+  const isInst = t._isInstancePill;
+  // 系统模板 → quickLaunch / 自定义/实例 → selectTemplate
+  const isSystemTemplate = !isInst && t.id !== 'rule_custom';
+  const clickAction = isSystemTemplate
+    ? `quickLaunchTemplate('${t.id}')`
+    : `selectTemplate('${t.id}')`;
+  // 实例药丸状态标签
+  let instTag = '';
+  if (isInst) {
+    const st = t._instanceStatus;
+    if (st === 'running') instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-profit);margin-left:4px;">运行中</span>';
+    else if (st === 'draft') instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-text-tertiary);margin-left:4px;">草稿</span>';
+    else instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-text-tertiary);margin-left:4px;">已停止</span>';
+  }
+  const isSelected = isInst
+    ? (window._editingInstanceId === t._instanceId)  // 编辑模式按实例ID匹配
+    : (selectedTemplateId === t.id);
   return `
-    <button class="cq-pill${selectedTemplateId === t.id ? ' is-selected' : ''}" id="pill-${t.id}" onclick="selectTemplate('${t.id}')" title="${escapeHtml(t.description || t.name)}">
-      <div class="cq-pill__icon">${getStrategyIcon(t.id)}</div>
+    <button class="cq-pill${isSelected ? ' is-selected' : ''}" id="pill-${pillId}" onclick="${clickAction}" title="${escapeHtml(t.description || t.name)}">
+      <div class="cq-pill__icon">${getStrategyIcon(t.icon || t.id)}</div>
       <span class="cq-pill__name">${escapeHtml(t.name)}</span>
+      ${instTag}
       <div class="cq-pill__check">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
     </button>
   `;
+}
+
+/* ── 从策略实例构造"我的策略"动态药丸 ── */
+function _buildMyStrategyPills(instances) {
+  if (!instances || instances.length === 0) return [];
+  return instances.map(inst => ({
+    id: 'inst_' + inst.id,
+    name: inst.name,
+    description: inst.templateName + ' · ' + (inst.symbol || ''),
+    icon: inst.templateId || inst._templateId || 'default',
+    strategyType: inst.templateId === 'rule_custom' ? 'rule' : inst.templateId,
+    _instanceId: inst.id,
+    _isInstancePill: true,
+    _instanceStatus: inst.status,
+    _templateId: inst.templateId,
+  }));
 }
 
 /* ── 渲染分组模板选择器 ── */
@@ -111,11 +147,19 @@ function renderTemplatePills(templates) {
   }
 
   const templateMap = new Map(templates.map(t => [t.id, t]));
+  const instances = window._strategyInstances || [];
+  const myStrategyPills = _buildMyStrategyPills(instances);
+
   const groupedIds = new Set(TEMPLATE_GROUPS.flatMap(group => group.ids));
-  const groups = TEMPLATE_GROUPS.map(group => ({
-    ...group,
-    templates: group.ids.map(id => templateMap.get(id)).filter(Boolean),
-  })).filter(group => group.templates.length > 0);
+  const groups = TEMPLATE_GROUPS.map(group => {
+    const staticTemplates = group.ids.map(id => templateMap.get(id)).filter(Boolean);
+    // 动态注入"我的策略"实例药丸
+    const dynamicPills = group.dynamicKey === 'myStrategies' ? myStrategyPills : [];
+    return {
+      ...group,
+      templates: [...staticTemplates, ...dynamicPills],
+    };
+  }).filter(group => group.templates.length > 0);
 
   const ungroupedTemplates = templates.filter(t => !groupedIds.has(t.id));
   if (ungroupedTemplates.length > 0) {
@@ -149,8 +193,8 @@ function renderInstanceList(instances) {
     el.innerHTML = `
       <div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
-        <h3>暂无运行中的策略实例</h3>
-        <p>选择上方模板创建你的第一个策略</p>
+        <h3>暂无策略实例</h3>
+        <p>点击上方"快速启动"模板创建你的第一个策略</p>
       </div>`;
     return;
   }
@@ -211,7 +255,7 @@ function renderInstanceList(instances) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>
           绩效
         </button>
-        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="showStrategyEdit('${inst.id}')" title="编辑策略">
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="${inst.templateId === 'rule_custom' ? `selectTemplate('rule_custom', ${inst.id})` : `showStrategyEdit('${inst.id}')`}" title="编辑策略">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
         <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="deleteStrategyInst('${inst.id}')">
@@ -223,15 +267,145 @@ function renderInstanceList(instances) {
   }).join('');
 }
 
-/* ── 选择模板 ── */
+/* ── 快速启动系统模板 ── */
+async function quickLaunchTemplate(templateId) {
+  // 切换药丸选中态
+  document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
+  const pill = document.getElementById('pill-' + templateId);
+  if (pill) pill.classList.add('is-selected');
+
+  selectedTemplateId = templateId;
+  window._editingInstanceId = null;
+
+  // 展开快速配置面板
+  const wrap = document.getElementById('create-form-wrap');
+  const templates = window._cachedTemplates || [];
+  const tmpl = templates.find(t => t.id === templateId);
+  if (!tmpl) { showToast('模板信息加载失败', 'error'); return; }
+
+  // 更新标题
+  const titleEl = document.getElementById('create-form-title');
+  if (titleEl) titleEl.textContent = `启动 ${tmpl.name}`;
+
+  // 显示表单
+  wrap.style.display = 'block';
+
+  // 初始化交易对选择器
+  if (!window._strategySymbolSel) {
+    const selEl = document.getElementById('strategy-symbol-selector');
+    if (selEl) {
+      window._strategySymbolSel = new SymbolSelector({
+        containerId: 'strategy-symbol-selector',
+        value: 'BTCUSDT',
+        exchangeFilter: 'new-strategy-exchange',
+      });
+    }
+  }
+
+  // 初始化交易所账户联动
+  try {
+    const accounts = window._connectedAccounts || await api.getExchangeAccounts();
+    window._connectedAccounts = accounts;
+    const exSelect = document.getElementById('new-strategy-exchange');
+    if (exSelect && !exSelect.dataset.initialized) {
+      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
+      const allExchanges = [
+        { value: 'binance', label: 'Binance' },
+        { value: 'okx', label: 'OKX' },
+        { value: 'htx', label: 'HTX' },
+      ];
+      exSelect.innerHTML = allExchanges.map(ex => {
+        const connected = connectedExchanges.includes(ex.value);
+        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '（未连接）'}</option>`;
+      }).join('');
+      exSelect.addEventListener('change', () => filterAccountsByExchange());
+      exSelect.dataset.initialized = '1';
+    }
+    filterAccountsByExchange();
+  } catch (e) { console.warn('加载交易所账户失败:', e); }
+
+  // 渲染参数控件
+  if (tmpl.params && tmpl.params.length > 0) {
+    // 过滤掉 rules 类型参数（系统模板不会有，保险起见）
+    const nonRuleParams = tmpl.params.filter(p => p.type !== 'rules');
+    renderParamSliders(nonRuleParams);
+  } else {
+    document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
+  }
+
+  // 更新按钮文案为“启动策略”
+  const btn = document.getElementById('create-strategy-btn');
+  if (btn) btn.textContent = '启动策略';
+
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ── 选择模板（仅自定义创建 + 实例编辑） ── */
 async function selectTemplate(id) {
   // 如果再次点击已选中的药丸，则取消选择
-  if (selectedTemplateId === id) {
+  const isSameInstancePill = id.startsWith('inst_') && window._editingInstanceId === parseInt(id.replace('inst_', ''));
+  if (selectedTemplateId === id || isSameInstancePill) {
     deselectTemplate();
     return;
   }
 
+  // 实例药丸：根据策略类型走不同编辑流程
+  if (id.startsWith('inst_')) {
+    const instanceId = parseInt(id.replace('inst_', ''));
+    const inst = (window._strategyInstances || []).find(i => i.id === instanceId);
+    if (!inst) return;
+
+    // rule_custom 走规则构建器编辑
+    if (inst.templateId === 'rule_custom' || inst._templateId === 'rule_custom') {
+      // 设置编辑模式
+      window._editingInstanceId = instanceId;
+      selectedTemplateId = 'rule_custom';
+
+      // 先展开 rule_custom 表单
+      await showCreateForm('rule_custom');
+
+      // 从实例详情加载 rules 到规则构建器
+      try {
+        const detail = await api.getStrategyDetail(instanceId);
+        if (detail.params && detail.params.rules) {
+          loadRulesFromDSL(detail.params.rules);
+          renderRuleBuilder(); // 重新渲染构建器
+        }
+        // 填入名称
+        const nameEl = document.getElementById('new-strategy-name');
+        if (nameEl) nameEl.value = detail.name || '';
+      } catch (e) {
+        console.warn('加载实例详情失败:', e);
+      }
+    } else {
+      // 非 rule 策略走 slider 编辑弹窗
+      showStrategyEdit(String(instanceId));
+      return;
+    }
+
+    // 更新药丸选中态
+    document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
+    const pill = document.getElementById('pill-' + id);
+    if (pill) pill.classList.add('is-selected');
+
+    // 更新标题和按钮文案
+    const titleEl = document.getElementById('create-form-title');
+    if (titleEl) titleEl.textContent = `编辑 ${inst.name}`;
+    const btn = document.getElementById('create-strategy-btn');
+    if (btn) btn.textContent = '更新策略';
+    return;
+  }
+
   selectedTemplateId = id;
+
+  // 切换到非实例药丸时，清除编辑模式并重置规则构建器状态
+  window._editingInstanceId = null;
+  _ruleBuilderState = {
+    buyRules: [], sellRules: [],
+    buyLogic: 'AND', sellLogic: 'AND',
+    stopLossPct: 3, takeProfitPct: 6, confidenceBase: 0.7,
+    _nextId: 1,
+  };
 
   // 更新药丸选中态
   document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
@@ -245,12 +419,23 @@ async function selectTemplate(id) {
 /* ── 取消选择 ── */
 function deselectTemplate() {
   selectedTemplateId = null;
+  window._editingInstanceId = null;
+  // 重置规则构建器状态
+  _ruleBuilderState = {
+    buyRules: [], sellRules: [],
+    buyLogic: 'AND', sellLogic: 'AND',
+    stopLossPct: 3, takeProfitPct: 6, confidenceBase: 0.7,
+    _nextId: 1,
+  };
   document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
 
   const wrap = document.getElementById('create-form-wrap');
   if (wrap) {
     wrap.style.display = 'none';
   }
+  // 恢复创建按钮文案
+  const btn = document.getElementById('create-strategy-btn');
+  if (btn) btn.textContent = '创建策略';
 }
 
 /* ── 展开创建表单 ── */
@@ -468,7 +653,7 @@ function collectStrategyParams() {
   return out;
 }
 
-/* ── 创建策略实例 ── */
+/* ── 创建/启动策略实例 ── */
 async function createStrategyInstance() {
   if (!selectedTemplateId) { showToast('请先选择策略模板', 'warn'); return; }
 
@@ -479,6 +664,11 @@ async function createStrategyInstance() {
   const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
   const accountEl = document.getElementById('new-strategy-account');
   const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
+
+  // 判断是否系统模板（快速启动模式）
+  const isSystemTemplate = selectedTemplateId !== 'rule_custom' &&
+    !window._editingInstanceId &&
+    (window._cachedTemplates || []).some(t => t.id === selectedTemplateId && t.id !== 'rule_custom');
 
   let params;
   try {
@@ -501,15 +691,35 @@ async function createStrategyInstance() {
   }
 
   try {
-    await api.createStrategyInstance({
-      name,
-      templateId: selectedTemplateId,
-      exchange,
-      symbol,
-      accountId,
-      params,
-    });
-    showToast('策略创建成功！', 'success');
+    let instanceId;
+    if (window._editingInstanceId) {
+      // 编辑模式：更新已有策略
+      await api.updateStrategy(window._editingInstanceId, { name, params });
+      instanceId = window._editingInstanceId;
+      showToast('策略已更新！', 'success');
+    } else {
+      const result = await api.createStrategyInstance({
+        name,
+        templateId: selectedTemplateId,
+        exchange,
+        symbol,
+        accountId,
+        params,
+      });
+      instanceId = parseInt(result.id);
+      showToast('策略创建成功！', 'success');
+    }
+
+    // 快速启动模式：创建后自动 start
+    if (isSystemTemplate && instanceId) {
+      try {
+        await api.startStrategy(instanceId);
+        showToast('策略已启动！', 'success');
+      } catch (e) {
+        showToast('策略已创建但启动失败: ' + e.message, 'warn');
+      }
+    }
+
     deselectTemplate();
     loadStrategyPage();
   } catch (err) {
@@ -629,15 +839,83 @@ async function showStrategyEdit(instanceId) {
     if (tmpl && tmpl.params && tmpl.params.length > 0) {
       paramsHtml = tmpl.params.map(p => {
         const currentVal = currentParams[p.key] ?? p.default;
+        const t = p.type || 'double';
+        const desc = p.description
+          ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">${p.description}</div>`
+          : '';
+
+        if (t === 'rules') return ''; // rules 由规则构建器处理
+
+        if (t === 'bool') {
+          const checked = currentVal ? 'checked' : '';
+          return `
+          <div class="cq-param-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="sl-edit-${p.key}" data-key="${p.key}" data-type="bool" ${checked}>
+              <span class="cq-param-label">${p.name}</span>
+            </label>
+            ${desc}
+          </div>`;
+        }
+
+        if (t === 'array_int' || t === 'array_double') {
+          const val = Array.isArray(currentVal) ? currentVal.join(', ') : (currentVal ?? '');
+          return `
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">${p.name}</span>
+            </div>
+            <input type="text" class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="${t}"
+              value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
+              style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;">
+            ${desc}
+          </div>`;
+        }
+
+        if (t === 'select') {
+          const options = Array.isArray(p.options) ? p.options : [];
+          const optsHtml = options.map(opt => {
+            const v = (opt && typeof opt === 'object') ? opt.value : opt;
+            const lbl = (opt && typeof opt === 'object') ? (opt.label ?? opt.value) : opt;
+            const sel = String(v) === String(currentVal) ? ' selected' : '';
+            return `<option value="${v}"${sel}>${lbl}</option>`;
+          }).join('');
+          return `
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">${p.name}</span>
+            </div>
+            <select class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="select">
+              ${optsHtml}
+            </select>
+            ${desc}
+          </div>`;
+        }
+
+        if (t === 'json') {
+          const val = typeof currentVal === 'string' ? currentVal : JSON.stringify(currentVal);
+          return `
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">${p.name}</span>
+            </div>
+            <textarea class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="json"
+              rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);">${val}</textarea>
+            ${desc}
+          </div>`;
+        }
+
+        // int / double — range slider
         return `
-        <div class="cq-param-group">
-          <div class="cq-param-header">
-            <span class="cq-param-label">${p.name}</span>
-            <span class="cq-param-value" id="val-edit-${p.key}">${currentVal}</span>
-          </div>
-          <input type="range" class="cq-slider" id="sl-edit-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${currentVal}" step="${p.step || 1}"
-            oninput="document.getElementById('val-edit-${p.key}').textContent=this.value">
-        </div>`;
+          <div class="cq-param-group">
+            <div class="cq-param-header">
+              <span class="cq-param-label">${p.name}</span>
+              <span class="cq-param-value" id="val-edit-${p.key}">${currentVal}</span>
+            </div>
+            <input type="range" class="cq-slider" id="sl-edit-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${currentVal}" step="${p.step || 1}"
+              oninput="document.getElementById('val-edit-${p.key}').textContent=this.value">
+            ${desc}
+          </div>`;
       }).join('');
     } else {
       paramsHtml = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无可编辑参数</div>';
@@ -662,9 +940,38 @@ async function submitStrategyEdit() {
 
   const name = document.getElementById('edit-strategy-name')?.value.trim();
   const params = {};
+
+  // 收集所有类型的参数控件
+  // range slider
   document.querySelectorAll('#strategy-edit-body input[type="range"]').forEach(sl => {
     const key = sl.id.replace('sl-edit-', '');
-    params[key] = parseFloat(sl.value);
+    const step = parseFloat(sl.step) || 1;
+    params[key] = step >= 1 ? parseInt(sl.value, 10) : parseFloat(sl.value);
+  });
+  // checkbox
+  document.querySelectorAll('#strategy-edit-body input[type="checkbox"][data-key]').forEach(el => {
+    params[el.dataset.key] = el.checked;
+  });
+  // text (array types)
+  document.querySelectorAll('#strategy-edit-body input[type="text"][data-key]').forEach(el => {
+    const t = el.dataset.type;
+    const parts = el.value.split(',').map(s => s.trim()).filter(s => s !== '');
+    params[el.dataset.key] = parts.map(s => t === 'array_int' ? parseInt(s, 10) : parseFloat(s));
+  });
+  // select
+  document.querySelectorAll('#strategy-edit-body select[data-key]').forEach(el => {
+    params[el.dataset.key] = el.value;
+  });
+  // textarea (json)
+  document.querySelectorAll('#strategy-edit-body textarea[data-key]').forEach(el => {
+    const txt = el.value.trim();
+    if (txt === '') { params[el.dataset.key] = null; return; }
+    try {
+      params[el.dataset.key] = JSON.parse(txt);
+    } catch (e) {
+      showToast(`参数 "${el.dataset.key}" JSON 格式错误`, 'error');
+      return;
+    }
   });
 
   try {
@@ -704,7 +1011,10 @@ const RULE_INDICATORS = [
   { key: 'macd_cross',     name: 'MACD交叉',   type: 'event',  params: [{ key: 'fast', name: '快线', default: 12, type: 'int', min: 2, max: 50 },{ key: 'slow', name: '慢线', default: 26, type: 'int', min: 5, max: 100 },{ key: 'signal', name: '信号线', default: 9, type: 'int', min: 2, max: 50 }] },
   { key: 'price_change_pct',name: '涨跌幅%',   type: 'value',  params: [{ key: 'period', name: 'K线数', default: 1, type: 'int', min: 1, max: 50 }] },
   { key: 'stoch_k',        name: 'KDJ-K值',   type: 'value',  params: [{ key: 'period', name: '周期', default: 14, type: 'int', min: 2, max: 50 }] },
+  { key: 'stoch_d',        name: 'KDJ-D值',   type: 'value',  params: [{ key: 'k_period', name: 'K周期', default: 14, type: 'int', min: 2, max: 50 },{ key: 'd_period', name: 'D周期', default: 3, type: 'int', min: 1, max: 20 }] },
   { key: 'cci',            name: 'CCI',       type: 'value',  params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 5, max: 50 }] },
+  { key: 'dema',           name: '双指数均线DEMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, type: 'int', min: 2, max: 200 }] },
+  { key: 'obv',            name: '能量潮OBV', type: 'value',  params: [] },
 ];
 
 const VALUE_OPERATORS = [
@@ -731,6 +1041,38 @@ let _ruleBuilderState = {
   confidenceBase: 0.7,
   _nextId: 1,
 };
+
+/* ── 从已保存的 rules DSL 反向填充规则构建器 ── */
+function loadRulesFromDSL(rules) {
+  if (!rules) return;
+  let nextId = 1;
+  function parseGroup(group, side) {
+    if (!group || !group.conditions) return;
+    if (group.logic) {
+      if (side === 'buy') _ruleBuilderState.buyLogic = group.logic;
+      else _ruleBuilderState.sellLogic = group.logic;
+    }
+    const list = side === 'buy' ? 'buyRules' : 'sellRules';
+    _ruleBuilderState[list] = group.conditions.map(c => {
+      const id = nextId++;
+      return {
+        id,
+        indicator: c.indicator,
+        params: c.params || {},
+        operator: c.operator,
+        value: c.value,
+      };
+    });
+  }
+  parseGroup(rules.buy_rules, 'buy');
+  parseGroup(rules.sell_rules, 'sell');
+  if (rules.risk) {
+    _ruleBuilderState.stopLossPct = rules.risk.stop_loss_percent ?? 3;
+    _ruleBuilderState.takeProfitPct = rules.risk.take_profit_percent ?? 6;
+    _ruleBuilderState.confidenceBase = rules.risk.confidence_base ?? 0.7;
+  }
+  _ruleBuilderState._nextId = nextId;
+}
 
 function _newCondition(indicatorKey) {
   const ind = RULE_INDICATORS.find(i => i.key === indicatorKey) || RULE_INDICATORS[0];

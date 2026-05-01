@@ -28,7 +28,7 @@ class StrategyTemplate(Base):
     strategy_type: Mapped[str] = mapped_column(String(50))
     params_schema: Mapped[dict] = mapped_column(JSON, default=dict)
     risk_level: Mapped[str] = mapped_column(
-        Enum("low", "medium", "high", name="strategy_risk_level"),
+        Enum("low", "medium", "high", "conservative", name="strategy_risk_level"),
         default="medium",
     )
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -65,7 +65,7 @@ class StrategyInstance(Base):
     # 状态: draft(草稿), running(运行中), paused(暂停), stopped(已停止)
     status: Mapped[str] = mapped_column(
         Enum("draft", "running", "paused", "stopped", name="instance_status"),
-        default="draft",
+        default="stopped",
     )
     # 统计字段
     total_pnl: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=Decimal("0"))

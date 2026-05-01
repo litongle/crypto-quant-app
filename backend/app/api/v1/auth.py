@@ -68,6 +68,7 @@ async def register(
         password=request.password,
         name=request.name,
     )
+    await session.commit()
     return APIResponse(data=LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,

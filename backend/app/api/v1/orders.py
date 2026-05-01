@@ -148,6 +148,7 @@ async def sync_account_balance(
 
     service = OrderService(session)
     account = await service.sync_account_balance(account_id, current_user.id)
+    await session.commit()
     return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
 
 
@@ -192,6 +193,7 @@ async def emergency_close_all(
 
     service = OrderService(session)
     closed = await service.emergency_close_all(current_user.id, request.account_id)
+    await session.commit()
     return APIResponse(data={
         "closed_count": len(closed),
         "message": f"已平仓 {len(closed)} 个仓位",
@@ -250,6 +252,7 @@ async def create_order(
         except Exception:
             pass
         raise
+    await session.commit()
     return APIResponse(data=OrderSchema.from_model(order).model_dump())
 
 
@@ -281,6 +284,7 @@ async def cancel_order(
     """取消订单"""
     service = OrderService(session)
     order = await service.cancel_order(order_id, current_user.id)
+    await session.commit()
     return APIResponse(data=OrderSchema.from_model(order).model_dump())
 
 
@@ -298,6 +302,7 @@ async def set_stop_loss(
         user_id=current_user.id,
         stop_price=request.stop_price,
     )
+    await session.commit()
     return APIResponse(data=PositionSchema.from_model(position).model_dump())
 
 
@@ -315,6 +320,7 @@ async def set_take_profit(
         user_id=current_user.id,
         tp_price=request.take_profit_price,
     )
+    await session.commit()
     return APIResponse(data=PositionSchema.from_model(position).model_dump())
 
 
@@ -333,4 +339,5 @@ async def close_position(
     """平仓"""
     service = OrderService(session)
     position = await service.close_position(position_id, current_user.id)
+    await session.commit()
     return APIResponse(data=PositionSchema.from_model(position).model_dump())

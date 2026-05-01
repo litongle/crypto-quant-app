@@ -98,6 +98,7 @@ async def create_paper_account(
     from app.services.paper_trading_service import PaperTradingService
     service = PaperTradingService(session)
     account = await service.create_paper_account(current_user.id)
+    await session.commit()
     return APIResponse(data={
         "id": account.id,
         "name": account.account_name,
@@ -133,4 +134,5 @@ async def reset_paper_account(
     from app.services.paper_trading_service import PaperTradingService
     service = PaperTradingService(session)
     await service.reset_paper_account(account_id)
+    await session.commit()
     return APIResponse(message="模拟账户已重置")

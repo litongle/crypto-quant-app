@@ -154,7 +154,6 @@ class StrategyService:
             params=params,
             risk_params=risk_params,
             account_id=account_id,
-            status="stopped",  # P2-7: 创建后不自动运行，需用户显式启动
         )
         return await self.instance_repo.create(instance)
 

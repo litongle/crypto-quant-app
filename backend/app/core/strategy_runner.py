@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.strategy_engine import (
     BaseStrategy,
@@ -166,7 +167,7 @@ class StrategyRunner:
             result = await session.execute(
                 select(StrategyInstance)
                 .where(StrategyInstance.id == instance_id)
-                .join(StrategyTemplate)
+                .options(joinedload(StrategyInstance.template))
             )
             inst = result.scalar_one_or_none()
 
@@ -184,6 +185,16 @@ class StrategyRunner:
             self._strategies.pop(instance_id, None)
             self._last_signal_at.pop(instance_id, None)
             logger.info("[StrategyRunner] 策略 #%d 已停止", instance_id)
+
+    async def restart_instance(self, instance_id: int) -> bool:
+        """重启策略实例（用于参数更新后热加载）
+
+        stop_instance 将 task 从 _runners 移除 + cancel，
+        start_instance 从 DB 重新读取实例创建新 task，
+        二者操作不同对象，无竞态。
+        """
+        self.stop_instance(instance_id)
+        return await self.start_instance(instance_id)
 
     async def _start_instance(self, inst: StrategyInstance) -> None:
         """内部：为策略实例创建运行 Task"""

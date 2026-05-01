@@ -225,6 +225,7 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "symbol": inst.symbol,
         "accountId": inst.account_id,
         "isLive": inst.account_id is not None,
+        "params": inst.params or {},  # 返回完整参数(含rules)
         "totalPnl": float(inst.total_pnl or 0),
         "totalPnlPercent": float(inst.total_pnl_percent or 0),
         "winRate": float(inst.win_rate or 0),
@@ -300,6 +301,7 @@ async def create_strategy(
         direction="both",
         account_id=request.accountId,
     )
+    await session.commit()
 
     return APIResponse(data=CreateInstanceResponse(
         id=str(instance.id),
@@ -343,7 +345,7 @@ async def update_strategy(
     update_data = {}
     if request.name:
         update_data["name"] = request.name
-    if request.params:
+    if request.params is not None:
         update_data["params"] = request.params
 
     instance = await service.update_instance(
@@ -354,6 +356,16 @@ async def update_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+    await session.commit()
+
+    # 如果策略正在运行，重启 runner 以加载新参数
+    if instance.status == "running":
+        try:
+            from app.core.strategy_runner import strategy_runner
+            await strategy_runner.restart_instance(inst_id)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("重启策略运行器失败: %s", exc)
 
     return APIResponse(data={
         "id": instance.id,
@@ -377,6 +389,7 @@ async def start_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+    await session.commit()
 
     return APIResponse(data={
         "id": instance.id,
@@ -398,6 +411,7 @@ async def stop_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+    await session.commit()
 
     return APIResponse(data={
         "id": instance.id,
@@ -419,6 +433,7 @@ async def delete_strategy(
 
     if not success:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+    await session.commit()
 
     return APIResponse(message="删除成功")
 

@@ -11,6 +11,9 @@ STR_ID_MAP = {
     "grid": 4,
     "martingale": 5,
     "rule_custom": 6,
+    "rsi_layered": 7,
+    "dca": 8,
+    "multi_symbol": 9,
 }
 
 # 反向映射：数据库 template_id (int) → 前端 code (str)
