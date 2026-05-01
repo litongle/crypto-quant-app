@@ -62,13 +62,10 @@ alembic/__pycache__/
 *.log
 logs/
 
-# Archon (worktree runtime data)
-.archon/worktrees/
-.archon/artifacts/
-.archon/logs/
-.archon/.env
-
-# WorkBuddy internal
+# AI tools (local runtime data, never commit)
+.archon/
+.claude/
+.codebuddy/
 .workbuddy/
 
 # Screenshots (testing artifacts)
