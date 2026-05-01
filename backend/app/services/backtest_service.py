@@ -39,6 +39,8 @@ _TEMPLATE_MAP = {
     "bollinger": "bollinger",
     "grid": "grid",
     "martingale": "martingale",
+    "dca": "dca",
+    "multi_symbol": "multi_symbol",
 }
 
 # 时间级别配置：(interval, 每天约多少根, 最大支持天数)
@@ -205,8 +207,18 @@ class BacktestService:
         params = params or {}
         start_time = time.monotonic()
 
-        # 自动选择时间级别
-        interval, interval_label = self._select_interval(start_date, end_date)
+        # 优先使用策略参数里指定的 kline_interval(与实盘运行对齐),
+        # 否则按时间跨度自动选择,保证旧数据兼容。
+        user_interval = params.get("kline_interval")
+        if user_interval:
+            interval = str(user_interval)
+            label_map = {
+                "1m": "1分钟", "5m": "5分钟", "15m": "15分钟", "30m": "30分钟",
+                "1h": "1小时", "4h": "4小时", "1d": "日线",
+            }
+            interval_label = label_map.get(interval, interval)
+        else:
+            interval, interval_label = self._select_interval(start_date, end_date)
 
         # 1. 获取K线数据
         klines, is_mock = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
@@ -282,7 +294,15 @@ class BacktestService:
         capital = initial_capital
         position: dict | None = None
         trades: list[TradeRecord] = []
-        commission_rate = Decimal("0.001")
+        # P1-8: 按 maker/taker 分手续费，加滑点模拟
+        maker_fee = Decimal("0.001")   # 0.1% maker
+        taker_fee = Decimal("0.001")   # 0.1% taker (Binance 默认)
+        slippage_pct = Decimal("0.0005")  # 0.05% 滑点
+        # 使用 params 中指定的手续费率（如有）
+        if strategy.params:
+            maker_fee = Decimal(str(strategy.params.get("maker_fee", 0.001)))
+            taker_fee = Decimal(str(strategy.params.get("taker_fee", 0.001)))
+            slippage_pct = Decimal(str(strategy.params.get("slippage_pct", 0.0005)))
 
         # 预转换K线为 float 格式（只做一次，O(n)）
         float_klines = [
@@ -325,34 +345,39 @@ class BacktestService:
             # 策略分析
             signal = await strategy.analyze(history_slice)
 
-            # 交易逻辑
+            # 交易逻辑 — P1-8: 加入滑点和 maker/taker 费率
+            exec_price = current_price  # 实际成交价（含滑点）
             if signal is not None:
                 if signal.action == "buy" and position is None:
+                    # 买入滑点：成交价略高于当前价
+                    exec_price = current_price * (Decimal("1") + slippage_pct)
                     invest_amount = capital * Decimal("0.95")
-                    quantity = invest_amount / current_price
-                    commission = invest_amount * commission_rate
+                    quantity = invest_amount / exec_price
+                    commission = invest_amount * taker_fee
 
                     position = {
                         "side": "long",
                         "quantity": quantity,
-                        "entry_price": current_price,
+                        "entry_price": exec_price,
                         "entry_time": current_time,
                         "commission_paid": commission,
                     }
                     capital -= invest_amount + commission
 
                 elif signal.action == "sell" and position is not None:
-                    close_value = position["quantity"] * current_price
-                    commission = close_value * commission_rate
+                    # 卖出滑点：成交价略低于当前价
+                    exec_price = current_price * (Decimal("1") - slippage_pct)
+                    close_value = position["quantity"] * exec_price
+                    commission = close_value * taker_fee
 
-                    pnl = (current_price - position["entry_price"]) * position["quantity"] \
+                    pnl = (exec_price - position["entry_price"]) * position["quantity"] \
                         if position["side"] == "long" \
-                        else (position["entry_price"] - current_price) * position["quantity"]
+                        else (position["entry_price"] - exec_price) * position["quantity"]
                     pnl -= commission
 
                     trades.append(TradeRecord(
                         entry_price=position["entry_price"],
-                        exit_price=current_price,
+                        exit_price=exec_price,
                         quantity=position["quantity"],
                         side=position["side"],
                         entry_time=position["entry_time"],
@@ -364,31 +389,45 @@ class BacktestService:
                     capital += close_value - commission
                     position = None
 
-            # 止损止盈
+            # 止损止盈 — P1-8: 滑点可能触发更快/更慢
             if position is not None:
                 sl_price = signal.stop_loss_price if signal else None
                 tp_price = signal.take_profit_price if signal else None
 
                 should_close = False
+                close_type = ""
                 if position["side"] == "long":
-                    if (sl_price and current_price <= sl_price) or (tp_price and current_price >= tp_price):
+                    if sl_price and current_price <= sl_price:
                         should_close = True
+                        close_type = "stop_loss"
+                    elif tp_price and current_price >= tp_price:
+                        should_close = True
+                        close_type = "take_profit"
                 else:
-                    if (sl_price and current_price >= sl_price) or (tp_price and current_price <= tp_price):
+                    if sl_price and current_price >= sl_price:
                         should_close = True
+                        close_type = "stop_loss"
+                    elif tp_price and current_price <= tp_price:
+                        should_close = True
+                        close_type = "take_profit"
 
                 if should_close:
-                    close_value = position["quantity"] * current_price
-                    commission = close_value * commission_rate
+                    # 止盈/止损滑点：对持仓方向不利的方向滑点
+                    if position["side"] == "long":
+                        exec_price = current_price * (Decimal("1") - slippage_pct)
+                    else:
+                        exec_price = current_price * (Decimal("1") + slippage_pct)
+                    close_value = position["quantity"] * exec_price
+                    commission = close_value * taker_fee
 
-                    pnl = (current_price - position["entry_price"]) * position["quantity"] \
+                    pnl = (exec_price - position["entry_price"]) * position["quantity"] \
                         if position["side"] == "long" \
-                        else (position["entry_price"] - current_price) * position["quantity"]
+                        else (position["entry_price"] - exec_price) * position["quantity"]
                     pnl -= commission
 
                     trades.append(TradeRecord(
                         entry_price=position["entry_price"],
-                        exit_price=current_price,
+                        exit_price=exec_price,
                         quantity=position["quantity"],
                         side=position["side"],
                         entry_time=position["entry_time"],
@@ -420,11 +459,15 @@ class BacktestService:
                     equity=current_equity,
                 ))
 
-        # 平仓未结束的头寸
+        # 平仓未结束的头寸 — P1-8: 按滑点后的 taker 价格平仓
         if position is not None:
-            final_price = klines[-1]["close"]
+            final_price_raw = klines[-1]["close"]
+            if position["side"] == "long":
+                final_price = final_price_raw * (Decimal("1") - slippage_pct)
+            else:
+                final_price = final_price_raw * (Decimal("1") + slippage_pct)
             close_value = position["quantity"] * final_price
-            commission = close_value * commission_rate
+            commission = close_value * taker_fee
 
             pnl = (final_price - position["entry_price"]) * position["quantity"] \
                 if position["side"] == "long" \

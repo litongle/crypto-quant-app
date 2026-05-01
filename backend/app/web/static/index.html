@@ -4,11 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>币钱袋 - 量化交易控制台</title>
+<!-- PWA -->
+<link rel="manifest" href="/web/static/manifest.json">
+<meta name="theme-color" content="#6366f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="币钱袋">
+<link rel="apple-touch-icon" href="/web/static/icons/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/style.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <link rel="stylesheet" href="/web/static/css/app.css">
 </head>
 <body>
@@ -72,79 +79,88 @@
 <!-- ===== 主应用 ===== -->
 <div id="app-page" class="app-layout" style="display:none;">
   <!-- 移动端顶栏 -->
-  <header class="mobile-header">
-    <div class="hamburger" onclick="toggleSidebar()">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  <!-- ===== 顶部 Header(桌面/移动统一,玻璃态) ===== -->
+  <header class="cq-header" id="cq-header">
+    <div class="cq-header__left">
+      <button class="cq-icon-btn cq-header__menu-btn" onclick="toggleSidebarFromHeader()" title="菜单" aria-label="菜单">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="cq-header__logo">
+        <div class="cq-logo-icon">
+          <svg width="20" height="20" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="cq-header__brand">币钱袋</span>
+        <span class="cq-header__tag">量化控制台</span>
+      </div>
     </div>
-    <div class="mobile-logo">
-      <svg width="22" height="22" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="36" height="36" rx="8" fill="#6366F1"/>
-        <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      币钱袋
+    <div class="cq-header__right">
+      <button class="cq-icon-btn" onclick="navigate('accounts')" title="交易所账户" aria-label="交易所账户">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      </button>
+      <button class="cq-icon-btn" onclick="toggleTheme()" id="theme-toggle-btn" title="切换日夜模式" aria-label="切换日夜模式">
+        <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg id="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+      <div class="cq-header__user" onclick="handleLogout()" title="点击退出登录">
+        <span class="cq-header__user-avatar" id="header-user-avatar">U</span>
+        <span class="cq-header__user-name" id="user-name">--</span>
+      </div>
     </div>
-    <div class="mobile-user" id="mobile-user-name">--</div>
-    <button class="cq-theme-toggle" onclick="toggleTheme()" style="margin-left:var(--cq-space-2);" title="切换日夜模式" aria-label="切换日夜模式">
-      <svg class="mobile-theme-dark" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      <svg class="mobile-theme-light" viewBox="0 0 24 24" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-    </button>
   </header>
 
-  <!-- 侧栏遮罩 -->
+  <!-- ===== 侧栏遮罩(移动端抽屉用) ===== -->
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
-  <!-- 侧栏 -->
+  <!-- ===== 侧栏 ===== -->
   <aside class="sidebar" id="sidebar">
-    <div class="logo">
-      <div class="cq-logo-icon">
-        <svg width="20" height="20" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M10 18L16 24L26 12" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">
+        <div class="sidebar-group-label">控制台</div>
+        <div class="sidebar-nav-item" onclick="navigate('dashboard')" data-page="dashboard">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          </span>
+          <span class="sidebar-nav-text">数据看板</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="navigate('strategy')" data-page="strategy">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
+          </span>
+          <span class="sidebar-nav-text">策略中心</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="navigate('backtest')" data-page="backtest">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 4 4 5-5"/></svg>
+          </span>
+          <span class="sidebar-nav-text">策略回测</span>
+        </div>
       </div>
-      <div class="logo-info">
-        <h2>币钱袋</h2>
-        <span>量化交易控制台 v1.0</span>
-      </div>
-    </div>
-    <nav>
-      <div class="nav-link" onclick="navigate('dashboard')" data-page="dashboard">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        控制台
-      </div>
-      <div class="nav-link" onclick="navigate('strategy')" data-page="strategy">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
-        策略中心
-      </div>
-      <div class="nav-link" onclick="navigate('backtest')" data-page="backtest">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        回测
-      </div>
-      <div class="nav-link" onclick="navigate('accounts')" data-page="accounts">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-        交易所账户
-      </div>
-      <div class="nav-link" onclick="navigate('market')" data-page="market">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        行情
-      </div>
-      <div class="nav-link" onclick="navigate('trading')" data-page="trading">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        交易
+
+      <div class="sidebar-section">
+        <div class="sidebar-group-label">交易</div>
+        <div class="sidebar-nav-item" onclick="navigate('market')" data-page="market">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </span>
+          <span class="sidebar-nav-text">实时行情</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="navigate('trading')" data-page="trading">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </span>
+          <span class="sidebar-nav-text">手动交易</span>
+        </div>
       </div>
     </nav>
-    <div class="user-section">
-      <div class="user-name" id="user-name">--</div>
-      <div class="user-email" id="user-email">--</div>
-      <div style="display:flex;align-items:center;gap:var(--cq-space-3);margin-top:var(--cq-space-3);">
-        <button class="cq-theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn" title="切换日夜模式" aria-label="切换日夜模式">
-          <svg id="theme-icon-dark" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          <svg id="theme-icon-light" viewBox="0 0 24 24" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        </button>
-        <div class="logout-btn" onclick="handleLogout()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        退出登录
-      </div>
-      </div>
+
+    <!-- 底部折叠按钮(桌面端可见) -->
+    <div class="sidebar-collapse-button">
+      <button class="cq-collapse-btn" onclick="toggleSidebarCollapse()" type="button" aria-label="收起侧边栏">
+        <svg class="cq-collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <span class="cq-collapse-label">收起侧边栏</span>
+      </button>
     </div>
   </aside>
 
@@ -158,11 +174,11 @@
         <div class="sub">实时监控资产和持仓状态</div>
       </div>
       <div id="asset-summary">
-        <div class="cq-grid-4">
-          <div class="cq-card stat-card"><div class="stat-label">总资产</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
-          <div class="cq-card stat-card"><div class="stat-label">可用余额</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
-          <div class="cq-card stat-card"><div class="stat-label">冻结余额</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
-          <div class="cq-card stat-card"><div class="stat-label">今日盈亏</div><div class="cq-skeleton" style="height:28px;width:80px;margin:8px auto;"></div></div>
+        <div class="cq-stat-grid">
+          <div class="cq-stat-card"><div class="cq-stat-card__header"><div class="cq-stat-card__title"><div class="cq-skeleton" style="width:80px;height:14px;border-radius:4px;"></div></div></div><div class="cq-stat-row"><div class="cq-skeleton" style="width:36px;height:36px;border-radius:50%;"></div><div class="cq-stat-row__body"><div class="cq-skeleton" style="width:60%;height:10px;border-radius:4px;margin-bottom:6px;"></div><div class="cq-skeleton" style="width:80%;height:18px;border-radius:4px;"></div></div></div></div>
+          <div class="cq-stat-card"><div class="cq-stat-card__header"><div class="cq-stat-card__title"><div class="cq-skeleton" style="width:80px;height:14px;border-radius:4px;"></div></div></div><div class="cq-stat-row"><div class="cq-skeleton" style="width:36px;height:36px;border-radius:50%;"></div><div class="cq-stat-row__body"><div class="cq-skeleton" style="width:60%;height:10px;border-radius:4px;margin-bottom:6px;"></div><div class="cq-skeleton" style="width:80%;height:18px;border-radius:4px;"></div></div></div></div>
+          <div class="cq-stat-card"><div class="cq-stat-card__header"><div class="cq-stat-card__title"><div class="cq-skeleton" style="width:80px;height:14px;border-radius:4px;"></div></div></div><div class="cq-stat-row"><div class="cq-skeleton" style="width:36px;height:36px;border-radius:50%;"></div><div class="cq-stat-row__body"><div class="cq-skeleton" style="width:60%;height:10px;border-radius:4px;margin-bottom:6px;"></div><div class="cq-skeleton" style="width:80%;height:18px;border-radius:4px;"></div></div></div></div>
+          <div class="cq-stat-card"><div class="cq-stat-card__header"><div class="cq-stat-card__title"><div class="cq-skeleton" style="width:80px;height:14px;border-radius:4px;"></div></div></div><div class="cq-stat-row"><div class="cq-skeleton" style="width:36px;height:36px;border-radius:50%;"></div><div class="cq-stat-row__body"><div class="cq-skeleton" style="width:60%;height:10px;border-radius:4px;margin-bottom:6px;"></div><div class="cq-skeleton" style="width:80%;height:18px;border-radius:4px;"></div></div></div></div>
         </div>
       </div>
       <div style="margin-top:var(--cq-space-6);">
@@ -176,9 +192,7 @@
           </div>
         </div>
         <div class="cq-card" style="padding:var(--cq-space-4);">
-          <div style="position:relative;height:220px;width:100%;">
-            <canvas id="equityChart"></canvas>
-          </div>
+          <div id="equityChart" style="position:relative;height:220px;width:100%;"></div>
         </div>
       </div>
       <div style="margin-top:var(--cq-space-6);">
@@ -324,7 +338,8 @@
       </div>
 
       <!-- 行情概览卡片 -->
-      <div id="market-overview" class="cq-grid-5" style="margin-bottom:var(--cq-space-5);"></div>
+      <div id="market-overview" class="cq-grid-5" style="margin-bottom:var(--cq-space-2);"></div>
+      <div id="market-overview-meta" style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);text-align:right;margin-bottom:var(--cq-space-5);min-height:1em;"></div>
 
       <!-- 实时价格 + K线 -->
       <div class="cq-card" style="margin-bottom:var(--cq-space-5);">
@@ -336,7 +351,10 @@
               <div style="font-size:var(--cq-text-sm);font-weight:500;" id="market-live-change">--</div>
             </div>
           </div>
-          <div style="display:flex;gap:var(--cq-space-1);">
+          <div style="display:flex;gap:var(--cq-space-1);align-items:center;flex-wrap:wrap;">
+            <button class="cq-chart-type-btn is-active" data-chart-type="candle" onclick="changeMarketChartType('candle')" title="蜡烛图">蜡烛</button>
+            <button class="cq-chart-type-btn" data-chart-type="line" onclick="changeMarketChartType('line')" title="收盘线">线</button>
+            <span style="width:1px;background:var(--cq-border-default);margin:4px 4px;"></span>
             <button class="cq-interval-btn" data-interval="1m" onclick="changeMarketInterval('1m')">1m</button>
             <button class="cq-interval-btn" data-interval="5m" onclick="changeMarketInterval('5m')">5m</button>
             <button class="cq-interval-btn" data-interval="15m" onclick="changeMarketInterval('15m')">15m</button>
@@ -351,9 +369,7 @@
             <button class="cq-exchange-btn" data-exchange="huobi" onclick="changeMarketExchange('huobi')">HB</button>
           </div>
         </div>
-        <div id="market-kline-wrap" style="position:relative;height:320px;width:100%;">
-          <canvas id="marketKlineChart"></canvas>
-        </div>
+        <div id="market-kline-wrap" style="position:relative;height:380px;width:100%;"></div>
       </div>
     </div>
 
@@ -489,7 +505,19 @@
 <script src="/web/static/js/market.js"></script>
 <script src="/web/static/js/trading.js"></script>
 <script>
-// ===== 侧栏切换（移动端） =====
+// ===== 侧栏切换 =====
+const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+
+// Header 左侧菜单按钮:移动端开抽屉,桌面端切换折叠
+function toggleSidebarFromHeader() {
+  if (_isMobile()) {
+    toggleSidebar();
+  } else {
+    toggleSidebarCollapse();
+  }
+}
+
+// 移动端抽屉
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebar-overlay').classList.toggle('active');
@@ -499,13 +527,38 @@ function closeSidebar() {
   document.getElementById('sidebar-overlay').classList.remove('active');
 }
 
+// 桌面端折叠 / 展开,持久化到 localStorage
+function toggleSidebarCollapse() {
+  const collapsed = document.body.classList.toggle('is-sidebar-collapsed');
+  try { localStorage.setItem('cq-sidebar-collapsed', collapsed ? '1' : '0'); } catch {}
+}
+
+// 启动时恢复折叠状态(仅桌面)
+(function restoreSidebarCollapsed() {
+  try {
+    const saved = localStorage.getItem('cq-sidebar-collapsed');
+    if (saved === '1' && !_isMobile()) {
+      document.body.classList.add('is-sidebar-collapsed');
+    }
+  } catch {}
+})();
+
+// 视口跨断点时清理抽屉/折叠态
+window.addEventListener('resize', () => {
+  if (_isMobile()) {
+    document.body.classList.remove('is-sidebar-collapsed');
+  } else {
+    closeSidebar();
+  }
+});
+
 // ===== 全局导航 =====
 function navigate(page, pushHash = true) {
   document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.sidebar-nav-item').forEach(el => el.classList.remove('active'));
 
   const pageEl = document.getElementById('page-' + page);
-  const navEl = document.querySelector(`.nav-link[data-page="${page}"]`);
+  const navEl = document.querySelector(`.sidebar-nav-item[data-page="${page}"]`);
   if (pageEl) pageEl.classList.add('active');
   if (navEl) navEl.classList.add('active');
 
@@ -595,9 +648,11 @@ async function enterApp() {
 
   try {
     const user = await api.getUserInfo();
-    document.getElementById('user-name').textContent = user.name || '--';
-    document.getElementById('user-email').textContent = user.email || '--';
-    document.getElementById('mobile-user-name').textContent = user.name || '--';
+    const name = user.name || '--';
+    const nameEl = document.getElementById('user-name');
+    if (nameEl) nameEl.textContent = name;
+    const avatarEl = document.getElementById('header-user-avatar');
+    if (avatarEl) avatarEl.textContent = (name || 'U').charAt(0);
   } catch {
     showToast('获取用户信息失败，请刷新重试', 'warn');
   }
@@ -636,33 +691,8 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('cq-theme', theme);
   updateThemeIcon(theme);
-  // Re-render Chart.js charts if they exist
-  if (window._equityChart) {
-    const isDark = theme !== 'light';
-    const gridColor = isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.06)';
-    const tickColor = isDark ? '#6E7681' : '#94A3B8';
-    const chart = window._equityChart;
-    if (chart.options.scales) {
-      chart.options.scales.x.grid.color = gridColor;
-      chart.options.scales.y.grid.color = gridColor;
-      chart.options.scales.x.ticks.color = tickColor;
-      chart.options.scales.y.ticks.color = tickColor;
-      chart.update('none');
-    }
-  }
-  if (window._backtestChart) {
-    const isDark = theme !== 'light';
-    const gridColor = isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.06)';
-    const tickColor = isDark ? '#6E7681' : '#94A3B8';
-    const chart = window._backtestChart;
-    if (chart.options.scales) {
-      chart.options.scales.x.grid.color = gridColor;
-      chart.options.scales.y.grid.color = gridColor;
-      chart.options.scales.x.ticks.color = tickColor;
-      chart.options.scales.y.ticks.color = tickColor;
-      chart.update('none');
-    }
-  }
+  // 派发统一主题事件,各图表模块自行监听重渲染
+  window.dispatchEvent(new CustomEvent('cq:theme-change', { detail: { theme } }));
 }
 
 function updateThemeIcon(theme) {
@@ -673,14 +703,12 @@ function updateThemeIcon(theme) {
     lightIcon.style.display = theme === 'light' ? 'block' : 'none';
   }
   // Mobile header icons
-  document.querySelectorAll('.mobile-theme-dark').forEach(el => el.style.display = theme === 'dark' ? 'block' : 'none');
-  document.querySelectorAll('.mobile-theme-light').forEach(el => el.style.display = theme === 'light' ? 'block' : 'none');
 }
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'dark';
   const next = current === 'dark' ? 'light' : 'dark';
-  applyTheme(next);
+  applyTheme(next);  // applyTheme 内部会派发 cq:theme-change
 }
 
 // Restore saved theme or detect system preference
@@ -718,6 +746,14 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+</script>
+<!-- PWA Service Worker -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/web/static/sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+# Archon project configuration for crypto-quant-app
+assistant: claude
+
+assistants:
+  claude:
+    model: sonnet
+    settingSources:
+      - project
+
+worktree:
+  baseBranch: main
+  copyFiles:
+    - .env

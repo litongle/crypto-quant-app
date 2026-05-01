@@ -1,6 +1,7 @@
 """
 WebSocket API 端点
 """
+import asyncio
 import json
 import logging
 import time
@@ -15,7 +16,22 @@ router = APIRouter()
 
 @router.websocket("/market")
 async def ws_market(websocket: WebSocket):
-    token = websocket.query_params.get("token", "")
+    await websocket.accept()
+    conn_id = f"conn-{id(websocket)}-{int(time.time()*1000)}"
+
+    # 等待首条 auth 消息（Token 不再走 URL，防止泄露到日志/Referer）
+    token = ""
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+        cmd = json.loads(raw)
+        if cmd.get("action") == "auth":
+            token = cmd.get("token", "")
+    except asyncio.TimeoutError:
+        await websocket.close(code=4001, reason="Authentication timeout")
+        return
+    except Exception:
+        pass
+
     if not token:
         await websocket.close(code=4001, reason="Missing authentication token")
         return
@@ -37,8 +53,6 @@ async def ws_market(websocket: WebSocket):
         await websocket.close(code=4002, reason="Too many connections (max 5)")
         return
 
-    await websocket.accept()
-    conn_id = f"conn-{id(websocket)}-{int(time.time()*1000)}"
     manager.register(conn_id, websocket, user_id)
 
     initial_symbol = websocket.query_params.get("symbol", "BTCUSDT").upper()

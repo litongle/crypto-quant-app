@@ -277,7 +277,7 @@ function buildBacktestRulesDSL() {
 function renderBacktestTemplateSelect(templates) {
   const sel = document.getElementById('backtest-template-select');
   sel.innerHTML = '<option value="">选择策略模板</option>' +
-    templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+    templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 }
 
 async function runBacktest() {
@@ -296,13 +296,6 @@ async function runBacktest() {
 
   const initialCapital = parseFloat(document.getElementById('backtest-capital').value) || 100000;
 
-  // 计算日期跨度，给提示
-  const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
-  let intervalHint = '';
-  if (daysDiff > 800) intervalHint = '（将使用日线级别）';
-  else if (daysDiff > 200) intervalHint = '（将使用4小时级别）';
-  else intervalHint = '（1小时级别）';
-
   const selectedTemplate = (window._backtestTemplates || []).find(t => t.id === templateId);
   const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
   let params = {};
@@ -314,6 +307,11 @@ async function runBacktest() {
       return;
     }
     params.rules = buildBacktestRulesDSL();
+    // rule_custom 策略也带上选中的 K 线周期(若已选)
+    try {
+      const ki = collectBacktestParams().kline_interval;
+      if (ki) params.kline_interval = ki;
+    } catch {}
   } else {
     try {
       params = collectBacktestParams();
@@ -321,6 +319,18 @@ async function runBacktest() {
       showToast(e.message, 'error');
       return;
     }
+  }
+
+  // 周期提示:优先用用户在策略参数里选的 kline_interval,否则按日期跨度自动选
+  const intervalLabelMap = { '1m': '1分钟', '5m': '5分钟', '15m': '15分钟', '30m': '30分钟', '1h': '1小时', '4h': '4小时', '1d': '日线' };
+  let intervalHint = '';
+  if (params.kline_interval) {
+    intervalHint = `（${intervalLabelMap[params.kline_interval] || params.kline_interval}级别）`;
+  } else {
+    const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
+    if (daysDiff > 800) intervalHint = '（将使用日线级别）';
+    else if (daysDiff > 200) intervalHint = '（将使用4小时级别）';
+    else intervalHint = '（1小时级别）';
   }
 
   const btn = document.getElementById('run-backtest-btn');
@@ -432,9 +442,7 @@ function renderBacktestResults(result) {
       <div class="cq-section-title" style="margin-bottom:var(--cq-space-3);">
         <h3>收益曲线</h3>
       </div>
-      <div style="position:relative;height:280px;width:100%;">
-        <canvas id="backtestResultChart"></canvas>
-      </div>
+      <div id="backtestResultChart" style="position:relative;height:280px;width:100%;"></div>
     </div>
 
     <!-- 交易明细表 -->
@@ -493,45 +501,112 @@ function renderBacktestResults(result) {
 
   const points = result.equityCurve || result.points || [];
   if (points.length > 0) {
-    const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--cq-color-primary').trim() || '#6366F1';
-    const gridColor = isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.06)';
-    const tickColor = isDark ? '#6E7681' : '#94A3B8';
-
-    const canvas = document.getElementById('backtestResultChart');
-    const ctx = canvas.getContext('2d');
-    const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-    gradient.addColorStop(0, isDark ? 'rgba(99,102,241,0.12)' : 'rgba(79,70,229,0.08)');
-    gradient.addColorStop(1, 'rgba(99,102,241,0)');
-
-    if (window._backtestChart) window._backtestChart.destroy();
-    window._backtestChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: points.map(p => p.date || ''),
-        datasets: [{
-          label: '策略权益',
-          data: points.map(p => p.equity),
-          borderColor: primaryColor,
-          backgroundColor: gradient,
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'Geist', sans-serif" }, maxTicksLimit: 8 } },
-          y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: formatAxisValue } }
-        }
-      }
-    });
+    renderBacktestEquityChart(points);
   }
 }
+
+function _backtestParseTime(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return raw > 1e11 ? Math.floor(raw / 1000) : Math.floor(raw);
+  const t = Date.parse(String(raw));
+  return isNaN(t) ? null : Math.floor(t / 1000);
+}
+
+function _disposeBacktestChart() {
+  if (window._backtestChart && typeof window._backtestChart.remove === 'function') {
+    try { window._backtestChart.remove(); } catch {}
+  }
+  window._backtestChart = null;
+  if (window._backtestResizeObserver) {
+    try { window._backtestResizeObserver.disconnect(); } catch {}
+    window._backtestResizeObserver = null;
+  }
+}
+
+function renderBacktestEquityChart(points) {
+  const container = document.getElementById('backtestResultChart');
+  if (!container) return;
+  if (typeof LightweightCharts === 'undefined') return;
+
+  const data = [];
+  for (const p of points) {
+    const t = _backtestParseTime(p.date);
+    if (t == null) continue;
+    data.push({ time: t, value: Number(p.equity) });
+  }
+  data.sort((a, b) => a.time - b.time);
+  const dedup = [];
+  for (const p of data) {
+    if (dedup.length === 0 || dedup[dedup.length - 1].time !== p.time) dedup.push(p);
+  }
+  if (dedup.length === 0) return;
+
+  _disposeBacktestChart();
+  container.innerHTML = '';
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const primary = getComputedStyle(document.documentElement).getPropertyValue('--cq-color-primary').trim() || '#6366F1';
+
+  const chart = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: container.clientHeight,
+    layout: {
+      background: { type: 'solid', color: 'transparent' },
+      textColor: isDark ? '#8B949E' : '#475569',
+      fontFamily: "'Geist', 'JetBrains Mono', sans-serif",
+      fontSize: 11,
+    },
+    grid: {
+      vertLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
+      horzLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: isDark ? 'rgba(139,148,158,0.4)' : 'rgba(15,23,42,0.3)', labelBackgroundColor: primary },
+      horzLine: { color: isDark ? 'rgba(139,148,158,0.4)' : 'rgba(15,23,42,0.3)', labelBackgroundColor: primary },
+    },
+    rightPriceScale: {
+      borderColor: isDark ? 'rgba(139,148,158,0.15)' : 'rgba(15,23,42,0.10)',
+      scaleMargins: { top: 0.10, bottom: 0.06 },
+    },
+    timeScale: {
+      borderColor: isDark ? 'rgba(139,148,158,0.15)' : 'rgba(15,23,42,0.10)',
+      timeVisible: false,
+      secondsVisible: false,
+    },
+    handleScroll: false,
+    handleScale: false,
+  });
+
+  const series = chart.addAreaSeries({
+    lineColor: primary,
+    lineWidth: 2,
+    topColor: isDark ? 'rgba(99,102,241,0.25)' : 'rgba(79,70,229,0.18)',
+    bottomColor: 'rgba(99,102,241,0)',
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  });
+  series.setData(dedup);
+  chart.timeScale().fitContent();
+
+  const ro = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const { width, height } = e.contentRect;
+      chart.applyOptions({ width: Math.floor(width), height: Math.floor(height) });
+    }
+  });
+  ro.observe(container);
+
+  window._backtestChart = chart;
+  window._backtestEquityData = dedup;
+  window._backtestResizeObserver = ro;
+}
+
+window.addEventListener('cq:theme-change', () => {
+  const data = window._backtestEquityData;
+  if (data && document.getElementById('backtestResultChart')) {
+    renderBacktestEquityChart(data.map(p => ({ date: p.time * 1000, equity: p.value })));
+  }
+});
 
 // 监听模板选择变化，渲染参数
 document.addEventListener('DOMContentLoaded', () => {
@@ -682,6 +757,24 @@ function renderBacktestParamControls(params) {
         </div>`;
     }
 
+    if (t === 'select') {
+      const options = Array.isArray(p.options) ? p.options : [];
+      const optsHtml = options.map(opt => {
+        const v = (opt && typeof opt === 'object') ? opt.value : opt;
+        const lbl = (opt && typeof opt === 'object') ? (opt.label ?? opt.value) : opt;
+        const sel = String(v) === String(p.default) ? ' selected' : '';
+        return `<option value="${v}"${sel}>${lbl}</option>`;
+      }).join('');
+      return `
+        <div style="margin-bottom:var(--cq-space-3);">
+          <label class="cq-label">${p.name}</label>
+          <select class="cq-input" id="bt-param-${p.key}" data-key="${p.key}" data-type="select">
+            ${optsHtml}
+          </select>
+          ${desc}
+        </div>`;
+    }
+
     // int / double — slider
     return `
       <div style="margin-bottom:var(--cq-space-3);">
@@ -724,6 +817,9 @@ function collectBacktestParams() {
   root.querySelectorAll('input[type="range"][data-key]').forEach(el => {
     const t = el.dataset.type;
     out[el.dataset.key] = t === 'int' ? parseInt(el.value, 10) : parseFloat(el.value);
+  });
+  root.querySelectorAll('select[data-key]').forEach(el => {
+    out[el.dataset.key] = el.value;
   });
 
   return out;

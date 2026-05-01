@@ -110,5 +110,11 @@ def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
     elif strategy_type == "rsi_layered":
         from app.core.strategies.rsi_layered import RsiLayeredStrategy
         return RsiLayeredStrategy(config)
+    elif strategy_type == "dca":
+        from app.core.strategies.dca import DCAStrategy
+        return DCAStrategy(config)
+    elif strategy_type == "multi_symbol":
+        from app.core.strategies.multi_symbol import MultiSymbolStrategy
+        return MultiSymbolStrategy(config)
     else:
         raise ValueError(f"不支持的策略类型: {strategy_type}")

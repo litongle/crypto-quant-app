@@ -34,12 +34,17 @@ logger = logging.getLogger(__name__)
 # P0-5: 增加进程级锁，防止安装向导竞态条件
 _setup_lock = asyncio.Lock()
 
+# 安装凭证文件：即使 .env 被删除，该文件存在也表示已初始化
+_SETUP_SECRET_FILE = Path("./.setup_secret")
+_SETUP_NONCE_FILE = Path("./.setup_nonce")
+
 
 class SetupRequest(BaseModel):
     """安装请求"""
     admin_email: EmailStr
     admin_password: str = Field(min_length=8, description="管理员密码，至少8位")
     admin_name: str = Field(min_length=2, max_length=100, description="管理员名称")
+    setup_nonce: str = Field(min_length=1, description="安装凭证，从 /setup/status 获取")
 
     database_url: str = "sqlite+aiosqlite:///./data/crypto_quant.db"
     redis_url: str = "redis://localhost:6379/0"
@@ -68,8 +73,26 @@ def write_env_file(values: dict[str, str]) -> None:
 async def setup_status():
     """检查是否需要安装"""
     settings = get_settings()
+
+    # 如果安装凭证文件存在，视为已初始化（即使 .env 被删除）
+    if _SETUP_SECRET_FILE.exists():
+        return {
+            "setup_required": False,
+            "has_env_file": settings.env_path.exists(),
+        }
+
+    # 需要安装时生成一次性 nonce
+    if settings.setup_required:
+        nonce = secrets.token_urlsafe(32)
+        _SETUP_NONCE_FILE.write_text(nonce, encoding="utf-8")
+        return {
+            "setup_required": True,
+            "has_env_file": settings.env_path.exists(),
+            "setup_nonce": nonce,
+        }
+
     return {
-        "setup_required": settings.setup_required,
+        "setup_required": False,
         "has_env_file": settings.env_path.exists(),
     }
 
@@ -121,9 +144,18 @@ async def complete_setup(req: SetupRequest):
     async with _setup_lock:
         settings = get_settings()
 
-        # 防止重复安装
+        # 防止重复安装（凭证文件存在即视为已初始化）
+        if _SETUP_SECRET_FILE.exists():
+            raise HTTPException(status_code=409, detail="应用已初始化，不能重复安装")
         if settings.env_path.exists() and not settings.setup_required:
             raise HTTPException(status_code=409, detail="应用已初始化，不能重复安装")
+
+        # 校验一次性安装凭证
+        if not _SETUP_NONCE_FILE.exists():
+            raise HTTPException(status_code=403, detail="缺少安装凭证，请先访问 /setup/status")
+        expected_nonce = _SETUP_NONCE_FILE.read_text(encoding="utf-8").strip()
+        if not secrets.compare_digest(expected_nonce, req.setup_nonce):
+            raise HTTPException(status_code=403, detail="无效的安装凭证")
 
     # Step 1: 生成配置并写入 .env（SETUP_COMPLETE=false，先不标记完成）
     env_values = {
@@ -181,7 +213,11 @@ async def complete_setup(req: SetupRequest):
     env_values["SETUP_COMPLETE"] = "true"
     write_env_file(env_values)
 
-    # Step 7: 再次热切换配置（不再 reset_database，否则会清掉刚建好的表和数据）
+    # Step 7: 生成安装凭证文件（防止 .env 被删除后重复初始化）
+    _SETUP_SECRET_FILE.write_text(secrets.token_urlsafe(32), encoding="utf-8")
+    _SETUP_NONCE_FILE.unlink(missing_ok=True)
+
+    # Step 8: 再次热切换配置（不再 reset_database，否则会清掉刚建好的表和数据）
     reload_settings()
 
     return {

@@ -4,6 +4,7 @@ from app.models.strategy import StrategyTemplate, StrategyInstance
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
 from app.models.backtest import BacktestResult
+from app.models.audit import AuditLog
 
 __all__ = [
     # 用户
@@ -19,4 +20,6 @@ __all__ = [
     "Signal",
     # 回测结果
     "BacktestResult",
+    # 审计日志
+    "AuditLog",
 ]

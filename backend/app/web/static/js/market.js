@@ -10,6 +10,8 @@ let marketSymbol = 'BTCUSDT';
 let marketInterval = '1h';
 let marketExchange = 'binance';
 let marketType = 'spot';   // F1: 'spot' | 'perp'
+let marketChartType = 'candle';  // 'candle' | 'line'
+let marketLastKlines = [];        // 缓存最近一次 klines,切换图表类型时复用
 let marketWs = null;
 let marketWsReconnectTimer = null;
 
@@ -40,8 +42,10 @@ function renderMarketOverview(tickers) {
   const el = document.getElementById('market-overview');
   if (!tickers || tickers.length === 0) {
     el.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-6);"><h3>暂无行情数据</h3><p>请检查网络连接</p></div>';
+    updateMarketOverviewMeta(null);
     return;
   }
+  updateMarketOverviewMeta(new Date());
 
   el.innerHTML = tickers.map(t => {
     const change = t.changePercent24h ?? 0;
@@ -62,6 +66,17 @@ function renderMarketOverview(tickers) {
       <div class="cq-ticker-card__spark">${sparkSvg}</div>
     </div>`;
   }).join('');
+}
+
+/* 概览卡数据时间戳 — 显示最近一次行情更新时间 */
+function updateMarketOverviewMeta(date) {
+  const meta = document.getElementById('market-overview-meta');
+  if (!meta) return;
+  if (!date) { meta.textContent = ''; return; }
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  meta.textContent = `数据更新于 ${h}:${m}:${s}`;
 }
 
 /* 迷你趋势线 SVG */
@@ -144,131 +159,193 @@ function changeMarketExchange(exchange) {
   startMarketWs();
 }
 
+/* 图表类型切换:蜡烛 / 线 — 不重新拉数据,直接复用缓存 */
+function changeMarketChartType(type) {
+  if (type !== 'candle' && type !== 'line') return;
+  marketChartType = type;
+  document.querySelectorAll('.cq-chart-type-btn').forEach(b => b.classList.remove('is-active'));
+  const active = document.querySelector(`.cq-chart-type-btn[data-chart-type="${type}"]`);
+  if (active) active.classList.add('is-active');
+  if (marketLastKlines.length > 0) {
+    renderKlineChart(marketLastKlines);
+  }
+}
+
 /* ── K线图加载 ── */
 async function loadMarketKline() {
   const container = document.getElementById('market-kline-wrap');
   if (!container) return;
-  container.innerHTML = '<div class="cq-skeleton" style="height:300px;"></div>';
+  disposeMarketKlineChart();
+  container.innerHTML = '<div class="cq-skeleton" style="height:100%;"></div>';
 
   try {
     const result = await api.getKline(marketSymbol, marketInterval, 200, marketExchange, marketType);
     const klines = result.klines || [];
     if (klines.length === 0) {
       container.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>暂无K线数据</h3></div>';
+      marketLastKlines = [];
       return;
     }
+    marketLastKlines = klines;
     renderKlineChart(klines);
   } catch (err) {
     container.innerHTML = `<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>${escapeHtml(err.message)}</h3></div>`;
+    marketLastKlines = [];
   }
 }
 
-/* ── K线图渲染（使用 Chart.js 蜡烛图模拟） ── */
+/* 把后端返回的 kline 转成 lightweight-charts 数据点
+ * 时间统一为 UNIX 秒(整数)。后端可能返回 ms / s / ISO 字符串,做兼容。
+ */
+function _normalizeKlineTime(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const t = Date.parse(raw);
+    return isNaN(t) ? null : Math.floor(t / 1000);
+  }
+  const n = Number(raw);
+  if (!isFinite(n)) return null;
+  // ms vs s 启发式:13 位以上视为 ms
+  return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+function _toCandleData(klines) {
+  const out = [];
+  for (const k of klines) {
+    // 后端实际字段为 timestamp(ISO 字符串);兼容 openTime/time/数组索引
+    const t = _normalizeKlineTime(k.timestamp ?? k.openTime ?? k.time ?? (Array.isArray(k) ? k[0] : null));
+    if (t == null) continue;
+    out.push({
+      time: t,
+      open: Number(k.open ?? (Array.isArray(k) ? k[1] : null)),
+      high: Number(k.high ?? (Array.isArray(k) ? k[2] : null)),
+      low: Number(k.low ?? (Array.isArray(k) ? k[3] : null)),
+      close: Number(k.close ?? (Array.isArray(k) ? k[4] : null)),
+    });
+  }
+  // lightweight-charts 要求按时间升序且唯一
+  out.sort((a, b) => a.time - b.time);
+  const dedup = [];
+  for (const p of out) {
+    if (dedup.length === 0 || dedup[dedup.length - 1].time !== p.time) dedup.push(p);
+  }
+  return dedup;
+}
+
+function _toLineData(candles) {
+  return candles.map(c => ({ time: c.time, value: c.close }));
+}
+
+/* ── 释放图表实例(切换 symbol/interval/页面离开时调用) ── */
+function disposeMarketKlineChart() {
+  if (window._klineChart && typeof window._klineChart.remove === 'function') {
+    try { window._klineChart.remove(); } catch {}
+  }
+  window._klineChart = null;
+  window._klineSeries = null;
+  if (window._klineResizeObserver) {
+    try { window._klineResizeObserver.disconnect(); } catch {}
+    window._klineResizeObserver = null;
+  }
+}
+
+/* ── K线图渲染(TradingView Lightweight Charts) ── */
 function renderKlineChart(klines) {
   const container = document.getElementById('market-kline-wrap');
-  container.innerHTML = '<div style="position:relative;height:320px;width:100%;"><canvas id="marketKlineChart"></canvas></div>';
+  if (!container) return;
+  if (typeof LightweightCharts === 'undefined') {
+    container.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>图表库未加载</h3></div>';
+    return;
+  }
+
+  disposeMarketKlineChart();
+  container.innerHTML = '';
+
+  const candles = _toCandleData(klines);
+  if (candles.length === 0) {
+    container.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>暂无K线数据</h3></div>';
+    return;
+  }
 
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-  const gridColor = isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.06)';
-  const tickColor = isDark ? '#6E7681' : '#94A3B8';
-  const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--cq-color-primary').trim() || '#6366F1';
+  const profit = (getComputedStyle(document.documentElement).getPropertyValue('--cq-color-profit').trim() || '#10B981');
+  const loss = (getComputedStyle(document.documentElement).getPropertyValue('--cq-color-loss').trim() || '#EF4444');
+  const primary = (getComputedStyle(document.documentElement).getPropertyValue('--cq-color-primary').trim() || '#6366F1');
 
-  const labels = [];
-  const closes = [];
-  const highs = [];
-  const lows = [];
-
-  klines.forEach(k => {
-    const time = k.openTime || k.time || k[0];
-    const close = k.close ?? k[4];
-    const high = k.high ?? k[2];
-    const low = k.low ?? k[3];
-    labels.push(formatKlineTime(time));
-    closes.push(Number(close));
-    highs.push(Number(high));
-    lows.push(Number(low));
+  const chart = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: container.clientHeight,
+    layout: {
+      background: { type: 'solid', color: 'transparent' },
+      textColor: isDark ? '#8B949E' : '#475569',
+      fontFamily: "'Geist', 'JetBrains Mono', sans-serif",
+      fontSize: 11,
+    },
+    grid: {
+      vertLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
+      horzLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: isDark ? 'rgba(139,148,158,0.4)' : 'rgba(15,23,42,0.3)', labelBackgroundColor: primary },
+      horzLine: { color: isDark ? 'rgba(139,148,158,0.4)' : 'rgba(15,23,42,0.3)', labelBackgroundColor: primary },
+    },
+    rightPriceScale: {
+      borderColor: isDark ? 'rgba(139,148,158,0.15)' : 'rgba(15,23,42,0.10)',
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    },
+    timeScale: {
+      borderColor: isDark ? 'rgba(139,148,158,0.15)' : 'rgba(15,23,42,0.10)',
+      timeVisible: !['1d', '1w'].includes(marketInterval),
+      secondsVisible: false,
+    },
+    handleScroll: true,
+    handleScale: true,
   });
 
-  if (window._klineChart) window._klineChart.destroy();
+  let series;
+  if (marketChartType === 'candle') {
+    series = chart.addCandlestickSeries({
+      upColor: profit,
+      downColor: loss,
+      borderUpColor: profit,
+      borderDownColor: loss,
+      wickUpColor: profit,
+      wickDownColor: loss,
+    });
+    series.setData(candles);
+  } else {
+    series = chart.addAreaSeries({
+      lineColor: primary,
+      lineWidth: 2,
+      topColor: isDark ? 'rgba(99,102,241,0.25)' : 'rgba(79,70,229,0.18)',
+      bottomColor: 'rgba(99,102,241,0)',
+    });
+    series.setData(_toLineData(candles));
+  }
 
-  const canvas = document.getElementById('marketKlineChart');
-  const ctx = canvas.getContext('2d');
-  const gradient = ctx.createLinearGradient(0, 0, 0, 280);
-  gradient.addColorStop(0, isDark ? 'rgba(99,102,241,0.10)' : 'rgba(79,70,229,0.06)');
-  gradient.addColorStop(1, 'rgba(99,102,241,0)');
+  chart.timeScale().fitContent();
 
-  window._klineChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '收盘价',
-          data: closes,
-          borderColor: primaryColor,
-          backgroundColor: gradient,
-          borderWidth: 1.5,
-          fill: true,
-          tension: 0.1,
-          pointRadius: 0,
-          pointHoverRadius: 3,
-        },
-        {
-          label: '最高',
-          data: highs,
-          borderColor: 'rgba(16,185,129,0.3)',
-          borderWidth: 0.5,
-          borderDash: [2, 2],
-          fill: false,
-          pointRadius: 0,
-        },
-        {
-          label: '最低',
-          data: lows,
-          borderColor: 'rgba(239,68,68,0.3)',
-          borderWidth: 0.5,
-          borderDash: [2, 2],
-          fill: false,
-          pointRadius: 0,
-        },
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: isDark ? '#1C2333' : '#FFFFFF',
-          titleColor: isDark ? '#E6EDF3' : '#0F172A',
-          bodyColor: isDark ? '#8B949E' : '#475569',
-          borderColor: isDark ? 'rgba(139,148,158,0.12)' : 'rgba(15,23,42,0.08)',
-          borderWidth: 1,
-          callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: $${Number(ctx.raw).toLocaleString('en-US', { maximumFractionDigits: 2 })}`
-          }
-        }
-      },
-      scales: {
-        x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'Geist', sans-serif" }, maxTicksLimit: 10 } },
-        y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: formatAxisValue } }
-      }
+  // 容器尺寸变化时同步图表宽高
+  const ro = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const { width, height } = e.contentRect;
+      chart.applyOptions({ width: Math.floor(width), height: Math.floor(height) });
     }
   });
+  ro.observe(container);
+
+  window._klineChart = chart;
+  window._klineSeries = series;
+  window._klineResizeObserver = ro;
 }
 
-function formatKlineTime(ts) {
-  if (!ts) return '';
-  const d = new Date(typeof ts === 'number' ? ts : ts);
-  if (isNaN(d.getTime())) return '';
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  if (['1d', '1w'].includes(marketInterval)) return `${m}-${day}`;
-  return `${m}-${day} ${h}:${min}`;
-}
+/* 主题切换时,如有数据就用新主题色重渲染 */
+window.addEventListener('cq:theme-change', () => {
+  if (marketLastKlines.length > 0 && document.getElementById('market-kline-wrap')) {
+    renderKlineChart(marketLastKlines);
+  }
+});
 
 /* ── WebSocket 实时推送 ── */
 function startMarketWs() {
@@ -291,13 +368,18 @@ function startMarketWs() {
     console.warn('[Market WS] 缺少 access token,跳过 WS 连接(请先登录)');
     return;
   }
-  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&market=${marketType}&token=${encodeURIComponent(token)}`;
+  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&market=${marketType}`;
 
   try {
     marketWs = new WebSocket(wsUrl);
 
     marketWs.onopen = () => {
       console.log('[Market WS] Connected:', marketSymbol, marketExchange);
+      // 先发送认证消息（Token 不再走 URL）
+      marketWs.send(JSON.stringify({
+        action: 'auth',
+        token: token,
+      }));
       // 自动订阅 ticker 频道
       marketWs.send(JSON.stringify({
         action: 'subscribe',
@@ -334,6 +416,7 @@ function handleMarketWsMessage(msg) {
   // 需要从 msg.data 内层读取行情字段
   if (msg.type === 'ticker' && msg.symbol) {
     const t = msg.data || {};  // 内层行情数据
+    updateMarketOverviewMeta(new Date());
 
     // 更新价格卡片
     const priceEl = document.getElementById(`ticker-price-${msg.symbol}`);
@@ -386,8 +469,9 @@ function initMarketSymbolSelector() {
   }
 }
 
-/* 页面离开时关闭 WS */
+/* 页面离开时关闭 WS + 释放 K 线图表 */
 function stopMarketWs() {
+  disposeMarketKlineChart();
   if (marketWs) {
     marketWs.onclose = null;
     marketWs.onerror = null;

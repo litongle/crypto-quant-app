@@ -39,6 +39,11 @@ class Order(Base):
         ForeignKey("exchange_accounts.id"), index=True
     )
     
+    # 客户端幂等订单ID（P0-2: 防止超时重试导致重复下单）
+    client_order_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     # 交易所订单ID（P2-6: 去掉 unique，改为联合唯一 (exchange_order_id, account_id)）
     exchange_order_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, index=True

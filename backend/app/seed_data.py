@@ -11,6 +11,34 @@ from app.models.strategy import StrategyTemplate
 logger = logging.getLogger(__name__)
 
 
+# ────────────────────────────────────────────────────────────
+# 共用参数:K 线周期
+# 决定策略实时下单的轮询节奏 + 回测使用的 K 线粒度。
+# 实时下单从 strategy_runner 读取此字段;回测从 backtest_service 读取此字段。
+# 二者一致才能保证回测和实盘的策略行为对齐。
+# ────────────────────────────────────────────────────────────
+_KLINE_INTERVAL_PARAM = {
+    "key": "kline_interval",
+    "name": "K线周期",
+    "type": "select",
+    "default": "1h",
+    "options": [
+        {"value": "1m",  "label": "1 分钟"},
+        {"value": "5m",  "label": "5 分钟"},
+        {"value": "15m", "label": "15 分钟"},
+        {"value": "30m", "label": "30 分钟"},
+        {"value": "1h",  "label": "1 小时"},
+        {"value": "4h",  "label": "4 小时"},
+        {"value": "1d",  "label": "日线"},
+    ],
+    "description": (
+        "策略实时下单和回测共用的 K 线周期。"
+        "周期越短信号越频繁,但更易被市场噪声触发;周期越长越稳但反应慢。"
+        "回测和实盘必须一致,否则同一组参数表现会完全不同。"
+    ),
+}
+
+
 # 预定义策略模板
 STRATEGY_TEMPLATES = [
     {
@@ -21,6 +49,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "medium",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "fastPeriod", "name": "快线周期", "type": "int", "default": 5, "min": 2, "max": 50, "step": 1},
                 {"key": "slowPeriod", "name": "慢线周期", "type": "int", "default": 20, "min": 5, "max": 200, "step": 1},
             ],
@@ -35,6 +64,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "medium",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "period", "name": "RSI周期", "type": "int", "default": 14, "min": 5, "max": 50, "step": 1},
                 {"key": "oversold", "name": "超卖线", "type": "int", "default": 30, "min": 10, "max": 40, "step": 1},
                 {"key": "overbought", "name": "超买线", "type": "int", "default": 70, "min": 60, "max": 90, "step": 1},
@@ -50,6 +80,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "high",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "period", "name": "周期", "type": "int", "default": 20, "min": 10, "max": 50, "step": 1},
                 {"key": "stdDev", "name": "标准差倍数", "type": "double", "default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5},
             ],
@@ -64,6 +95,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "medium",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "gridCount", "name": "网格数量", "type": "int", "default": 10, "min": 5, "max": 50, "step": 1},
                 {"key": "investmentPerGrid", "name": "每格投入(USDT)", "type": "double", "default": 100, "min": 10, "max": 10000, "step": 10},
                 {"key": "priceRange", "name": "价格范围(%)", "type": "double", "default": 10, "min": 1, "max": 50, "step": 1},
@@ -79,6 +111,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "high",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "initialInvestment", "name": "初始投资(USDT)", "type": "double", "default": 100, "min": 10, "max": 1000, "step": 10},
                 {"key": "multiplier", "name": "倍数", "type": "double", "default": 2.0, "min": 1.5, "max": 3.0, "step": 0.1},
                 {"key": "maxLosses", "name": "最大连续亏损", "type": "int", "default": 5, "min": 2, "max": 10, "step": 1},
@@ -94,6 +127,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "medium",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {
                     "key": "rules",
                     "name": "交易规则",
@@ -156,6 +190,7 @@ STRATEGY_TEMPLATES = [
         "risk_level": "high",
         "params_schema": {
             "params": [
+                _KLINE_INTERVAL_PARAM,
                 {"key": "rsi_period", "name": "RSI 周期", "type": "int",
                  "default": 14, "min": 5, "max": 50, "step": 1},
                 {"key": "long_levels", "name": "多头三层阈值",
@@ -176,10 +211,68 @@ STRATEGY_TEMPLATES = [
                  "type": "int", "default": 3, "min": 0, "max": 50, "step": 1},
                 {"key": "profit_taking_config", "name": "分层浮动止盈",
                  "type": "json", "default": [[10, 3.0, 2.0], [30, 5.0, 3.0], [60, 10.0, 5.0]],
-                 "description": "[[窗口K线数, 回撤点数, 最小盈利], ...]"},
+                 "description": (
+                     "按持仓周期分层止盈,每层 [窗口K线数, 回撤点数, 最小盈利点数](单位:价格点)。"
+                     "三个条件同时满足才平仓:持仓K线数≥窗口 且 浮盈从最高点回撤≥回撤点数 且 当前浮盈≥最小盈利。"
+                     "默认 [[10,3,2],[30,5,3],[60,10,5]] 表示:短线小赚保利→中线放宽回撤→长线让利润奔跑。"
+                 )},
                 {"key": "auto_trade", "name": "自动下单(谨慎)",
                  "type": "bool", "default": False,
                  "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号"},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        },
+    },
+    {
+        "code": "dca",
+        "name": "DCA 定投策略",
+        "description": "定期定额投资策略，支持智能定投（RSI低时加大投入）。适合长期持有，降低择时风险。",
+        "strategy_type": "dca",
+        "risk_level": "conservative",
+        "params_schema": {
+            "params": [
+                _KLINE_INTERVAL_PARAM,
+                {"key": "dca_interval_candles", "name": "定投间隔(K线数)", "type": "int", "default": 24, "min": 1, "max": 168, "step": 1,
+                 "description": "1h K线时 24=每天1次, 168=每周1次"},
+                {"key": "invest_per_trade", "name": "每次定投金额(USDT)", "type": "double", "default": 100, "min": 10, "max": 10000, "step": 10},
+                {"key": "smart_dca", "name": "智能定投", "type": "bool", "default": False,
+                 "description": "RSI超卖时定投额放大50%，超买时缩减50%"},
+                {"key": "take_profit_pct", "name": "止盈比例(%)", "type": "double", "default": 20, "min": 5, "max": 100, "step": 5},
+                {"key": "stop_loss_pct", "name": "止损比例(%)", "type": "double", "default": 30, "min": 5, "max": 50, "step": 5},
+            ],
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+        },
+    },
+    {
+        "code": "multi_symbol",
+        "name": "多币种联动策略",
+        "description": "支持Leader-Follow模式和配对交易。主币种信号联动从币种，或利用两币价差回归套利。",
+        "strategy_type": "multi_symbol",
+        "risk_level": "high",
+        "params_schema": {
+            "params": [
+                _KLINE_INTERVAL_PARAM,
+                {"key": "mode", "name": "策略模式", "type": "select", "default": "leader_follow",
+                 "options": [
+                     {"value": "leader_follow", "label": "Leader-Follow 联动"},
+                     {"value": "pair_trading", "label": "配对交易"},
+                 ]},
+                {"key": "leader_symbol", "name": "主交易对", "type": "select", "default": "BTCUSDT",
+                 "options": [
+                     {"value": "BTCUSDT", "label": "BTC/USDT"},
+                     {"value": "ETHUSDT", "label": "ETH/USDT"},
+                 ]},
+                {"key": "follower_symbols", "name": "跟随交易对", "type": "json", "default": ["ETHUSDT"],
+                 "description": "Leader-Follow 模式下联动交易对（JSON数组）"},
+                {"key": "pair_symbol", "name": "配对交易对", "type": "select", "default": "ETHUSDT",
+                 "options": [
+                     {"value": "ETHUSDT", "label": "ETH/USDT"},
+                     {"value": "SOLUSDT", "label": "SOL/USDT"},
+                 ]},
+                {"key": "entry_zscore", "name": "入场Z分数", "type": "double", "default": 2.0, "min": 1.0, "max": 5.0, "step": 0.5,
+                 "description": "价差Z分数超过此值开仓"},
+                {"key": "exit_zscore", "name": "出场Z分数", "type": "double", "default": 0.5, "min": 0.1, "max": 2.0, "step": 0.1,
+                 "description": "价差Z分数回归此值平仓"},
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         },

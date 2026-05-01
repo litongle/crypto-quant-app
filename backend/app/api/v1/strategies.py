@@ -120,6 +120,22 @@ class CreateInstanceResponse(BaseModel):
 from app.seed_data import STRATEGY_TEMPLATES as _SEED_TEMPLATES
 
 
+# 策略模板展示顺序：突出平台的“自定义运行”定位，其次展示用户自研策略，再给基础模板示例。
+TEMPLATE_DISPLAY_ORDER = [
+    "rule_custom",
+    "rsi_layered",
+    "dca",
+    "multi_symbol",
+    "ma_cross",
+    "rsi",
+    "bollinger",
+    "grid",
+    "martingale",
+]
+
+_TEMPLATE_DISPLAY_RANK = {code: index for index, code in enumerate(TEMPLATE_DISPLAY_ORDER)}
+
+
 def _build_predefined_templates() -> list[dict]:
     """从 seed_data 构建移动端响应格式的模板列表"""
     templates = []
@@ -131,8 +147,19 @@ def _build_predefined_templates() -> list[dict]:
         "bollinger": "bandcamp",
         "martingale": "casino",
         "rule_custom": "tune",
+        "rsi_layered": "show_chart",
+        "dca": "savings",
+        "multi_symbol": "hub",
     }
-    for t in _SEED_TEMPLATES:
+    ordered_seed_templates = sorted(
+        enumerate(_SEED_TEMPLATES),
+        key=lambda item: (
+            _TEMPLATE_DISPLAY_RANK.get(item[1]["code"], len(_TEMPLATE_DISPLAY_RANK) + item[0]),
+            item[0],
+        ),
+    )
+    for _, t in ordered_seed_templates:
+
         params = []
         for p in t["params_schema"].get("params", []):
             params.append(ParamSchema(
@@ -143,7 +170,8 @@ def _build_predefined_templates() -> list[dict]:
                 min=p.get("min"),
                 max=p.get("max"),
                 step=p.get("step"),
-                options=None,
+                options=p.get("options"),
+                description=p.get("description"),
             ).model_dump())
         templates.append({
             "id": t["code"],
@@ -257,7 +285,7 @@ async def create_strategy(
         raise HTTPException(status_code=404, detail="策略模板不存在")
 
     # 映射 string templateId -> int template_id
-    template_id = _STR_ID_MAP.get(request.templateId, 1)
+    template_id = STR_ID_MAP.get(request.templateId, 1)
 
     # 创建实例
     service = StrategyService(session)

@@ -48,6 +48,7 @@ class TokenResponse(BaseModel):
 class LoginResponse(TokenResponse):
     """登录响应"""
     user: UserResponse
+    requires_2fa: bool = False
 
 
 class RefreshRequest(BaseModel):
@@ -81,7 +82,7 @@ async def login(
 ) -> APIResponse:
     """用户登录"""
     auth_service = AuthService(session)
-    user, access_token, refresh_token = await auth_service.login(
+    user, access_token, refresh_token, requires_2fa = await auth_service.login(
         email=form_data.username,
         password=form_data.password,
     )
@@ -89,6 +90,7 @@ async def login(
         access_token=access_token,
         refresh_token=refresh_token,
         user=UserResponse.model_validate(user),
+        requires_2fa=requires_2fa,
     ).model_dump())
 
 
@@ -112,3 +114,125 @@ async def get_current_user_info(
 ) -> APIResponse:
     """获取当前用户信息"""
     return APIResponse(data=UserResponse.model_validate(current_user).model_dump())
+
+
+# ============ TOTP 2FA API — P1-5 ============
+
+class TotpSetupResponse(BaseModel):
+    """TOTP 设置响应"""
+    secret: str
+    uri: str
+
+
+class TotpVerifyRequest(BaseModel):
+    """TOTP 验证请求"""
+    code: str = Field(min_length=6, max_length=6, description="6位数字验证码")
+
+
+class TotpLoginRequest(BaseModel):
+    """2FA 登录请求"""
+    email: EmailStr
+    password: str
+    code: str = Field(min_length=6, max_length=6, description="6位TOTP验证码")
+
+
+@router.post("/2fa/setup")
+async def setup_2fa(
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse[TotpSetupResponse]:
+    """生成 TOTP 密钥和二维码 URI"""
+    from app.services.totp_service import generate_totp_secret, encrypt_totp_secret
+
+    result = await generate_totp_secret(current_user.id, current_user.email)
+
+    # 加密存储 secret（暂未启用，等用户 verify 后才设置 totp_verified）
+    encrypted = encrypt_totp_secret(result["secret"])
+    current_user.totp_secret = encrypted
+    current_user.totp_enabled = True
+    current_user.totp_verified = False
+    await session.commit()
+
+    return APIResponse(data=TotpSetupResponse(
+        secret=result["secret"],
+        uri=result["uri"],
+    ).model_dump())
+
+
+@router.post("/2fa/verify")
+async def verify_2fa(
+    request: TotpVerifyRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """验证并启用 2FA"""
+    from app.services.totp_service import decrypt_totp_secret, verify_totp
+
+    if not current_user.totp_secret or not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="请先发起 2FA 设置")
+    if current_user.totp_verified:
+        raise HTTPException(status_code=400, detail="2FA 已启用")
+
+    secret = decrypt_totp_secret(current_user.totp_secret)
+    if not await verify_totp(secret, request.code):
+        raise HTTPException(status_code=400, detail="验证码无效")
+
+    current_user.totp_verified = True
+    await session.commit()
+
+    return APIResponse(message="2FA 已启用")
+
+
+@router.post("/2fa/disable")
+async def disable_2fa(
+    request: TotpVerifyRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """禁用 2FA（需验证当前 TOTP）"""
+    from app.services.totp_service import decrypt_totp_secret, verify_totp
+
+    if not current_user.totp_secret or not current_user.has_2fa:
+        raise HTTPException(status_code=400, detail="2FA 未启用")
+
+    secret = decrypt_totp_secret(current_user.totp_secret)
+    if not await verify_totp(secret, request.code):
+        raise HTTPException(status_code=400, detail="验证码无效")
+
+    current_user.totp_secret = None
+    current_user.totp_enabled = False
+    current_user.totp_verified = False
+    await session.commit()
+
+    return APIResponse(message="2FA 已禁用")
+
+
+@router.post("/2fa/status")
+async def get_2fa_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> APIResponse:
+    """获取 2FA 状态"""
+    return APIResponse(data={
+        "enabled": current_user.totp_enabled,
+        "verified": current_user.totp_verified,
+        "has_2fa": current_user.has_2fa,
+    })
+
+
+@router.post("/login-2fa")
+async def login_with_2fa(
+    request: TotpLoginRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """带 2FA 验证的登录"""
+    auth_service = AuthService(session)
+    user, access_token, refresh_token = await auth_service.login_with_2fa(
+        email=request.email,
+        password=request.password,
+        totp_code=request.code,
+    )
+    return APIResponse(data=LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserResponse.model_validate(user),
+    ).model_dump())

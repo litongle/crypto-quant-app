@@ -2,6 +2,7 @@
 订单服务
 """
 import logging
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
@@ -166,6 +167,9 @@ class OrderService:
         else:
             order_value = Decimal("0")
 
+        # 生成幂等性客户端订单ID（P0-2: 超时重试时复用同一 ID）
+        client_order_id = f"cq-{user_id}-{account_id}-{uuid.uuid4().hex[:12]}"
+
         # 创建订单
         order = Order(
             account_id=account_id,
@@ -177,11 +181,12 @@ class OrderService:
             order_value=order_value,
             status="pending",
             strategy_instance_id=strategy_instance_id,
+            client_order_id=client_order_id,
         )
         return await self.order_repo.create(order)
 
     async def submit_order(self, order_id: int, user_id: int) -> Order:
-        """提交订单到交易所（真实下单）"""
+        """提交订单到交易所（真实下单，带幂等性保护）"""
         order = await self.order_repo.get_by_id(order_id)
         if not order:
             raise HTTPException(
@@ -196,15 +201,21 @@ class OrderService:
                 detail="无权操作此订单",
             )
 
+        # P0-2: 幂等性保护 — 已非 pending 的订单直接返回
+        if order.status != "pending":
+            logger.info("[OrderService] 订单已提交过，幂等返回: order_id=%d, status=%s", order_id, order.status)
+            return order
+
         # 调用真实交易所 API
         try:
             adapter = await self._get_adapter(account)
 
             logger.info(
                 "[OrderService] 提交订单: order_id=%d, symbol=%s, side=%s, "
-                "exchange=%s, demo=%s, testnet=%s",
+                "exchange=%s, demo=%s, testnet=%s, client_order_id=%s",
                 order_id, order.symbol, order.side,
                 account.exchange, account.is_demo, account.is_testnet,
+                order.client_order_id,
             )
 
             result = await adapter.create_order(
@@ -237,6 +248,23 @@ class OrderService:
 
             await self.session.commit()
             await self.session.refresh(order)
+
+            # P0-1: 大额成交通知（订单价值 > 1000 USDT）
+            if order.order_value and order.order_value >= Decimal("1000"):
+                try:
+                    from app.services.notification_service import notify_large_trade
+                    await notify_large_trade(
+                        symbol=order.symbol,
+                        side=order.side,
+                        order_type=order.order_type,
+                        quantity=order.quantity,
+                        price=order.avg_fill_price or order.price or Decimal("0"),
+                        order_value=order.order_value,
+                        order_id=order.id,
+                    )
+                except Exception as exc:
+                    logger.warning("[OrderService] 大额成交通知失败: %s", exc)
+
             return order
 
         except OrderRejectedError as exc:
@@ -468,11 +496,66 @@ class OrderService:
         # submit_order 内部已有异常处理，失败会抛出 HTTPException
         await self.submit_order(order.id, user_id)
 
+        # 计算盈亏
+        realized_pnl = Decimal("0")
+        if order.avg_fill_price and position.entry_price:
+            if position.side == "long":
+                realized_pnl = (order.avg_fill_price - position.entry_price) * position.quantity
+            else:
+                realized_pnl = (position.entry_price - order.avg_fill_price) * position.quantity
+
         # 只有交易所确认成功后才标记平仓
         position.status = "closed"
         position.closed_at = datetime.now(timezone.utc)
         await self.session.commit()
         await self.session.refresh(position)
+
+        # P0-1: 止损/止盈触发通知
+        try:
+            if position.stop_loss_price and order.avg_fill_price:
+                # 判断是否触发止损
+                sl_triggered = False
+                if position.side == "long" and order.avg_fill_price <= position.stop_loss_price:
+                    sl_triggered = True
+                elif position.side == "short" and order.avg_fill_price >= position.stop_loss_price:
+                    sl_triggered = True
+
+                if sl_triggered:
+                    from app.services.notification_service import notify_stop_loss
+                    await notify_stop_loss(
+                        symbol=position.symbol,
+                        side=position.side,
+                        entry_price=position.entry_price,
+                        stop_price=position.stop_loss_price,
+                        exit_price=order.avg_fill_price,
+                        pnl=realized_pnl,
+                        quantity=position.quantity,
+                        position_id=position.id,
+                    )
+
+            if position.take_profit_price and order.avg_fill_price:
+                # 判断是否触发止盈
+                tp_triggered = False
+                if position.side == "long" and order.avg_fill_price >= position.take_profit_price:
+                    tp_triggered = True
+                elif position.side == "short" and order.avg_fill_price <= position.take_profit_price:
+                    tp_triggered = True
+
+                if tp_triggered:
+                    from app.services.notification_service import notify_take_profit
+                    await notify_take_profit(
+                        symbol=position.symbol,
+                        side=position.side,
+                        entry_price=position.entry_price,
+                        tp_price=position.take_profit_price,
+                        exit_price=order.avg_fill_price,
+                        pnl=realized_pnl,
+                        quantity=position.quantity,
+                        position_id=position.id,
+                    )
+        except Exception as exc:
+            logger.warning("[OrderService] 止损/止盈通知失败: %s", exc)
+
         return position
 
     async def emergency_close_all(self, user_id: int, account_id: int | None = None):

@@ -50,6 +50,7 @@ class AssetService:
             accounts = [a for a in accounts if a.exchange == exchange]
 
         total_asset = Decimal("0")
+        today_trade_count = 0
         total_pnl = Decimal("0")
         available_balance = Decimal("0")
         locked_balance = Decimal("0")
@@ -92,6 +93,7 @@ class AssetService:
             # P0-2: 修复今日盈亏计算 - 从 Order 表汇总当日已成交订单的 pnl
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             today_orders = await self.order_repo.get_filled_orders_after(account.id, today_start)
+            today_trade_count += len(today_orders)
             account_today_pnl = sum((o.pnl for o in today_orders if o.pnl is not None), Decimal("0"))
             today_pnl += account_today_pnl
 
@@ -107,6 +109,7 @@ class AssetService:
             "frozenBalance": float(locked_balance),
             "todayPnl": float(today_pnl),
             "todayPnlPercent": float(today_pnl_percent),
+            "todayTradeCount": today_trade_count,
             "updatedAt": datetime.now(timezone.utc).isoformat() + "Z",
         }
 

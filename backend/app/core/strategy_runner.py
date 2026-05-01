@@ -39,6 +39,26 @@ from app.models.strategy import StrategyInstance, StrategyTemplate
 
 logger = logging.getLogger(__name__)
 
+
+# K 线周期 → 推荐轮询节奏(秒)
+# 思路:每根 K 线封盘附近触发一次 analyze,既不延迟太多也不过度频繁。
+# 短周期为减少封盘漏触发取约 1/2 K 线长度,长周期取 1/4 K 线长度封顶 5 分钟。
+_KLINE_INTERVAL_TO_POLL_SECONDS = {
+    "1m":  30,
+    "5m":  60,
+    "15m": 120,
+    "30m": 180,
+    "1h":  300,
+    "4h":  300,
+    "1d":  300,
+}
+
+
+def _kline_poll_seconds(kline_interval: str) -> int:
+    """根据 K 线周期返回推荐的轮询节奏(秒)。"""
+    return _KLINE_INTERVAL_TO_POLL_SECONDS.get(kline_interval, 60)
+
+
 # 信号 metadata.intent 取值,与 RsiLayered 等富语义策略对齐:
 #   open                            开新仓
 #   add                             加仓 — 与开仓走同一路径(余额自然递减)
@@ -210,14 +230,19 @@ class StrategyRunner:
 
     async def _run_loop(self, instance_id: int, strategy: BaseStrategy, config: StrategyConfig) -> None:
         """策略运行主循环"""
-        # 轮询间隔（秒），从策略参数读取
-        interval = config.params.get("interval", 60)  # 默认 60 秒
+        # K 线周期 — 决定信号触发的时间精度,与回测一致
+        kline_interval = str(config.params.get("kline_interval", "1h"))
+        # 轮询节奏跟 K 线周期对齐:每根 K 线封盘前后再触发一次分析
+        # 1m → 30s 轮询(更频繁追新封盘)、5m+ → 半根 K 线长度
+        poll_interval = _kline_poll_seconds(kline_interval)
+        # 兼容旧参数:若用户显式给了 interval(秒),仍尊重之
+        interval = int(config.params.get("interval", poll_interval))
         kline_limit = 100  # 获取最近 100 根 K 线
 
         while self._running:
             try:
                 # 1. 获取 K 线数据
-                klines = await self._fetch_klines(config.exchange, config.symbol, kline_limit)
+                klines = await self._fetch_klines(config.exchange, config.symbol, kline_limit, kline_interval)
 
                 if not klines:
                     await asyncio.sleep(interval)
@@ -230,7 +255,12 @@ class StrategyRunner:
                 if signal:
                     await self._handle_signal(instance_id, signal, config)
 
-                # 4. 更新 last_run_at + Step 3: 持久化策略状态
+                # 4. 更新持仓价格 — P0-2: 持仓价格自动刷新
+                if klines:
+                    current_price = Decimal(str(klines[-1]["close"]))
+                    await self._update_position_prices(instance_id, config.symbol, current_price)
+
+                # 5. 更新 last_run_at + Step 3: 持久化策略状态
                 await self._update_last_run_and_state(instance_id, strategy)
 
                 await asyncio.sleep(interval)
@@ -243,9 +273,9 @@ class StrategyRunner:
                 await asyncio.sleep(min(interval * 2, 300))  # 异常后等待更长时间
 
     async def _fetch_klines(
-        self, exchange: str, symbol: str, limit: int
+        self, exchange: str, symbol: str, limit: int, interval: str = "1h"
     ) -> list[dict]:
-        """从交易所获取 K 线数据"""
+        """从交易所获取 K 线数据(按策略配置的 kline_interval)"""
         try:
             from app.core.exchange_adapter import get_exchange_adapter
             # 使用公开数据不需要 API Key，传入空字符串
@@ -254,7 +284,7 @@ class StrategyRunner:
                 api_key="",
                 secret_key="",
             )
-            klines = await adapter.get_klines(symbol, interval="1m", limit=limit)
+            klines = await adapter.get_klines(symbol, interval=interval, limit=limit)
             return [
                 {
                     "open": float(k.open),
@@ -271,7 +301,7 @@ class StrategyRunner:
             return []
 
     async def _handle_signal(self, instance_id: int, signal: Signal, config: StrategyConfig) -> None:
-        """处理策略信号：持久化信号 + WS推送 + 自动下单"""
+        """处理策略信号：持久化信号 + WS推送 + 通知 + 自动下单"""
         # 防抖：60 秒内同策略不重复发信号
         now = datetime.now(timezone.utc)
         last = self._last_signal_at.get(instance_id)
@@ -315,7 +345,23 @@ class StrategyRunner:
         except Exception as exc:
             logger.debug("[StrategyRunner] WS 推送信号失败: %s", exc)
 
-        # ③ 自动下单（需要用户在策略参数中开启 auto_trade + 绑定账户）
+        # ③ 推送通知（Telegram/企微）— P0-1: 信号通知系统
+        try:
+            from app.services.notification_service import notify_signal
+            await notify_signal(
+                symbol=config.symbol,
+                action=signal.action,
+                confidence=signal.confidence,
+                entry_price=signal.entry_price,
+                stop_loss=signal.stop_loss_price,
+                take_profit=signal.take_profit_price,
+                reason=signal.reason,
+                strategy_name=config.params.get("strategy_name", f"策略#{instance_id}"),
+            )
+        except Exception as exc:
+            logger.warning("[StrategyRunner] 通知推送失败: %s", exc)
+
+        # ④ 自动下单（需要用户在策略参数中开启 auto_trade + 绑定账户）
         auto_trade = config.params.get("auto_trade", False)
         if not auto_trade:
             logger.info("[StrategyRunner] 策略 #%d auto_trade 未开启，跳过自动下单", instance_id)
@@ -518,7 +564,18 @@ class StrategyRunner:
             quantity=quantity,
             strategy_instance_id=instance_id,
         )
-        await order_service.submit_order(order.id, user_id)
+        try:
+            await order_service.submit_order(order.id, user_id)
+        except Exception:
+            # P0-3: 提交失败，清理残留订单避免幽灵订单
+            try:
+                await order_service.order_repo.delete(order.id)
+                await session.commit()
+            except Exception:
+                pass
+            if signal_id:
+                await self._update_signal_status(signal_id, "rejected", reason="下单失败")
+            raise
 
         if signal_id:
             await self._update_signal_status(signal_id, "executed", order_id=order.id)
@@ -639,6 +696,84 @@ class StrategyRunner:
             return quantity
 
         return max(quantity, min_qty) if quantity >= min_qty else Decimal("0")
+
+    async def _update_position_prices(
+        self, instance_id: int, symbol: str, current_price: Decimal
+    ) -> None:
+        """更新持仓价格 — P0-2: 持仓价格自动刷新
+
+        查找该策略实例绑定的账户上该交易对的所有 open 持仓，
+        更新 current_price 和 unrealized_pnl。
+        """
+        try:
+            async with self._session_maker() as session:
+                from app.models.exchange import Position
+                from sqlalchemy import update
+
+                # 先找到策略实例获取 account_id
+                result = await session.execute(
+                    select(StrategyInstance).where(StrategyInstance.id == instance_id)
+                )
+                inst = result.scalar_one_or_none()
+                if not inst or not inst.account_id:
+                    return
+
+                # 查找该账户该交易对的 open 持仓
+                pos_result = await session.execute(
+                    select(Position).where(
+                        Position.account_id == inst.account_id,
+                        Position.symbol == symbol.upper(),
+                        Position.status == "open",
+                    )
+                )
+                positions = pos_result.scalars().all()
+
+                for position in positions:
+                    position.current_price = current_price
+
+                    # 计算未实现盈亏
+                    if position.side == "long":
+                        position.unrealized_pnl = (current_price - position.entry_price) * position.quantity
+                    else:  # short
+                        position.unrealized_pnl = (position.entry_price - current_price) * position.quantity
+
+                    # 计算百分比
+                    if position.entry_price and position.entry_price > 0:
+                        position.unrealized_pnl_percent = (
+                            position.unrealized_pnl / (position.entry_price * position.quantity) * 100
+                        )
+
+                if positions:
+                    await session.commit()
+
+                    # 通过 WS 推送持仓更新
+                    try:
+                        from app.api.v1.ws_market import manager
+                        from app.core.trade_schemas import WSMessage
+
+                        for position in positions:
+                            msg = WSMessage(
+                                type="position_update",
+                                exchange=inst.exchange,
+                                symbol=symbol,
+                                data={
+                                    "position_id": position.id,
+                                    "current_price": str(current_price),
+                                    "unrealized_pnl": str(position.unrealized_pnl),
+                                    "unrealized_pnl_percent": str(position.unrealized_pnl_percent),
+                                },
+                            )
+                            subscribers = manager.get_subscribers("position", symbol)
+                            for ws in subscribers:
+                                try:
+                                    await ws.send_text(msg.model_dump_json())
+                                except Exception:
+                                    pass
+                    except Exception as exc:
+                        logger.debug("[StrategyRunner] WS 推送持仓更新失败: %s", exc)
+
+        except Exception as exc:
+            logger.debug("[StrategyRunner] 更新持仓价格失败: %s", exc)
 
     async def _update_signal_status(
         self,

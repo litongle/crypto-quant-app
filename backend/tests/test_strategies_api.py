@@ -24,8 +24,23 @@ class TestStrategyTemplatesAPI:
             assert "id" in tpl
             assert "name" in tpl
 
+    async def test_templates_are_sorted_for_creation_ux(self, client: AsyncClient):
+        resp = await client.get("/api/v1/strategies/templates")
+        templates = resp.json()["data"]
+        assert [tpl["id"] for tpl in templates] == [
+            "rule_custom",
+            "rsi_layered",
+            "ma_cross",
+            "rsi",
+            "bollinger",
+            "grid",
+            "martingale",
+        ]
+
+
 
 # ==================== 实例查询 ====================
+
 
 class TestStrategyInstancesAPI:
     async def test_get_instances_unauthenticated(self, client: AsyncClient):

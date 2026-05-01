@@ -34,7 +34,7 @@ function filterAccountsByExchange() {
   const filtered = accounts.filter(a => a.exchange === selectedExchange);
 
   accountSelect.innerHTML = '<option value="">模拟模式（不下单）</option>' +
-    filtered.map(a => `<option value="${a.id}">${a.account_name || a.exchange} (${a.exchange})</option>`).join('');
+    filtered.map(a => `<option value="${a.id}">${escapeHtml(a.account_name || a.exchange)} (${escapeHtml(a.exchange)})</option>`).join('');
 
   if (filtered.length === 0) {
     const opt = document.createElement('option');
@@ -72,7 +72,37 @@ async function loadStrategyPage() {
   }
 }
 
-/* ── 渲染药丸选择器 ── */
+const TEMPLATE_GROUPS = [
+  {
+    title: '自定义创建',
+    hint: '从规则构建器开始，组合指标条件生成策略',
+    ids: ['rule_custom'],
+  },
+  {
+    title: '我的策略',
+    hint: '你自研或重点维护的策略',
+    ids: ['rsi_layered'],
+  },
+  {
+    title: '系统模板',
+    hint: '内置示例模板，可直接配置运行',
+    ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale'],
+  },
+];
+
+function renderTemplateButton(t) {
+  return `
+    <button class="cq-pill${selectedTemplateId === t.id ? ' is-selected' : ''}" id="pill-${t.id}" onclick="selectTemplate('${t.id}')" title="${escapeHtml(t.description || t.name)}">
+      <div class="cq-pill__icon">${getStrategyIcon(t.id)}</div>
+      <span class="cq-pill__name">${escapeHtml(t.name)}</span>
+      <div class="cq-pill__check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    </button>
+  `;
+}
+
+/* ── 渲染分组模板选择器 ── */
 function renderTemplatePills(templates) {
   const el = document.getElementById('template-list');
   if (!templates || templates.length === 0) {
@@ -80,16 +110,37 @@ function renderTemplatePills(templates) {
     return;
   }
 
-  el.innerHTML = templates.map(t => `
-    <button class="cq-pill${selectedTemplateId === t.id ? ' is-selected' : ''}" id="pill-${t.id}" onclick="selectTemplate('${t.id}')" title="${t.description || t.name}">
-      <div class="cq-pill__icon">${getStrategyIcon(t.id)}</div>
-      <span class="cq-pill__name">${t.name}</span>
-      <div class="cq-pill__check">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  const templateMap = new Map(templates.map(t => [t.id, t]));
+  const groupedIds = new Set(TEMPLATE_GROUPS.flatMap(group => group.ids));
+  const groups = TEMPLATE_GROUPS.map(group => ({
+    ...group,
+    templates: group.ids.map(id => templateMap.get(id)).filter(Boolean),
+  })).filter(group => group.templates.length > 0);
+
+  const ungroupedTemplates = templates.filter(t => !groupedIds.has(t.id));
+  if (ungroupedTemplates.length > 0) {
+    const systemGroup = groups.find(group => group.title === '系统模板');
+    if (systemGroup) {
+      systemGroup.templates.push(...ungroupedTemplates);
+    } else {
+      groups.push({ title: '系统模板', hint: '内置示例模板，可直接配置运行', templates: ungroupedTemplates });
+    }
+  }
+
+  el.innerHTML = groups.map(group => `
+
+    <div class="cq-template-group">
+      <div class="cq-template-group__header">
+        <span class="cq-template-group__title">${group.title}</span>
+        <span class="cq-template-group__hint">${group.hint}</span>
       </div>
-    </button>
+      <div class="cq-template-group__pills">
+        ${group.templates.map(renderTemplateButton).join('')}
+      </div>
+    </div>
   `).join('');
 }
+
 
 /* ── 渲染实例列表 ── */
 function renderInstanceList(instances) {
@@ -337,6 +388,26 @@ function renderParamSliders(params) {
         </div>`;
     }
 
+    if (t === 'select') {
+      const options = Array.isArray(p.options) ? p.options : [];
+      const optsHtml = options.map(opt => {
+        const v = (opt && typeof opt === 'object') ? opt.value : opt;
+        const lbl = (opt && typeof opt === 'object') ? (opt.label ?? opt.value) : opt;
+        const sel = String(v) === String(p.default) ? ' selected' : '';
+        return `<option value="${v}"${sel}>${lbl}</option>`;
+      }).join('');
+      return `
+        <div class="cq-param-group">
+          <div class="cq-param-header">
+            <span class="cq-param-label">${p.name}</span>
+          </div>
+          <select class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="select">
+            ${optsHtml}
+          </select>
+          ${desc}
+        </div>`;
+    }
+
     // int / double — range slider
     return `
       <div class="cq-param-group">
@@ -370,6 +441,11 @@ function collectStrategyParams() {
     const t = el.dataset.type;
     const parts = el.value.split(',').map(s => s.trim()).filter(s => s !== '');
     out[el.dataset.key] = parts.map(s => t === 'array_int' ? parseInt(s, 10) : parseFloat(s));
+  });
+
+  // select: dropdown
+  root.querySelectorAll('select[data-key]').forEach(el => {
+    out[el.dataset.key] = el.value;
   });
 
   // json: textarea

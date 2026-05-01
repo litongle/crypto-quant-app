@@ -92,9 +92,39 @@ class AuthService:
             )
         return user
 
-    async def login(self, email: str, password: str) -> tuple[User, str, str]:
-        """用户登录"""
+    async def login(self, email: str, password: str) -> tuple[User, str, str, bool]:
+        """用户登录。如果开启了2FA，返回 requires_2fa=True，不发token。"""
         user = await self.authenticate(email, password)
+        
+        # 如果启用了2FA，只返回用户信息提示需要2FA
+        if user.has_2fa:
+            return user, "", "", True
+        
+        access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        return user, access_token, refresh_token, False
+
+    async def login_with_2fa(
+        self, email: str, password: str, totp_code: str
+    ) -> tuple[User, str, str]:
+        """带 TOTP 验证码的登录"""
+        from app.services.totp_service import decrypt_totp_secret, verify_totp
+        
+        user = await self.authenticate(email, password)
+        
+        if not user.has_2fa:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该账户未启用 2FA",
+            )
+        
+        secret = decrypt_totp_secret(user.totp_secret)
+        if not await verify_totp(secret, totp_code):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="2FA 验证码无效",
+            )
+        
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
         return user, access_token, refresh_token

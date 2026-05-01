@@ -3,7 +3,6 @@
 > 面向加密货币投资者的量化交易平台 — 不写代码也能使用专业策略，支持实盘下单与风控管理。
 
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
-[![Flutter](https://img.shields.io/badge/Flutter-3.16+-25B8F8.svg)](https://flutter.dev/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
 
@@ -13,8 +12,7 @@
 
 | 层级 | 技术 |
 |------|------|
-| 移动端 | Flutter + Riverpod + GoRouter |
-| 网页控制台 | 原生 JS + CSS 变量设计系统 + Chart.js（响应式4断点） |
+| 前端 | PWA 网页控制台 — 原生 JS + CSS 变量设计系统 + Chart.js（响应式4断点） |
 | 后端 | Python 3.12 + FastAPI（异步） |
 | 数据库 | PostgreSQL + TimescaleDB（默认 SQLite 零配置启动） |
 | 缓存/队列 | Redis + Redis Streams |
@@ -51,14 +49,6 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 3. 确认安装 → 自动生成安全密钥、建表、跳转登录
 
 运行测试：`pytest` | 代码检查：`ruff check .`
-
-### 移动端
-
-```bash
-cd mobile
-flutter pub get
-flutter run    # 无需后端，未登录时展示占位数据
-```
 
 ### 访问地址
 
@@ -115,10 +105,8 @@ crypto-quant-app/
 │   │       ├── routes.py
 │   │       └── static/         # index.html, setup.html, css/, js/（8个模块）
 │   └── tests/                  # 测试（7个文件 / 40+ 用例）
-└── mobile/                     ← Flutter 移动端（35个 Dart 文件）
-    └── lib/
-        ├── core/               # 常量/网络/Provider/路由/主题
-        └── features/           # auth/dashboard/strategies/backtest/settings
+└── docs/
+    └── 系统架构图.html         ← 可视化架构图
 ```
 
 ---
@@ -148,32 +136,30 @@ crypto-quant-app/
 | 交易所适配器（3交易所 + 重试 + 限流） | ✅ |
 | WebSocket 实时行情 | ✅ |
 | 交易所账户管理（CRUD + AES-256加密） | ✅ |
-| 网页控制台（7页面 + 响应式4断点） | ✅ |
+| 网页控制台（7页面 + 响应式4断点 + PWA） | ✅ |
 | 设计系统 v3.1（流体缩放 + 双主题） | ✅ |
 | 测试框架（40+ 用例） | ✅ |
-| Flutter 移动端（5模块，核心API已对接） | ✅ 框架完成 |
 | 数据库迁移（Alembic） | 📋 待完成 |
-| 移动端 API 全量对接 | 📋 待完成 |
 
 ### API 对接矩阵
 
-| 模块 | 前缀 | 端点数 | 移动端 | 网页端 |
-|------|------|--------|--------|--------|
-| 安装向导 | /setup | 2 | N/A | ✅ |
-| 认证 | /auth | 4 | ✅ | ✅ |
-| 策略 | /strategies | 10 | ❌ | ✅ 7/10 |
-| 回测 | /backtest | 3 | ❌ | ✅ |
-| 行情 | /market | 5 | ✅ 1/5 | ✅ 2/5 |
-| 资产 | /asset | 3 | ✅ | ✅ |
-| 交易 | /trading | 10 | ❌ | ✅ 9/10 |
-| WebSocket | /ws | 3 | ❌ | ✅ |
+| 模块 | 前缀 | 端点数 | 网页端 |
+|------|------|--------|--------|
+| 安装向导 | /setup | 2 | ✅ |
+| 认证 | /auth | 4 | ✅ |
+| 策略 | /strategies | 10 | ✅ 7/10 |
+| 回测 | /backtest | 3 | ✅ |
+| 行情 | /market | 5 | ✅ 2/5 |
+| 资产 | /asset | 3 | ✅ |
+| 交易 | /trading | 10 | ✅ 9/10 |
+| WebSocket | /ws | 3 | ✅ |
 
 ### 安全审计
 
 | 审计轮次 | 发现 | 已修 | 关键未修项 |
 |----------|------|------|-----------|
 | 第一轮（2026-04-21） | 27项 | 27 | — |
-| 现实检验（2026-04-26） | 27项 | 21 | Alembic迁移 / Flutter动态配置 / 订单模型优化 / 健康检查详情 / httpOnly cookie / 密码截断 |
+| 现实检验（2026-04-26） | 27项 | 21 | Alembic迁移 / 订单模型优化 / 健康检查详情 / httpOnly cookie / 密码截断 |
 
 ### 发布阻塞项
 
@@ -181,7 +167,6 @@ crypto-quant-app/
 |--------|------|------|
 | 🔴 P0 | 策略信号 WS 前端订阅 | ❌ |
 | 🟡 P1 | 数据库迁移（Alembic） | ❌ |
-| 🟡 P1 | 移动端 API 全量对接 | ❌ |
 | 🟢 P2 | token httpOnly cookie | ❌ |
 
 ### 版本规划
@@ -189,7 +174,7 @@ crypto-quant-app/
 | 版本 | 目标日期 | 主要内容 | 状态 |
 |------|---------|---------|------|
 | v0.3.0 | 2026-04-26 | 现实检验修复 + 规则引擎 + 前端P0修复 | ✅ |
-| v0.4.0 | 2026-05-18 | 移动端核心 UI 完整对接 + 数据库迁移 | 📋 |
+| v0.4.0 | 2026-05-18 | 数据库迁移 + PWA 完善 | 📋 |
 | v0.5.0 | 2026-06-01 | 风控完善 + 策略信号通知 | 📋 |
 | v1.0.0 | 2026-06-30 | 生产发布 | 📋 |
 

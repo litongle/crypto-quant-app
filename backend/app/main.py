@@ -57,6 +57,22 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("策略运行器初始化失败: %s", exc)
 
+    # 启动订单对账服务 — P0-3
+    try:
+        from app.services.order_reconciliation_service import start_reconciliation
+        session_maker = await get_session_maker()
+        await start_reconciliation(session_maker)
+    except Exception as exc:
+        logger.warning("订单对账服务初始化失败: %s", exc)
+
+    # 启动定时同步调度器 — P1-4
+    try:
+        from app.services.sync_scheduler import start_sync_scheduler
+        session_maker = await get_session_maker()
+        await start_sync_scheduler(session_maker)
+    except Exception as exc:
+        logger.warning("定时同步调度器初始化失败: %s", exc)
+
     yield
 
     # 关闭时清理
@@ -68,6 +84,21 @@ async def lifespan(app: FastAPI):
     try:
         from app.core.strategy_runner import strategy_runner
         await strategy_runner.stop()
+    except Exception:
+        pass
+    try:
+        from app.services.order_reconciliation_service import stop_reconciliation
+        await stop_reconciliation()
+    except Exception:
+        pass
+    try:
+        from app.services.sync_scheduler import stop_sync_scheduler
+        await stop_sync_scheduler()
+    except Exception:
+        pass
+    try:
+        from app.services.notification_service import notification_service
+        await notification_service.close()
     except Exception:
         pass
     from app.redis import close_redis
@@ -96,6 +127,14 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
+
+    # 审计日志中间件 — P1-6
+    try:
+        from app.api.audit_middleware import AuditMiddleware
+        app.add_middleware(AuditMiddleware)
+        logger.info("审计日志中间件已注册")
+    except Exception as exc:
+        logger.warning("审计日志中间件注册失败: %s", exc)
 
     # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
     # 改为使用 Redis 存储，支持多进程/多实例且有过期时间

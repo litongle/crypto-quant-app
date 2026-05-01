@@ -90,3 +90,14 @@ class StrategyInstanceRepository(BaseRepository[StrategyInstance]):
             .options(selectinload(StrategyInstance.template))
         )
         return result.scalar_one_or_none()
+
+    async def get_with_template_for_update(self, instance_id: int) -> StrategyInstance | None:
+        """获取策略实例（含模板），加行级锁防止并发启动"""
+        from sqlalchemy.orm import joinedload
+        result = await self.session.execute(
+            select(StrategyInstance)
+            .where(StrategyInstance.id == instance_id)
+            .options(selectinload(StrategyInstance.template))
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()

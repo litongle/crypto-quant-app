@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:8000,http://localhost:8000"
 
+    # 通知服务 — P0-1
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    wecom_webhook_url: str | None = None
+
     @property
     def cors_origins_list(self) -> list[str]:
         if isinstance(self.cors_origins, str):

@@ -1,0 +1,27 @@
+{
+  "name": "币钱袋 - 量化交易控制台",
+  "short_name": "币钱袋",
+  "description": "数字货币量化交易平台 — 策略、回测、实盘交易",
+  "start_url": "/web/",
+  "scope": "/web/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/web/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/web/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["finance", "utilities"],
+  "lang": "zh-CN"
+}

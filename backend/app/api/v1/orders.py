@@ -239,8 +239,17 @@ async def create_order(
         strategy_instance_id=request.strategy_instance_id,
     )
 
-    # 提交订单
-    order = await service.submit_order(order.id, current_user.id)
+    # 提交订单（P0-3: 如果提交失败，删除残留订单避免幽灵订单）
+    try:
+        order = await service.submit_order(order.id, current_user.id)
+    except HTTPException:
+        # 提交失败，清理残留订单
+        try:
+            await service.order_repo.delete(order.id)
+            await session.commit()
+        except Exception:
+            pass
+        raise
     return APIResponse(data=OrderSchema.from_model(order).model_dump())
 
 

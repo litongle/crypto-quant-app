@@ -40,15 +40,6 @@ yarn-error.log*
 .pnp.js
 dist-ssr/
 
-# Flutter/Dart
-mobile/.dart_tool/
-mobile/.packages
-mobile/.pub-cache/
-mobile/.pub/
-mobile/build/
-mobile/.flutter-plugins
-mobile/.flutter-plugins-dependencies
-
 # Coverage
 htmlcov/
 .coverage
@@ -70,6 +61,12 @@ alembic/__pycache__/
 # Logs
 *.log
 logs/
+
+# Archon (worktree runtime data)
+.archon/worktrees/
+.archon/artifacts/
+.archon/logs/
+.archon/.env
 
 # WorkBuddy internal
 .workbuddy/

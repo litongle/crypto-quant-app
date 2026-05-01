@@ -309,7 +309,14 @@
 <script>
 const API_BASE = '/api/v1';
 
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // ===== 初始化 =====
+let _setupNonce = '';
+
 document.addEventListener('DOMContentLoaded', async () => {
   // 检查安装状态，如果已安装则直接跳转
   try {
@@ -317,6 +324,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await res.json();
     if (!data.setup_required) {
       window.location.href = '/web/';
+    }
+    if (data.setup_nonce) {
+      _setupNonce = data.setup_nonce;
     }
   } catch (e) {
     // 后端未启动等情况，忽略
@@ -396,11 +406,11 @@ function updateSummary() {
   }
 
   const summary = `
-    <div>👤 管理员：<b>${document.getElementById('admin-name').value}</b></div>
-    <div>📧 邮箱：<b>${document.getElementById('admin-email').value}</b></div>
+    <div>👤 管理员：<b>${escapeHtml(document.getElementById('admin-name').value)}</b></div>
+    <div>📧 邮箱：<b>${escapeHtml(document.getElementById('admin-email').value)}</b></div>
     <div>🗄️ 数据库：<b>${dbType === 'sqlite' ? 'SQLite' : 'PostgreSQL'}</b></div>
-    <div style="word-break:break-all;font-size:11px;color:#64748b;">${dbUrl}</div>
-    <div>🔴 Redis：<b>${document.getElementById('redis-url').value}</b></div>
+    <div style="word-break:break-all;font-size:11px;color:#64748b;">${escapeHtml(dbUrl)}</div>
+    <div>🔴 Redis：<b>${escapeHtml(document.getElementById('redis-url').value)}</b></div>
   `;
   document.getElementById('config-summary').innerHTML = summary;
 }
@@ -443,6 +453,7 @@ async function startInstall() {
     redis_url: document.getElementById('redis-url').value.trim(),
     cors_origins: ['http://127.0.0.1:8000', 'http://localhost:8000'],
     debug: false,
+    setup_nonce: _setupNonce,
   };
 
   try {

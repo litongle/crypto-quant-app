@@ -184,8 +184,8 @@ class StrategyService:
         return await self.instance_repo.update(instance_id, **update_dict)
 
     async def start_instance(self, instance_id: int, user_id: int) -> StrategyInstance | None:
-        """启动策略"""
-        instance = await self.instance_repo.get_with_template(instance_id)
+        """启动策略（带数据库级并发锁）"""
+        instance = await self.instance_repo.get_with_template_for_update(instance_id)
         if not instance:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -206,17 +206,16 @@
 <body>
     <div class="container">
         <h1>🏦 币钱袋 (CryptoQuant) 系统架构</h1>
-        <p class="subtitle">数字货币量化交易移动应用 | 2026-04-21</p>
+        <p class="subtitle">数字货币量化交易平台 | 2026-05-01</p>
 
         <!-- 技术栈 -->
         <div class="diagram">
             <div class="layer">
                 <div class="layer-title">技术栈</div>
                 <div class="tech-stack">
-                    <span class="tech-tag">Flutter 3.x</span>
-                    <span class="tech-tag">Riverpod</span>
-                    <span class="tech-tag">GoRouter</span>
-                    <span class="tech-tag">Dio</span>
+                    <span class="tech-tag">PWA</span>
+                    <span class="tech-tag">Chart.js</span>
+                    <span class="tech-tag">CSS 变量设计系统</span>
                     <span class="tech-tag">FastAPI</span>
                     <span class="tech-tag">SQLAlchemy (Async)</span>
                     <span class="tech-tag">PostgreSQL</span>
@@ -232,17 +231,17 @@
             <div class="layer-title">系统分层架构</div>
 
             <div class="layer client-layer">
-                <div class="layer-title" style="color: #06b6d4;">客户端层 (Flutter App)</div>
+                <div class="layer-title" style="color: #06b6d4;">客户端层 (PWA 网页控制台)</div>
                 <div class="row">
                     <div class="box">
                         <div class="box-icon">📊</div>
-                        <div class="box-title">首页 Dashboard</div>
+                        <div class="box-title">Dashboard</div>
                         <div class="box-sub">资产/行情/持仓</div>
                     </div>
                     <div class="box">
                         <div class="box-icon">📈</div>
                         <div class="box-title">策略中心</div>
-                        <div class="box-sub">模板/实例</div>
+                        <div class="box-sub">模板/实例/规则</div>
                     </div>
                     <div class="box">
                         <div class="box-icon">🔄</div>
@@ -250,40 +249,14 @@
                         <div class="box-sub">策略验证</div>
                     </div>
                     <div class="box">
+                        <div class="box-icon">💹</div>
+                        <div class="box-title">行情/交易</div>
+                        <div class="box-sub">K线/下单/持仓</div>
+                    </div>
+                    <div class="box">
                         <div class="box-icon">⚙️</div>
                         <div class="box-title">设置</div>
                         <div class="box-sub">账户/交易所</div>
-                    </div>
-                    <div class="box">
-                        <div class="box-icon">🔐</div>
-                        <div class="box-title">登录/注册</div>
-                        <div class="box-sub">JWT 认证</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="layer mobile-layer">
-                <div class="layer-title" style="color: #a78bfa;">移动端核心</div>
-                <div class="row">
-                    <div class="box">
-                        <div class="box-icon">🔄</div>
-                        <div class="box-title">Riverpod</div>
-                        <div class="box-sub">状态管理</div>
-                    </div>
-                    <div class="box">
-                        <div class="box-icon">🛣️</div>
-                        <div class="box-title">GoRouter</div>
-                        <div class="box-sub">路由 + 守卫</div>
-                    </div>
-                    <div class="box">
-                        <div class="box-icon">🌐</div>
-                        <div class="box-title">Dio</div>
-                        <div class="box-sub">HTTP Client</div>
-                    </div>
-                    <div class="box">
-                        <div class="box-icon">🔑</div>
-                        <div class="box-title">Auth Interceptor</div>
-                        <div class="box-sub">Token 自动刷新</div>
                     </div>
                 </div>
             </div>
@@ -393,14 +366,14 @@
 
             <div class="flow-diagram">
                 <div class="flow-box primary">
-                    <div class="flow-icon">📱</div>
-                    <div class="flow-title">Flutter App</div>
+                    <div class="flow-icon">🌐</div>
+                    <div class="flow-title">PWA 控制台</div>
                     <div class="flow-desc">用户操作</div>
                 </div>
                 <div class="arrow">→</div>
                 <div class="flow-box">
-                    <div class="flow-icon">🌐</div>
-                    <div class="flow-title">Dio + Auth</div>
+                    <div class="flow-icon">🔐</div>
+                    <div class="flow-title">JWT Auth</div>
                     <div class="flow-desc">带 Token 请求</div>
                 </div>
                 <div class="arrow">→</div>
@@ -529,9 +502,9 @@
                 <div class="stat-desc">MA/RSI/Bollinger/Grid/Martingale</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">移动端页面</div>
-                <div class="stat-value">6</div>
-                <div class="stat-desc">Dashboard/策略/回测/设置/登录/注册</div>
+                <div class="stat-label">前端页面</div>
+                <div class="stat-value">7</div>
+                <div class="stat-desc">Dashboard/策略/回测/行情/交易/账户/设置</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">数据模型</div>
@@ -541,7 +514,7 @@
         </div>
 
         <p style="text-align: center; color: #64748b; margin-top: 40px; font-size: 12px;">
-            币钱袋 (CryptoQuant) 系统架构图 | 版本 1.0.0 | 2026-04-21
+            币钱袋 (CryptoQuant) 系统架构图 | 版本 1.1.0 | 2026-05-01
         </p>
     </div>
 </body>

@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch *)",
+      "Bash(git stash *)",
+      "Bash(git pull *)",
+      "Bash(docker compose *)",
+      "PowerShell($dd = Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue; if \\($dd\\) { \"already running: PID $\\($dd.Id\\)\" } else { Start-Process 'C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe'; \"launched\" })",
+      "Bash(docker info *)",
+      "Bash(docker version *)",
+      "Bash(curl -fsS http://localhost:8000/health)",
+      "Bash(curl -fsS http://localhost:8000/)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"smoketest@example.com\",\"password\":\"Smoke12345!\",\"username\":\"smoketest\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"smoketest@example.com\",\"password\":\"Smoke12345!\",\"name\":\"smoketest\"}' -w \"\\\\nHTTP %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:8000/api/v1/strategies/templates)",
+      "Bash(python -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)\\)['data']; t=next\\(\\(x for x in data if 'rsi_layered' in x.get\\('strategyType',''\\)\\), None\\); p=next\\(\\(p for p in t['paramsSchema']['params'] if p['key']=='profit_taking_config'\\), None\\) if t else None; print\\(p.get\\('description'\\) if p else 'NOT FOUND'\\)\")",
+      "Bash(python -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)\\)['data']; t=next\\(\\(x for x in data if x.get\\('strategyType'\\)=='rsi_layered'\\), None\\); p=next\\(\\(p for p in \\(t.get\\('params'\\) or []\\) if p['key']=='profit_taking_config'\\), None\\) if t else None; print\\('===\\\\\\\\n', p.get\\('description'\\) if p else 'NOT FOUND', '\\\\\\\\n==='\\)\")",
+      "Bash(python -c \"import sys,json; d=json.loads\\(sys.stdin.read\\(\\)\\)['data']; t=next\\(x for x in d if x.get\\('strategyType'\\)=='rsi_layered'\\); p=next\\(p for p in t['params'] if p['key']=='profit_taking_config'\\); print\\('FIELD: '+p['name']\\); print\\('DESC : '+\\(p.get\\('description'\\) or '<null>'\\)\\)\")",
+      "Bash(curl -fsS -o /dev/null -w \"lwc CDN: HTTP %{http_code}\\\\n\" \"https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"smoketest@example.com\",\"password\":\"Smoke12345!\"}')",
+      "Bash(python -m json.tool)",
+      "WebFetch(domain:api.idcing.cn)",
+      "Bash(curl -sL --max-time 10 \"https://api.idcing.cn\" -H \"User-Agent: Mozilla/5.0\" -o /tmp/idcing.html)",
+      "Read(//tmp/**)",
+      "WebFetch(domain:semi.design)",
+      "Bash(curl -fsS -o /dev/null -w \"index.html: HTTP %{http_code} \\(%{size_download} bytes\\)\\\\n\" http://localhost:8000/web/)",
+      "Bash(curl -fsS -o /dev/null -w \"app.css:    HTTP %{http_code} \\(%{size_download} bytes\\)\\\\n\" http://localhost:8000/web/static/css/app.css)",
+      "Bash(python -c \"import sys,json; d=json.loads\\(sys.stdin.read\\(\\)\\); t=d.get\\('data',{}\\).get\\('access_token'\\); print\\(t or ''\\)\")",
+      "Bash(curl -s http://localhost:8000/api/v1/asset/summary -H 'Authorization: Bearer __TRACKED_VAR__')",
+      "Bash(curl -sv -X POST http://localhost:8000/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"smoketest@example.com\",\"password\":\"Smoke12345!\"}')",
+      "Bash(curl -fsS -o /dev/null -w \"dashboard.js: HTTP %{http_code} \\(%{size_download} bytes\\)\\\\n\" http://localhost:8000/web/static/js/dashboard.js)",
+      "Bash(curl -fsS -o /dev/null -w \"app.css:      HTTP %{http_code} \\(%{size_download} bytes\\)\\\\n\" http://localhost:8000/web/static/css/app.css)"
+    ]
+  }
+}
