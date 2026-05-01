@@ -1279,6 +1279,7 @@ select.cq-input:not([multiple]) {
 
 .cq-instance-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--cq-space-2);
   margin-top: var(--cq-space-3);
 }

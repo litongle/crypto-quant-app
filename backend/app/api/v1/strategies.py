@@ -238,8 +238,8 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "totalPnlPercent": float(inst.total_pnl_percent or 0),
         "winRate": float(inst.win_rate or 0),
         "totalTrades": inst.total_trades or 0,
-        "createdAt": inst.created_at.isoformat() + "Z" if inst.created_at else "",
-        "updatedAt": inst.updated_at.isoformat() + "Z" if inst.updated_at else "",
+        "createdAt": inst.created_at.isoformat().replace('+00:00', 'Z') if inst.created_at else "",
+        "updatedAt": inst.updated_at.isoformat().replace('+00:00', 'Z') if inst.updated_at else "",
     }
 
 

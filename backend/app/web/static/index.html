@@ -254,7 +254,10 @@
             </div>
             <div class="cq-form-hint">选择已连接的交易所账户启用实盘自动下单，留空则仅产生模拟信号</div>
             <div id="param-sliders" class="cq-param-sliders"></div>
-            <button class="cq-btn cq-btn--primary cq-btn--full" onclick="createStrategyInstance()">创建策略</button>
+            <div style="display:flex;gap:var(--cq-space-2);">
+              <button class="cq-btn cq-btn--primary" style="flex:1" onclick="createStrategyInstance()" id="create-strategy-btn">创建策略</button>
+              <button class="cq-btn cq-btn--danger" style="display:none" onclick="deleteStrategyInst(window._editingInstanceId)" id="delete-strategy-btn">删除策略</button>
+            </div>
           </div>
         </div>
       </div>
