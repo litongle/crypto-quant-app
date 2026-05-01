@@ -5,10 +5,10 @@ P1-5: 删除冗余 inst_ 前缀，ID 直接用整数
 P1-6: 策略实例创建上限（每用户最多 20 个）
 补充: 业务错误统一用 HTTPException
 """
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,13 +95,20 @@ class StrategyTemplateResponse(BaseModel):
 
 class StrategyInstanceResponse(BaseModel):
     """策略实例响应"""
-    id: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int
     name: str
     templateId: str
     templateName: str
     status: Literal["running", "stopped", "paused"]
-    totalPnL: float = 0
-    totalPnLPercent: float = 0
+    exchange: str = ""
+    symbol: str = ""
+    accountId: Optional[int] = None
+    isLive: bool = False
+    params: dict = {}
+    totalPnl: float = Field(default=0, alias="totalPnl")
+    totalPnlPercent: float = 0
     winRate: float = 0
     totalTrades: int = 0
     createdAt: str
@@ -110,7 +117,7 @@ class StrategyInstanceResponse(BaseModel):
 
 class CreateInstanceResponse(BaseModel):
     """创建策略响应"""
-    id: str
+    id: int
     status: str
 
 

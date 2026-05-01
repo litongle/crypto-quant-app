@@ -194,7 +194,7 @@ function renderInstanceList(instances) {
       <div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
         <h3>暂无策略实例</h3>
-        <p>点击上方"快速启动"模板创建你的第一个策略</p>
+        <p>点击上方模板，快速启动你的第一个策略</p>
       </div>`;
     return;
   }
