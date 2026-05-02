@@ -5,7 +5,7 @@
 from typing import Any
 
 
-class AppException(Exception):
+class AppError(Exception):
     """应用基础异常"""
 
     def __init__(
@@ -28,7 +28,7 @@ class AppException(Exception):
 
 
 # 认证异常
-class AuthenticationError(AppException):
+class AuthenticationError(AppError):
     """认证错误"""
 
     def __init__(self, message: str = "认证失败"):
@@ -50,7 +50,7 @@ class TokenExpiredError(AuthenticationError):
 
 
 # 资源异常
-class NotFoundError(AppException):
+class NotFoundError(AppError):
     """资源不存在"""
 
     def __init__(self, resource: str, identifier: str | int):
@@ -60,7 +60,7 @@ class NotFoundError(AppException):
         )
 
 
-class AlreadyExistsError(AppException):
+class AlreadyExistsError(AppError):
     """资源已存在"""
 
     def __init__(self, resource: str, identifier: str):
@@ -71,7 +71,7 @@ class AlreadyExistsError(AppException):
 
 
 # 业务异常
-class ValidationError(AppException):
+class ValidationError(AppError):
     """验证错误"""
 
     def __init__(self, message: str, field: str | None = None):
@@ -79,7 +79,7 @@ class ValidationError(AppException):
         super().__init__(message, code="VALIDATION_ERROR", details=details)
 
 
-class InsufficientBalanceError(AppException):
+class InsufficientBalanceError(AppError):
     """余额不足"""
 
     def __init__(self, required: str, available: str):
@@ -90,7 +90,7 @@ class InsufficientBalanceError(AppException):
         )
 
 
-class RiskLimitExceededError(AppException):
+class RiskLimitExceededError(AppError):
     """风控限制超限"""
 
     def __init__(self, message: str):
@@ -98,7 +98,7 @@ class RiskLimitExceededError(AppException):
 
 
 # 交易异常
-class OrderError(AppException):
+class OrderError(AppError):
     """订单错误"""
 
     def __init__(self, message: str, exchange: str | None = None):
@@ -173,3 +173,6 @@ class OrderRejectedError(ExchangeAPIError):
             detail_code=detail_code,
         )
         self.code = "ORDER_REJECTED"
+
+
+AppException = AppError

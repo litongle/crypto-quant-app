@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.exchange import ExchangeAccount
 from app.models.order import Order
-from app.repositories.trading_repo import ExchangeAccountRepository, OrderRepository
+from app.repositories.trading_repo import ExchangeAccountRepository
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,6 @@ class OrderReconciliationService:
         """执行一次对账"""
         async with self._session_maker() as session:
             # 获取所有需要同步的订单（submitted 或 partial 状态）
-            order_repo = OrderRepository(session)
             account_repo = ExchangeAccountRepository(session)
 
             # 查询所有未完成的订单

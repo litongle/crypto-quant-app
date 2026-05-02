@@ -132,7 +132,7 @@ class StrategyService:
                 select(ExchangeAccount).where(
                     ExchangeAccount.id == account_id,
                     ExchangeAccount.user_id == user.id,
-                    ExchangeAccount.is_active == True,
+                    ExchangeAccount.is_active,
                 )
             )
             account = result.scalar_one_or_none()

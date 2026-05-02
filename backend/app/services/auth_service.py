@@ -135,11 +135,11 @@ class AuthService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="无效的刷新Token",
                 )
-        except (JWTError, ValueError):
+        except (JWTError, ValueError) as err:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="无效的刷新Token",
-            )
+            ) from err
 
         # 验证用户存在
         user = await self.user_repo.get_by_id(int(user_id))

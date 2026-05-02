@@ -189,7 +189,7 @@ async def complete_setup(req: SetupRequest):
         raise HTTPException(
             status_code=500,
             detail=f"数据库初始化失败：{str(e)}。请检查 DATABASE_URL 是否正确。",
-        )
+        ) from e
 
     # Step 5: 创建管理员
     try:
@@ -209,7 +209,7 @@ async def complete_setup(req: SetupRequest):
         raise HTTPException(
             status_code=500,
             detail=f"管理员创建失败：{str(e)}",
-        )
+        ) from e
 
     # Step 6: 标记安装完成
     env_values["SETUP_COMPLETE"] = "true"

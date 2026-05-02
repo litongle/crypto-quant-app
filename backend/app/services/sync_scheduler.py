@@ -55,7 +55,7 @@ class SyncScheduler:
 
             result = await session.execute(
                 select(ExchangeAccount).where(
-                    ExchangeAccount.is_active == True,
+                    ExchangeAccount.is_active,
                     ExchangeAccount.status == "active",
                 )
             )

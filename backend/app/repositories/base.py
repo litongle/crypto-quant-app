@@ -19,9 +19,9 @@ class BaseRepository(Generic[ModelType]):
         self.model = model
         self.session = session
 
-    async def get_by_id(self, id: int) -> ModelType | None:
+    async def get_by_id(self, record_id: int) -> ModelType | None:
         """根据ID获取"""
-        result = await self.session.execute(select(self.model).where(self.model.id == id))
+        result = await self.session.execute(select(self.model).where(self.model.id == record_id))
         return result.scalar_one_or_none()
 
     async def get_all(self, skip: int = 0, limit: int = 100) -> list[ModelType]:
@@ -36,15 +36,17 @@ class BaseRepository(Generic[ModelType]):
         await self.session.refresh(obj)
         return obj
 
-    async def update(self, id: int, **kwargs: Any) -> ModelType | None:
+    async def update(self, record_id: int, **kwargs: Any) -> ModelType | None:
         """更新记录"""
-        await self.session.execute(update(self.model).where(self.model.id == id).values(**kwargs))
+        await self.session.execute(
+            update(self.model).where(self.model.id == record_id).values(**kwargs)
+        )
         await self.session.flush()
-        return await self.get_by_id(id)
+        return await self.get_by_id(record_id)
 
-    async def delete(self, id: int) -> bool:
+    async def delete(self, record_id: int) -> bool:
         """删除记录"""
-        result = await self.session.execute(delete(self.model).where(self.model.id == id))
+        result = await self.session.execute(delete(self.model).where(self.model.id == record_id))
         await self.session.flush()
         return result.rowcount > 0
 
@@ -53,9 +55,9 @@ class BaseRepository(Generic[ModelType]):
         result = await self.session.execute(select(func.count()).select_from(self.model))
         return result.scalar() or 0
 
-    async def exists(self, id: int) -> bool:
+    async def exists(self, record_id: int) -> bool:
         """检查是否存在"""
         result = await self.session.execute(
-            select(func.count()).select_from(self.model).where(self.model.id == id)
+            select(func.count()).select_from(self.model).where(self.model.id == record_id)
         )
         return (result.scalar() or 0) > 0

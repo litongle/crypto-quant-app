@@ -10,12 +10,15 @@
 """
 
 import asyncio
+import json
 import logging
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.performance import (
     EquityPoint,
@@ -57,12 +60,6 @@ _MAX_KLINES = 50000  # 从 5000 提升到 50000
 
 # 回测超时（秒，可配置）
 _BACKTEST_TIMEOUT = 300  # 从 60 秒提升到 300 秒（5分钟）
-
-
-import json
-
-from sqlalchemy import desc, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class BacktestService:
@@ -187,7 +184,7 @@ class BacktestService:
         except ValueError:
             days = 90
 
-        for interval, bars_per_day, max_days in _INTERVAL_CONFIG:
+        for interval, _bars_per_day, max_days in _INTERVAL_CONFIG:
             if days <= max_days:
                 label_map = {"1h": "1小时", "4h": "4小时", "1d": "日线"}
                 return interval, label_map.get(interval, interval)
@@ -301,12 +298,10 @@ class BacktestService:
         position: dict | None = None
         trades: list[TradeRecord] = []
         # P1-8: 按 maker/taker 分手续费，加滑点模拟
-        maker_fee = Decimal("0.001")  # 0.1% maker
         taker_fee = Decimal("0.001")  # 0.1% taker (Binance 默认)
         slippage_pct = Decimal("0.0005")  # 0.05% 滑点
         # 使用 params 中指定的手续费率（如有）
         if strategy.params:
-            maker_fee = Decimal(str(strategy.params.get("maker_fee", 0.001)))
             taker_fee = Decimal(str(strategy.params.get("taker_fee", 0.001)))
             slippage_pct = Decimal(str(strategy.params.get("slippage_pct", 0.0005)))
 
@@ -407,21 +402,16 @@ class BacktestService:
                 tp_price = signal.take_profit_price if signal else None
 
                 should_close = False
-                close_type = ""
                 if position["side"] == "long":
-                    if sl_price and current_price <= sl_price:
+                    if (sl_price and current_price <= sl_price) or (
+                        tp_price and current_price >= tp_price
+                    ):
                         should_close = True
-                        close_type = "stop_loss"
-                    elif tp_price and current_price >= tp_price:
-                        should_close = True
-                        close_type = "take_profit"
                 else:
-                    if sl_price and current_price >= sl_price:
+                    if (sl_price and current_price >= sl_price) or (
+                        tp_price and current_price <= tp_price
+                    ):
                         should_close = True
-                        close_type = "stop_loss"
-                    elif tp_price and current_price <= tp_price:
-                        should_close = True
-                        close_type = "take_profit"
 
                 if should_close:
                     # 止盈/止损滑点：对持仓方向不利的方向滑点

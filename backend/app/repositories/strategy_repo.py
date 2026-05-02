@@ -19,7 +19,7 @@ class StrategyTemplateRepository(BaseRepository[StrategyTemplate]):
     async def get_active_templates(self) -> list[StrategyTemplate]:
         """获取所有活跃模板"""
         result = await self.session.execute(
-            select(StrategyTemplate).where(StrategyTemplate.is_active == True)
+            select(StrategyTemplate).where(StrategyTemplate.is_active)
         )
         return list(result.scalars().all())
 
@@ -28,7 +28,7 @@ class StrategyTemplateRepository(BaseRepository[StrategyTemplate]):
         result = await self.session.execute(
             select(StrategyTemplate).where(
                 StrategyTemplate.strategy_type == strategy_type,
-                StrategyTemplate.is_active == True,
+                StrategyTemplate.is_active,
             )
         )
         return result.scalar_one_or_none()
@@ -38,7 +38,7 @@ class StrategyTemplateRepository(BaseRepository[StrategyTemplate]):
         result = await self.session.execute(
             select(StrategyTemplate).where(
                 StrategyTemplate.code == code,
-                StrategyTemplate.is_active == True,
+                StrategyTemplate.is_active,
             )
         )
         return result.scalar_one_or_none()
