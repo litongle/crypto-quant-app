@@ -1,9 +1,10 @@
 """
 策略引擎基类及具体策略实现
 """
+
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class StrategyConfig(BaseModel):
     """策略配置"""
+
     symbol: str
     exchange: str
     direction: Literal["long", "short", "both"] = "both"
@@ -27,18 +29,20 @@ class Signal(BaseModel):
     metadata 由具体策略填充结构化语义（intent/direction 等），
     runner 可据此判断这是开仓 / 加仓 / 平仓 / 反手。Step 2 起会被消费。
     """
+
     action: Literal["buy", "sell", "hold"]
     confidence: float = 1.0
     entry_price: Decimal | None = None
     stop_loss_price: Decimal | None = None
     take_profit_price: Decimal | None = None
     reason: str | None = None
-    timestamp: datetime = datetime.now(timezone.utc)
+    timestamp: datetime = datetime.now(UTC)
     metadata: dict[str, Any] = {}
 
 
 class BaseStrategy(ABC):
     """策略基类"""
+
     name: str = "Base Strategy"
     strategy_type: str = "base"
 
@@ -68,6 +72,7 @@ class BaseStrategy(ABC):
 
 class MAStrategy(BaseStrategy):
     """移动平均线策略"""
+
     name = "均线交叉策略"
     strategy_type = "ma"
 
@@ -128,6 +133,7 @@ class MAStrategy(BaseStrategy):
 
 class RSIStrategy(BaseStrategy):
     """RSI 策略"""
+
     name = "RSI 超买超卖策略"
     strategy_type = "rsi"
 
@@ -197,15 +203,19 @@ def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
         return RSIStrategy(config)
     elif strategy_type == "rule":
         from app.core.rule_engine import RuleStrategy
+
         return RuleStrategy(config)
     elif strategy_type == "rsi_layered":
         from app.core.strategies.rsi_layered import RsiLayeredStrategy
+
         return RsiLayeredStrategy(config)
     elif strategy_type == "dca":
         from app.core.strategies.dca import DCAStrategy
+
         return DCAStrategy(config)
     elif strategy_type == "multi_symbol":
         from app.core.strategies.multi_symbol import MultiSymbolStrategy
+
         return MultiSymbolStrategy(config)
     else:
         raise ValueError(f"不支持的策略类型: {strategy_type}")

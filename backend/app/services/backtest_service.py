@@ -8,25 +8,24 @@
 4. 超时保护：最长 60 秒
 5. K线预转换为 float，避免循环内重复转换
 """
+
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 
 import httpx
 
+from app.core.performance import (
+    EquityPoint,
+    PerformanceCalculator,
+    TradeRecord,
+)
 from app.core.strategy_engine import (
     BaseStrategy,
     StrategyConfig,
     get_strategy,
-)
-from app.core.performance import (
-    EquityPoint,
-    PerformanceCalculator,
-    PerformanceReport,
-    TradeRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,24 +44,25 @@ _TEMPLATE_MAP = {
 
 # 时间级别配置：(interval, 每天约多少根, 最大支持天数)
 _INTERVAL_CONFIG = [
-    ("1h", 24, 200),    # 200天以内用1h
-    ("4h", 6, 800),     # 200-800天用4h
-    ("1d", 1, 3650),    # 800天-10年用1d
+    ("1h", 24, 200),  # 200天以内用1h
+    ("4h", 6, 800),  # 200-800天用4h
+    ("1d", 1, 3650),  # 800天-10年用1d
 ]
 
 # 策略分析用滑动窗口大小
 _ANALYSIS_WINDOW = 200
 
-# 最大K线数量
-_MAX_KLINES = 5000
+# 最大K线数量（可配置）
+_MAX_KLINES = 50000  # 从 5000 提升到 50000
 
-# 回测超时（秒）
-_BACKTEST_TIMEOUT = 60
+# 回测超时（秒，可配置）
+_BACKTEST_TIMEOUT = 300  # 从 60 秒提升到 300 秒（5分钟）
 
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
 import json
+
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class BacktestService:
@@ -77,12 +77,12 @@ class BacktestService:
         """获取用户回测历史 (P2-17)"""
         if not self.session:
             return []
-            
+
         from app.models.backtest import BacktestResult
         from app.seed_data import STRATEGY_TEMPLATES
-        
+
         name_map = {t["code"]: t["name"] for t in STRATEGY_TEMPLATES}
-        
+
         result = await self.session.execute(
             select(BacktestResult)
             .where(BacktestResult.user_id == user_id)
@@ -90,38 +90,39 @@ class BacktestService:
             .limit(limit)
         )
         records = result.scalars().all()
-        
+
         history = []
         for r in records:
-            history.append({
-                "id": r.id,
-                "templateId": r.template_id,
-                "templateName": name_map.get(r.template_id, r.template_id),
-                "symbol": r.symbol,
-                "exchange": r.exchange,
-                "startDate": r.start_date,
-                "endDate": r.end_date,
-                "initialCapital": float(r.initial_capital),
-                "totalReturn": float(r.total_return),
-                "totalReturnPercent": float(r.total_return_pct),
-                "sharpeRatio": float(r.sharpe_ratio),
-                "maxDrawdown": float(r.max_drawdown),
-                "winRate": float(r.win_rate),
-                "totalTrades": r.total_trades,
-                "createdAt": r.created_at.isoformat() + "Z" if r.created_at else "",
-            })
+            history.append(
+                {
+                    "id": r.id,
+                    "templateId": r.template_id,
+                    "templateName": name_map.get(r.template_id, r.template_id),
+                    "symbol": r.symbol,
+                    "exchange": r.exchange,
+                    "startDate": r.start_date,
+                    "endDate": r.end_date,
+                    "initialCapital": float(r.initial_capital),
+                    "totalReturn": float(r.total_return),
+                    "totalReturnPercent": float(r.total_return_pct),
+                    "sharpeRatio": float(r.sharpe_ratio),
+                    "maxDrawdown": float(r.max_drawdown),
+                    "winRate": float(r.win_rate),
+                    "totalTrades": r.total_trades,
+                    "createdAt": r.created_at.isoformat() + "Z" if r.created_at else "",
+                }
+            )
         return history
 
     async def get_result_by_id(self, backtest_id: int, user_id: int) -> dict | None:
         """获取回测详情 (P2-17)"""
         if not self.session:
             return None
-            
+
         from app.models.backtest import BacktestResult
-        
+
         result = await self.session.execute(
-            select(BacktestResult)
-            .where(
+            select(BacktestResult).where(
                 BacktestResult.id == backtest_id,
                 BacktestResult.user_id == user_id,
             )
@@ -129,7 +130,7 @@ class BacktestService:
         record = result.scalar_one_or_none()
         if not record:
             return None
-            
+
         return {
             "id": record.id,
             "templateId": record.template_id,
@@ -213,8 +214,13 @@ class BacktestService:
         if user_interval:
             interval = str(user_interval)
             label_map = {
-                "1m": "1分钟", "5m": "5分钟", "15m": "15分钟", "30m": "30分钟",
-                "1h": "1小时", "4h": "4小时", "1d": "日线",
+                "1m": "1分钟",
+                "5m": "5分钟",
+                "15m": "15分钟",
+                "30m": "30分钟",
+                "1h": "1小时",
+                "4h": "4小时",
+                "1d": "日线",
             }
             interval_label = label_map.get(interval, interval)
         else:
@@ -262,7 +268,7 @@ class BacktestService:
                 ),
                 timeout=_BACKTEST_TIMEOUT,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "error": f"回测超时（{_BACKTEST_TIMEOUT}秒），请缩小时间范围",
                 "code": 4002,
@@ -295,8 +301,8 @@ class BacktestService:
         position: dict | None = None
         trades: list[TradeRecord] = []
         # P1-8: 按 maker/taker 分手续费，加滑点模拟
-        maker_fee = Decimal("0.001")   # 0.1% maker
-        taker_fee = Decimal("0.001")   # 0.1% taker (Binance 默认)
+        maker_fee = Decimal("0.001")  # 0.1% maker
+        taker_fee = Decimal("0.001")  # 0.1% taker (Binance 默认)
         slippage_pct = Decimal("0.0005")  # 0.05% 滑点
         # 使用 params 中指定的手续费率（如有）
         if strategy.params:
@@ -329,10 +335,12 @@ class BacktestService:
         ]
 
         # 初始展示点
-        display_equity.append({
-            "date": klines[0]["timestamp"].strftime("%Y-%m-%d %H:%M"),
-            "equity": float(initial_capital),
-        })
+        display_equity.append(
+            {
+                "date": klines[0]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+                "equity": float(initial_capital),
+            }
+        )
 
         for i in range(min_history, len(klines)):
             current_price = klines[i]["close"]
@@ -340,7 +348,7 @@ class BacktestService:
 
             # 滑动窗口：只传最近 _ANALYSIS_WINDOW 根给策略
             window_start = max(0, i - _ANALYSIS_WINDOW + 1)
-            history_slice = float_klines[window_start:i + 1]
+            history_slice = float_klines[window_start : i + 1]
 
             # 策略分析
             signal = await strategy.analyze(history_slice)
@@ -370,21 +378,25 @@ class BacktestService:
                     close_value = position["quantity"] * exec_price
                     commission = close_value * taker_fee
 
-                    pnl = (exec_price - position["entry_price"]) * position["quantity"] \
-                        if position["side"] == "long" \
+                    pnl = (
+                        (exec_price - position["entry_price"]) * position["quantity"]
+                        if position["side"] == "long"
                         else (position["entry_price"] - exec_price) * position["quantity"]
+                    )
                     pnl -= commission
 
-                    trades.append(TradeRecord(
-                        entry_price=position["entry_price"],
-                        exit_price=exec_price,
-                        quantity=position["quantity"],
-                        side=position["side"],
-                        entry_time=position["entry_time"],
-                        exit_time=current_time,
-                        pnl=pnl,
-                        commission=position["commission_paid"] + commission,
-                    ))
+                    trades.append(
+                        TradeRecord(
+                            entry_price=position["entry_price"],
+                            exit_price=exec_price,
+                            quantity=position["quantity"],
+                            side=position["side"],
+                            entry_time=position["entry_time"],
+                            exit_time=current_time,
+                            pnl=pnl,
+                            commission=position["commission_paid"] + commission,
+                        )
+                    )
 
                     capital += close_value - commission
                     position = None
@@ -420,21 +432,25 @@ class BacktestService:
                     close_value = position["quantity"] * exec_price
                     commission = close_value * taker_fee
 
-                    pnl = (exec_price - position["entry_price"]) * position["quantity"] \
-                        if position["side"] == "long" \
+                    pnl = (
+                        (exec_price - position["entry_price"]) * position["quantity"]
+                        if position["side"] == "long"
                         else (position["entry_price"] - exec_price) * position["quantity"]
+                    )
                     pnl -= commission
 
-                    trades.append(TradeRecord(
-                        entry_price=position["entry_price"],
-                        exit_price=exec_price,
-                        quantity=position["quantity"],
-                        side=position["side"],
-                        entry_time=position["entry_time"],
-                        exit_time=current_time,
-                        pnl=pnl,
-                        commission=position["commission_paid"] + commission,
-                    ))
+                    trades.append(
+                        TradeRecord(
+                            entry_price=position["entry_price"],
+                            exit_price=exec_price,
+                            quantity=position["quantity"],
+                            side=position["side"],
+                            entry_time=position["entry_time"],
+                            exit_time=current_time,
+                            pnl=pnl,
+                            commission=position["commission_paid"] + commission,
+                        )
+                    )
 
                     capital += close_value - commission
                     position = None
@@ -447,17 +463,21 @@ class BacktestService:
             # 采样：展示权益曲线
             idx = i - min_history
             if idx % _sample_step == 0:
-                display_equity.append({
-                    "date": current_time.strftime("%Y-%m-%d %H:%M"),
-                    "equity": float(round(current_equity, 2)),
-                })
+                display_equity.append(
+                    {
+                        "date": current_time.strftime("%Y-%m-%d %H:%M"),
+                        "equity": float(round(current_equity, 2)),
+                    }
+                )
 
             # 采样：绩效权益曲线
             if idx % _perf_step == 0:
-                perf_equity.append(EquityPoint(
-                    timestamp=current_time,
-                    equity=current_equity,
-                ))
+                perf_equity.append(
+                    EquityPoint(
+                        timestamp=current_time,
+                        equity=current_equity,
+                    )
+                )
 
         # 平仓未结束的头寸 — P1-8: 按滑点后的 taker 价格平仓
         if position is not None:
@@ -469,35 +489,43 @@ class BacktestService:
             close_value = position["quantity"] * final_price
             commission = close_value * taker_fee
 
-            pnl = (final_price - position["entry_price"]) * position["quantity"] \
-                if position["side"] == "long" \
+            pnl = (
+                (final_price - position["entry_price"]) * position["quantity"]
+                if position["side"] == "long"
                 else (position["entry_price"] - final_price) * position["quantity"]
+            )
             pnl -= commission
 
-            trades.append(TradeRecord(
-                entry_price=position["entry_price"],
-                exit_price=final_price,
-                quantity=position["quantity"],
-                side=position["side"],
-                entry_time=position["entry_time"],
-                exit_time=klines[-1]["timestamp"],
-                pnl=pnl,
-                commission=position["commission_paid"] + commission,
-            ))
+            trades.append(
+                TradeRecord(
+                    entry_price=position["entry_price"],
+                    exit_price=final_price,
+                    quantity=position["quantity"],
+                    side=position["side"],
+                    entry_time=position["entry_time"],
+                    exit_time=klines[-1]["timestamp"],
+                    pnl=pnl,
+                    commission=position["commission_paid"] + commission,
+                )
+            )
 
             capital += close_value - commission
             position = None
 
         # 最终权益
         final_equity = capital
-        display_equity.append({
-            "date": klines[-1]["timestamp"].strftime("%Y-%m-%d %H:%M"),
-            "equity": float(round(final_equity, 2)),
-        })
-        perf_equity.append(EquityPoint(
-            timestamp=klines[-1]["timestamp"],
-            equity=final_equity,
-        ))
+        display_equity.append(
+            {
+                "date": klines[-1]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+                "equity": float(round(final_equity, 2)),
+            }
+        )
+        perf_equity.append(
+            EquityPoint(
+                timestamp=klines[-1]["timestamp"],
+                equity=final_equity,
+            )
+        )
 
         # 绩效计算
         report = PerformanceCalculator.calculate(
@@ -509,15 +537,17 @@ class BacktestService:
         # 交易记录（最多 100 条）
         trade_records = []
         for t in trades[:100]:
-            trade_records.append({
-                "side": t.side,
-                "entryPrice": float(t.entry_price),
-                "exitPrice": float(t.exit_price),
-                "quantity": float(t.quantity),
-                "pnl": float(round(t.pnl, 2)),
-                "entryTime": t.entry_time.isoformat() + "Z",
-                "exitTime": t.exit_time.isoformat() + "Z",
-            })
+            trade_records.append(
+                {
+                    "side": t.side,
+                    "entryPrice": float(t.entry_price),
+                    "exitPrice": float(t.exit_price),
+                    "quantity": float(t.quantity),
+                    "pnl": float(round(t.pnl, 2)),
+                    "entryTime": t.entry_time.isoformat() + "Z",
+                    "exitTime": t.exit_time.isoformat() + "Z",
+                }
+            )
 
         return {
             "totalReturn": float(report.total_pnl),
@@ -543,7 +573,9 @@ class BacktestService:
             "startTime": report.start_time.isoformat() + "Z" if report.start_time else None,
             "endTime": report.end_time.isoformat() + "Z" if report.end_time else None,
             "dataSource": data_source,
-            "warning": "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None,
+            "warning": "⚠️ 使用模拟数据回测，结果可能失真，仅供参考"
+            if data_source == "mock"
+            else None,
         }
 
     async def _fetch_klines(
@@ -563,7 +595,7 @@ class BacktestService:
                 self._fetch_klines_impl(symbol, start_date, end_date, interval),
                 timeout=45.0,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("获取K线超时（45秒），切换为模拟数据")
             return self._generate_mock_klines(symbol, start_date, end_date, interval), True
 
@@ -606,15 +638,17 @@ class BacktestService:
                     break
 
                 for k in data:
-                    all_klines.append({
-                        "timestamp": datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc),
-                        "open": Decimal(k[1]),
-                        "high": Decimal(k[2]),
-                        "low": Decimal(k[3]),
-                        "close": Decimal(k[4]),
-                        "volume": Decimal(k[5]),
-                        "close_time": datetime.fromtimestamp(k[6] / 1000, tz=timezone.utc),
-                    })
+                    all_klines.append(
+                        {
+                            "timestamp": datetime.fromtimestamp(k[0] / 1000, tz=UTC),
+                            "open": Decimal(k[1]),
+                            "high": Decimal(k[2]),
+                            "low": Decimal(k[3]),
+                            "close": Decimal(k[4]),
+                            "volume": Decimal(k[5]),
+                            "close_time": datetime.fromtimestamp(k[6] / 1000, tz=UTC),
+                        }
+                    )
 
                 current_start = data[-1][6] + 1
 
@@ -624,7 +658,10 @@ class BacktestService:
                 if len(all_klines) >= _MAX_KLINES:
                     logger.warning(
                         "K线数量已达上限 %d，截断。interval=%s, %s ~ %s",
-                        _MAX_KLINES, interval, start_date, end_date,
+                        _MAX_KLINES,
+                        interval,
+                        start_date,
+                        end_date,
                     )
                     break
 
@@ -663,12 +700,20 @@ class BacktestService:
         }
         base = base_prices.get(symbol.upper(), 100.0)
 
-        interval_hours = {"1m": 1/60, "5m": 5/60, "15m": 15/60, "30m": 30/60, "1h": 1, "4h": 4, "1d": 24}
+        interval_hours = {
+            "1m": 1 / 60,
+            "5m": 5 / 60,
+            "15m": 15 / 60,
+            "30m": 30 / 60,
+            "1h": 1,
+            "4h": 4,
+            "1d": 24,
+        }
         hours_per_bar = interval_hours.get(interval, 1)
         total_bars = min(int(days * 24 / hours_per_bar), _MAX_KLINES)
 
         klines = []
-        current_time = start.replace(tzinfo=timezone.utc)
+        current_time = start.replace(tzinfo=UTC)
         price = base
 
         for i in range(total_bars):
@@ -682,15 +727,17 @@ class BacktestService:
             close = price * (1 + ((seed % 7) - 3) * 0.001)
             volume = base * 1000 * (1 + (seed % 5) * 0.1)
 
-            klines.append({
-                "timestamp": current_time,
-                "open": Decimal(str(round(open_price, 8))),
-                "high": Decimal(str(round(high, 8))),
-                "low": Decimal(str(round(low, 8))),
-                "close": Decimal(str(round(close, 8))),
-                "volume": Decimal(str(round(volume, 2))),
-                "close_time": current_time,
-            })
+            klines.append(
+                {
+                    "timestamp": current_time,
+                    "open": Decimal(str(round(open_price, 8))),
+                    "high": Decimal(str(round(high, 8))),
+                    "low": Decimal(str(round(low, 8))),
+                    "close": Decimal(str(round(close, 8))),
+                    "volume": Decimal(str(round(volume, 2))),
+                    "close_time": current_time,
+                }
+            )
 
             current_time += timedelta(hours=hours_per_bar)
 

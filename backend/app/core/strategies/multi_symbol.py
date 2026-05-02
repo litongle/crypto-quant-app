@@ -6,8 +6,8 @@
 - 配对交易: 两个高度相关币种价差回归
 - 跨币种信号联动
 """
+
 import logging
-from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -73,7 +73,9 @@ class MultiSymbolStrategy(BaseStrategy):
         return None
 
     async def _analyze_leader_follow(
-        self, klines: list[dict], current_price: Decimal,
+        self,
+        klines: list[dict],
+        current_price: Decimal,
     ) -> Signal | None:
         """Leader-Follow 模式: 主币种信号联动从币种"""
         # 这里对主交易对做简单趋势判断
@@ -122,7 +124,9 @@ class MultiSymbolStrategy(BaseStrategy):
         return None
 
     async def _analyze_pair_trading(
-        self, klines: list[dict], current_price: Decimal,
+        self,
+        klines: list[dict],
+        current_price: Decimal,
     ) -> Signal | None:
         """配对交易模式: 价差回归
 
@@ -138,7 +142,7 @@ class MultiSymbolStrategy(BaseStrategy):
         # 计算价差（以比例形式）
         spreads = []
         for i in range(min(len(klines), self.lookback)):
-            price_a = float(klines[-(i+1)]["close"])
+            price_a = float(klines[-(i + 1)]["close"])
             price_b = pair_prices[min(i, len(pair_prices) - 1)]
             if price_b > 0:
                 spreads.append(price_a / price_b)
@@ -150,7 +154,7 @@ class MultiSymbolStrategy(BaseStrategy):
         current_spread = spreads[-1]
         self._mean_spread = sum(spreads) / len(spreads)
         variance = sum((s - self._mean_spread) ** 2 for s in spreads) / len(spreads)
-        self._std_spread = variance ** 0.5
+        self._std_spread = variance**0.5
 
         if self._std_spread == 0:
             return None
@@ -166,7 +170,12 @@ class MultiSymbolStrategy(BaseStrategy):
                 confidence=min(1.0, abs(zscore) / (self.entry_zscore * 2)),
                 entry_price=current_price,
                 reason=f"配对交易: 价差 z={zscore:.2f} > 阈值 {self.entry_zscore}, 做空价差",
-                metadata={"intent": "open", "direction": "short", "mode": self.mode, "pair": self.pair_symbol},
+                metadata={
+                    "intent": "open",
+                    "direction": "short",
+                    "mode": self.mode,
+                    "pair": self.pair_symbol,
+                },
             )
 
         # 价差过小 → 回归交易（买主卖从）
@@ -178,7 +187,12 @@ class MultiSymbolStrategy(BaseStrategy):
                 confidence=min(1.0, abs(zscore) / (self.entry_zscore * 2)),
                 entry_price=current_price,
                 reason=f"配对交易: 价差 z={zscore:.2f} < 阈值 {-self.entry_zscore}, 做多价差",
-                metadata={"intent": "open", "direction": "long", "mode": self.mode, "pair": self.pair_symbol},
+                metadata={
+                    "intent": "open",
+                    "direction": "long",
+                    "mode": self.mode,
+                    "pair": self.pair_symbol,
+                },
             )
 
         # 价差回归 → 平仓
@@ -191,7 +205,10 @@ class MultiSymbolStrategy(BaseStrategy):
                 confidence=0.9,
                 entry_price=current_price,
                 reason=f"配对交易: 价差回归 z={zscore:.2f}, 平仓",
-                metadata={"intent": "take_profit", "direction": "long" if direction == "long_spread" else "short"},
+                metadata={
+                    "intent": "take_profit",
+                    "direction": "long" if direction == "long_spread" else "short",
+                },
             )
 
         return None

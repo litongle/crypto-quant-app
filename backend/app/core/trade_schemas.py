@@ -7,14 +7,15 @@
 3. Decimal 统一序列化为 str（精度安全）
 4. 时间统一 ISO 8601 格式
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_serializer
-
+from pydantic import BaseModel, ConfigDict, Field
 
 # ==================== 工具 ====================
+
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
     """datetime → ISO 8601 字符串"""
@@ -32,8 +33,10 @@ def _dec_to_str(v: Decimal | None) -> str | None:
 
 # ==================== 行情 ====================
 
+
 class TickerSchema(BaseModel):
     """统一行情结构"""
+
     symbol: str
     price: str
     price_change: str
@@ -62,6 +65,7 @@ class TickerSchema(BaseModel):
 
 class KlineSchema(BaseModel):
     """统一K线结构"""
+
     timestamp: str
     open: str
     high: str
@@ -85,12 +89,14 @@ class KlineSchema(BaseModel):
 
 class OrderBookEntrySchema(BaseModel):
     """订单簿条目"""
+
     price: str
     quantity: str
 
 
 class OrderBookSchema(BaseModel):
     """统一订单簿结构"""
+
     bids: list[OrderBookEntrySchema]
     asks: list[OrderBookEntrySchema]
 
@@ -104,8 +110,10 @@ class OrderBookSchema(BaseModel):
 
 # ==================== 账户/余额 ====================
 
+
 class BalanceSchema(BaseModel):
     """统一余额结构"""
+
     asset: str
     free: str
     locked: str
@@ -117,17 +125,20 @@ class BalanceSchema(BaseModel):
 
 class AccountInfoSchema(BaseModel):
     """统一账户信息"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     exchange: str
-    account_name: str
-    is_active: bool
-    is_demo: bool = False
-    is_testnet: bool = False
+    account_name: str = Field(alias="accountName")
+    is_active: bool = Field(alias="isActive")
+    is_demo: bool = Field(default=False, alias="isDemo")
+    is_testnet: bool = Field(default=False, alias="isTestnet")
     status: str
     balance: str = "0"
-    frozen_balance: str = "0"
-    error_message: str | None = None
-    last_sync_at: str | None = None
+    frozen_balance: str = Field(default="0", alias="frozenBalance")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+    last_sync_at: str | None = Field(default=None, alias="lastSyncAt")
 
     @classmethod
     def from_model(cls, a: Any) -> "AccountInfoSchema":
@@ -148,8 +159,10 @@ class AccountInfoSchema(BaseModel):
 
 # ==================== 订单 ====================
 
+
 class OrderResultSchema(BaseModel):
     """统一订单结果（交易所返回）"""
+
     exchange_order_id: str
     symbol: str
     side: Literal["buy", "sell"]
@@ -185,26 +198,29 @@ class OrderSchema(BaseModel):
     - 错误信息（error_message）
     - 时间线（created_at/submitted_at/filled_at/cancelled_at）
     """
+
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
-    account_id: int
-    exchange_order_id: str | None = None
+    account_id: int = Field(alias="accountId")
+    exchange_order_id: str | None = Field(default=None, alias="exchangeOrderId")
     symbol: str
     side: str
-    order_type: str
+    order_type: str = Field(alias="orderType")
     quantity: str
     price: str | None = None
-    filled_quantity: str = "0"
-    avg_fill_price: str | None = None
-    order_value: str = "0"
+    filled_quantity: str = Field(default="0", alias="filledQuantity")
+    avg_fill_price: str | None = Field(default=None, alias="avgFillPrice")
+    order_value: str = Field(default="0", alias="orderValue")
     commission: str = "0"
     pnl: str | None = None
     status: str
-    strategy_instance_id: int | None = None
-    error_message: str | None = None
-    created_at: str | None = None
-    submitted_at: str | None = None
-    filled_at: str | None = None
-    cancelled_at: str | None = None
+    strategy_instance_id: int | None = Field(default=None, alias="strategyInstanceId")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+    created_at: str | None = Field(default=None, alias="createdAt")
+    submitted_at: str | None = Field(default=None, alias="submittedAt")
+    filled_at: str | None = Field(default=None, alias="filledAt")
+    cancelled_at: str | None = Field(default=None, alias="cancelledAt")
 
     @classmethod
     def from_model(cls, o: Any) -> "OrderSchema":
@@ -218,7 +234,9 @@ class OrderSchema(BaseModel):
             quantity=str(o.quantity),
             price=str(o.price) if o.price is not None else None,
             filled_quantity=str(getattr(o, "filled_quantity", 0)),
-            avg_fill_price=str(o.avg_fill_price) if getattr(o, "avg_fill_price", None) is not None else None,
+            avg_fill_price=str(o.avg_fill_price)
+            if getattr(o, "avg_fill_price", None) is not None
+            else None,
             order_value=str(getattr(o, "order_value", 0)),
             commission=str(getattr(o, "commission", 0)),
             pnl=str(o.pnl) if getattr(o, "pnl", None) is not None else None,
@@ -234,24 +252,28 @@ class OrderSchema(BaseModel):
 
 # ==================== 持仓 ====================
 
+
 class PositionSchema(BaseModel):
     """统一持仓结构"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
-    account_id: int
+    account_id: int = Field(alias="accountId")
     symbol: str
     side: str
     quantity: str
-    entry_price: str
-    current_price: str
-    unrealized_pnl: str = "0"
-    unrealized_pnl_percent: str = "0"
+    entry_price: str = Field(alias="entryPrice")
+    current_price: str = Field(alias="currentPrice")
+    unrealized_pnl: str = Field(default="0", alias="unrealizedPnl")
+    unrealized_pnl_percent: str = Field(default="0", alias="unrealizedPnlPercent")
     leverage: int = 1
-    stop_loss_price: str | None = None
-    take_profit_price: str | None = None
+    stop_loss_price: str | None = Field(default=None, alias="stopLossPrice")
+    take_profit_price: str | None = Field(default=None, alias="takeProfitPrice")
     status: str
-    strategy_instance_id: int | None = None
-    opened_at: str | None = None
-    closed_at: str | None = None
+    strategy_instance_id: int | None = Field(default=None, alias="strategyInstanceId")
+    opened_at: str | None = Field(default=None, alias="openedAt")
+    closed_at: str | None = Field(default=None, alias="closedAt")
 
     @classmethod
     def from_model(cls, p: Any) -> "PositionSchema":
@@ -277,6 +299,7 @@ class PositionSchema(BaseModel):
 
 class PositionResultSchema(BaseModel):
     """统一持仓信息（交易所返回）"""
+
     symbol: str
     side: str
     quantity: str
@@ -300,9 +323,13 @@ class PositionResultSchema(BaseModel):
 
 # ==================== WebSocket 推送消息 ====================
 
+
 class WSMessage(BaseModel):
     """WebSocket 推送消息的统一信封"""
-    type: str = Field(description="消息类型: ticker/kline/orderbook/order/balance/position/error/pong")
+
+    type: str = Field(
+        description="消息类型: ticker/kline/orderbook/order/balance/position/error/pong"
+    )
     data: Any = Field(description="消息体")
     exchange: str | None = Field(default=None, description="交易所来源")
     symbol: str | None = Field(default=None, description="交易对")
@@ -311,4 +338,4 @@ class WSMessage(BaseModel):
     def __init__(self, **data: Any):
         super().__init__(**data)
         if not self.timestamp:
-            self.timestamp = datetime.now(timezone.utc).isoformat()
+            self.timestamp = datetime.now(UTC).isoformat()

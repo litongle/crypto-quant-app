@@ -1,11 +1,12 @@
 """
 市场数据服务
 """
+
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ async def get_redis_client():
     """P1-4: 获取全局 Redis 客户端单例（复用连接池）"""
     try:
         from app.redis import get_redis_client as _get_redis
+
         return await _get_redis()
     except Exception:
         return None
@@ -49,9 +51,18 @@ async def close_market_resources():
 
 # 支持的交易对(现货 + 永续共用,perp 需要在交易所有对应合约)
 SUPPORTED_SYMBOLS = {
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT",
-    "ADAUSDT", "XRPUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT",
-    "AVAXUSDT", "PEPEUSDT",  # 加几个常用合约币
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "XRPUSDT",
+    "DOTUSDT",
+    "MATICUSDT",
+    "LINKUSDT",
+    "AVAXUSDT",
+    "PEPEUSDT",  # 加几个常用合约币
 }
 
 # K线周期
@@ -158,7 +169,11 @@ class MarketService:
         try:
             client = await get_http_client()
             url, params = self._build_kline_request(
-                exchange, symbol, interval, limit, market_type,
+                exchange,
+                symbol,
+                interval,
+                limit,
+                market_type,
             )
             response = await client.get(url, params=params)
             response.raise_for_status()
@@ -189,7 +204,10 @@ class MarketService:
         try:
             client = await get_http_client()
             url, params = self._build_orderbook_request(
-                exchange, symbol, limit, market_type,
+                exchange,
+                symbol,
+                limit,
+                market_type,
             )
             response = await client.get(url, params=params)
             response.raise_for_status()
@@ -205,9 +223,7 @@ class MarketService:
                 message=f"获取订单簿失败: {str(e)}",
             )
 
-    def _format_ticker(
-        self, data: dict, exchange: str, symbol: str
-    ) -> dict:
+    def _format_ticker(self, data: dict, exchange: str, symbol: str) -> dict:
         """格式化行情数据"""
         if exchange == "binance":
             return {
@@ -224,7 +240,9 @@ class MarketService:
         elif exchange == "okx":
             items = data.get("data", [])
             if not items:
-                raise AppException(code="EXTERNAL_API_ERROR", message=f"OKX 未返回 {symbol} 行情数据")
+                raise AppException(
+                    code="EXTERNAL_API_ERROR", message=f"OKX 未返回 {symbol} 行情数据"
+                )
             ticker = items[0]
             last = Decimal(ticker["last"])
             open24h = Decimal(ticker["open24h"])
@@ -266,41 +284,47 @@ class MarketService:
         result = []
         if exchange == "binance":
             for k in data:
-                result.append({
-                    "timestamp": datetime.fromtimestamp(k[0] / 1000),
-                    "open": Decimal(k[1]),
-                    "high": Decimal(k[2]),
-                    "low": Decimal(k[3]),
-                    "close": Decimal(k[4]),
-                    "volume": Decimal(k[5]),
-                    "close_time": datetime.fromtimestamp(k[6] / 1000),
-                })
+                result.append(
+                    {
+                        "timestamp": datetime.fromtimestamp(k[0] / 1000),
+                        "open": Decimal(k[1]),
+                        "high": Decimal(k[2]),
+                        "low": Decimal(k[3]),
+                        "close": Decimal(k[4]),
+                        "volume": Decimal(k[5]),
+                        "close_time": datetime.fromtimestamp(k[6] / 1000),
+                    }
+                )
         elif exchange == "okx":
             # OKX K线数据是倒序（最新在前），需反转为时间正序
             candles = data.get("data", []) if isinstance(data, dict) else data
             for k in reversed(candles):
-                result.append({
-                    "timestamp": datetime.fromtimestamp(int(k[0]) / 1000),
-                    "open": Decimal(str(k[1])),
-                    "high": Decimal(str(k[2])),
-                    "low": Decimal(str(k[3])),
-                    "close": Decimal(str(k[4])),
-                    "volume": Decimal(str(k[5])),
-                    "close_time": datetime.fromtimestamp(int(k[0]) / 1000),
-                })
+                result.append(
+                    {
+                        "timestamp": datetime.fromtimestamp(int(k[0]) / 1000),
+                        "open": Decimal(str(k[1])),
+                        "high": Decimal(str(k[2])),
+                        "low": Decimal(str(k[3])),
+                        "close": Decimal(str(k[4])),
+                        "volume": Decimal(str(k[5])),
+                        "close_time": datetime.fromtimestamp(int(k[0]) / 1000),
+                    }
+                )
         elif exchange == "huobi":
             items = data.get("data", []) if isinstance(data, dict) else data
             # 火币K线已是时间正序; id=时间戳秒, vol=成交额, amount=成交量
             for k in items:
-                result.append({
-                    "timestamp": datetime.fromtimestamp(k["id"]),
-                    "open": Decimal(str(k["open"])),
-                    "high": Decimal(str(k["high"])),
-                    "low": Decimal(str(k["low"])),
-                    "close": Decimal(str(k["close"])),
-                    "volume": Decimal(str(k.get("amount", k.get("vol", 0)))),
-                    "close_time": datetime.fromtimestamp(k["id"]),
-                })
+                result.append(
+                    {
+                        "timestamp": datetime.fromtimestamp(k["id"]),
+                        "open": Decimal(str(k["open"])),
+                        "high": Decimal(str(k["high"])),
+                        "low": Decimal(str(k["low"])),
+                        "close": Decimal(str(k["close"])),
+                        "volume": Decimal(str(k.get("amount", k.get("vol", 0)))),
+                        "close_time": datetime.fromtimestamp(k["id"]),
+                    }
+                )
         return result
 
     def _format_orderbook(self, data: dict, exchange: str) -> dict:
@@ -308,12 +332,10 @@ class MarketService:
         if exchange == "binance":
             return {
                 "bids": [
-                    {"price": Decimal(p), "quantity": Decimal(q)}
-                    for p, q in data.get("bids", [])
+                    {"price": Decimal(p), "quantity": Decimal(q)} for p, q in data.get("bids", [])
                 ],
                 "asks": [
-                    {"price": Decimal(p), "quantity": Decimal(q)}
-                    for p, q in data.get("asks", [])
+                    {"price": Decimal(p), "quantity": Decimal(q)} for p, q in data.get("asks", [])
                 ],
             }
         elif exchange == "okx":
@@ -372,24 +394,25 @@ class MarketService:
     # 加新市场类型(如 USDC-M / inverse)只需在这里扩展。
 
     def _build_ticker_request(
-        self, exchange: str, symbol: str, market_type: str,
+        self,
+        exchange: str,
+        symbol: str,
+        market_type: str,
     ) -> tuple[str, dict]:
         if exchange == "binance":
             if market_type == "perp":
-                return ("https://fapi.binance.com/fapi/v1/ticker/24hr",
-                        {"symbol": symbol})
-            return ("https://api.binance.com/api/v3/ticker/24hr",
-                    {"symbol": symbol})
+                return ("https://fapi.binance.com/fapi/v1/ticker/24hr", {"symbol": symbol})
+            return ("https://api.binance.com/api/v3/ticker/24hr", {"symbol": symbol})
         if exchange == "okx":
             inst_id = self._to_okx_inst_id(symbol, market_type)
-            return ("https://www.okx.com/api/v5/market/ticker",
-                    {"instId": inst_id})
+            return ("https://www.okx.com/api/v5/market/ticker", {"instId": inst_id})
         if exchange == "huobi":
             if market_type == "perp":
-                return ("https://futures.htx.com/linear-swap-ex/market/detail/merged",
-                        {"contract_code": self._to_huobi_perp_code(symbol)})
-            return ("https://api.huobi.pro/market/detail/merged",
-                    {"symbol": symbol.lower()})
+                return (
+                    "https://futures.htx.com/linear-swap-ex/market/detail/merged",
+                    {"contract_code": self._to_huobi_perp_code(symbol)},
+                )
+            return ("https://api.huobi.pro/market/detail/merged", {"symbol": symbol.lower()})
         raise AppException(
             code="UNSUPPORTED_EXCHANGE",
             message=f"不支持的交易所: {exchange}",
@@ -411,30 +434,43 @@ class MarketService:
             )
             return (base, {"symbol": symbol, "interval": interval, "limit": limit})
         if exchange == "okx":
-            return ("https://www.okx.com/api/v5/market/candles", {
-                "instId": self._to_okx_inst_id(symbol, market_type),
-                "bar": self._to_okx_bar(interval),
-                "limit": str(limit),
-            })
+            return (
+                "https://www.okx.com/api/v5/market/candles",
+                {
+                    "instId": self._to_okx_inst_id(symbol, market_type),
+                    "bar": self._to_okx_bar(interval),
+                    "limit": str(limit),
+                },
+            )
         if exchange == "huobi":
             if market_type == "perp":
-                return ("https://futures.htx.com/linear-swap-ex/market/history/kline", {
-                    "contract_code": self._to_huobi_perp_code(symbol),
+                return (
+                    "https://futures.htx.com/linear-swap-ex/market/history/kline",
+                    {
+                        "contract_code": self._to_huobi_perp_code(symbol),
+                        "period": self._to_huobi_period(interval),
+                        "size": limit,
+                    },
+                )
+            return (
+                "https://api.huobi.pro/market/history/kline",
+                {
+                    "symbol": symbol.lower(),
                     "period": self._to_huobi_period(interval),
                     "size": limit,
-                })
-            return ("https://api.huobi.pro/market/history/kline", {
-                "symbol": symbol.lower(),
-                "period": self._to_huobi_period(interval),
-                "size": limit,
-            })
+                },
+            )
         raise AppException(
             code="UNSUPPORTED_EXCHANGE",
             message=f"不支持的交易所: {exchange}",
         )
 
     def _build_orderbook_request(
-        self, exchange: str, symbol: str, limit: int, market_type: str,
+        self,
+        exchange: str,
+        symbol: str,
+        limit: int,
+        market_type: str,
     ) -> tuple[str, dict]:
         if exchange == "binance":
             base = (
@@ -444,21 +480,30 @@ class MarketService:
             )
             return (base, {"symbol": symbol, "limit": limit})
         if exchange == "okx":
-            return ("https://www.okx.com/api/v5/market/books", {
-                "instId": self._to_okx_inst_id(symbol, market_type),
-                "sz": str(limit),
-            })
+            return (
+                "https://www.okx.com/api/v5/market/books",
+                {
+                    "instId": self._to_okx_inst_id(symbol, market_type),
+                    "sz": str(limit),
+                },
+            )
         if exchange == "huobi":
             if market_type == "perp":
-                return ("https://futures.htx.com/linear-swap-ex/market/depth", {
-                    "contract_code": self._to_huobi_perp_code(symbol),
+                return (
+                    "https://futures.htx.com/linear-swap-ex/market/depth",
+                    {
+                        "contract_code": self._to_huobi_perp_code(symbol),
+                        "type": "step0",
+                    },
+                )
+            return (
+                "https://api.huobi.pro/market/depth",
+                {
+                    "symbol": symbol.lower(),
                     "type": "step0",
-                })
-            return ("https://api.huobi.pro/market/depth", {
-                "symbol": symbol.lower(),
-                "type": "step0",
-                "depth": limit,
-            })
+                    "depth": limit,
+                },
+            )
         raise AppException(
             code="UNSUPPORTED_EXCHANGE",
             message=f"不支持的交易所: {exchange}",
@@ -474,7 +519,7 @@ class MarketService:
         quote = ""
         for sc in stablecoins:
             if symbol.endswith(sc):
-                base = symbol[:-len(sc)]
+                base = symbol[: -len(sc)]
                 quote = sc
                 break
         if not quote:
@@ -488,14 +533,17 @@ class MarketService:
         stablecoins = ("USDT", "USDC")
         for sc in stablecoins:
             if symbol.endswith(sc):
-                return f"{symbol[:-len(sc)]}-{sc}"
+                return f"{symbol[: -len(sc)]}-{sc}"
         return symbol
 
     @staticmethod
     def _to_okx_bar(interval: str) -> str:
         """OKX K线周期映射: 1h→1H, 4h→4H, 1d→1D, 1w→1W, 其他保持"""
         mapping = {
-            "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W",
+            "1h": "1H",
+            "4h": "4H",
+            "1d": "1D",
+            "1w": "1W",
         }
         return mapping.get(interval, interval)
 
@@ -503,8 +551,14 @@ class MarketService:
     def _to_huobi_period(interval: str) -> str:
         """K线周期映射: 1m→1min, 1h→60min, 1d→1day, ..."""
         mapping = {
-            "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
-            "1h": "60min", "4h": "4hour", "1d": "1day", "1w": "1week",
+            "1m": "1min",
+            "5m": "5min",
+            "15m": "15min",
+            "30m": "30min",
+            "1h": "60min",
+            "4h": "4hour",
+            "1d": "1day",
+            "1w": "1week",
         }
         return mapping.get(interval, "60min")
 

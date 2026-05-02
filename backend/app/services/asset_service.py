@@ -1,19 +1,20 @@
 """
 资产服务 - 资产汇总、权益计算
 """
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Literal
 
-from sqlalchemy import select, func, or_
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.exchange import ExchangeAccount, Position
-from app.models.order import Order
-from app.models.strategy import StrategyInstance
-from app.repositories.trading_repo import PositionRepository, OrderRepository, ExchangeAccountRepository
+from app.core.performance import PerformanceCalculator, TradeRecord
+from app.models.exchange import Position
 from app.repositories.strategy_repo import StrategyInstanceRepository
-from app.core.performance import PerformanceCalculator, TradeRecord, EquityPoint
+from app.repositories.trading_repo import (
+    ExchangeAccountRepository,
+    OrderRepository,
+    PositionRepository,
+)
 
 
 class AssetService:
@@ -29,11 +30,7 @@ class AssetService:
         self.account_repo = ExchangeAccountRepository(session)
         self.strategy_repo = StrategyInstanceRepository(session)
 
-    async def get_asset_summary(
-        self,
-        user_id: int,
-        exchange: str = "all"
-    ) -> dict:
+    async def get_asset_summary(self, user_id: int, exchange: str = "all") -> dict:
         """
         获取资产汇总
 
@@ -61,7 +58,8 @@ class AssetService:
         account_ids = [a.id for a in accounts]
         all_positions = []
         if account_ids:
-            from sqlalchemy import select, or_
+            from sqlalchemy import select
+
             pos_result = await self.session.execute(
                 select(Position).where(
                     Position.account_id.in_(account_ids),
@@ -91,15 +89,21 @@ class AssetService:
                 total_pnl += unrealized_pnl
 
             # P0-2: 修复今日盈亏计算 - 从 Order 表汇总当日已成交订单的 pnl
-            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
             today_orders = await self.order_repo.get_filled_orders_after(account.id, today_start)
             today_trade_count += len(today_orders)
-            account_today_pnl = sum((o.pnl for o in today_orders if o.pnl is not None), Decimal("0"))
+            account_today_pnl = sum(
+                (o.pnl for o in today_orders if o.pnl is not None), Decimal("0")
+            )
             today_pnl += account_today_pnl
 
         # 计算收益率
-        total_pnl_percent = (total_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
-        today_pnl_percent = (today_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
+        total_pnl_percent = (
+            (total_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
+        )
+        today_pnl_percent = (
+            (today_pnl / initial_capital * 100) if initial_capital > 0 else Decimal("0")
+        )
 
         return {
             "totalAssets": float(total_asset + total_pnl),
@@ -110,14 +114,11 @@ class AssetService:
             "todayPnl": float(today_pnl),
             "todayPnlPercent": float(today_pnl_percent),
             "todayTradeCount": today_trade_count,
-            "updatedAt": datetime.now(timezone.utc).isoformat() + "Z",
+            "updatedAt": datetime.now(UTC).isoformat() + "Z",
         }
 
     async def get_positions(
-        self,
-        user_id: int,
-        exchange: str = "all",
-        side: str = "all"
+        self, user_id: int, exchange: str = "all", side: str = "all"
     ) -> list[dict]:
         """
         获取持仓列表
@@ -140,6 +141,7 @@ class AssetService:
         all_positions = []
         if account_ids:
             from sqlalchemy import select
+
             pos_result = await self.session.execute(
                 select(Position).where(
                     Position.account_id.in_(account_ids),
@@ -164,30 +166,31 @@ class AssetService:
                 if pos.side == "short":
                     price_diff = -price_diff
                 pnl = price_diff * pos.quantity
-                pnl_percent = (price_diff / pos.entry_price * 100) if pos.entry_price > 0 else Decimal("0")
+                pnl_percent = (
+                    (price_diff / pos.entry_price * 100) if pos.entry_price > 0 else Decimal("0")
+                )
 
-                positions_data.append({
-                    "id": f"pos_{pos.id}",
-                    "symbol": pos.symbol,
-                    "side": pos.side,
-                    "quantity": float(pos.quantity),
-                    "entryPrice": float(pos.entry_price),
-                    "currentPrice": float(pos.current_price),
-                    "unrealizedPnl": float(pnl),
-                    "unrealizedPnlPercent": float(pnl_percent),
-                    "leverage": pos.leverage,
-                    "exchange": account.exchange,
-                    "updatedAt": pos.updated_at.isoformat() + "Z" if pos.updated_at else datetime.now(timezone.utc).isoformat() + "Z",
-                })
+                positions_data.append(
+                    {
+                        "id": f"pos_{pos.id}",
+                        "symbol": pos.symbol,
+                        "side": pos.side,
+                        "quantity": float(pos.quantity),
+                        "entryPrice": float(pos.entry_price),
+                        "currentPrice": float(pos.current_price),
+                        "unrealizedPnl": float(pnl),
+                        "unrealizedPnlPercent": float(pnl_percent),
+                        "leverage": pos.leverage,
+                        "exchange": account.exchange,
+                        "updatedAt": pos.updated_at.isoformat() + "Z"
+                        if pos.updated_at
+                        else datetime.now(UTC).isoformat() + "Z",
+                    }
+                )
 
         return positions_data
 
-    async def get_equity_curve(
-        self,
-        user_id: int,
-        days: int = 30,
-        exchange: str = "all"
-    ) -> dict:
+    async def get_equity_curve(self, user_id: int, days: int = 30, exchange: str = "all") -> dict:
         """
         获取权益曲线数据
 
@@ -206,7 +209,7 @@ class AssetService:
 
         # P0-1: 修复权益曲线 - 使用真实订单数据计算
         all_trades = []
-        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+        start_date = datetime.now(UTC) - timedelta(days=days)
 
         for account in accounts:
             # 获取账户的所有历史成交订单
@@ -215,21 +218,22 @@ class AssetService:
                 if o.pnl is not None and o.filled_at:
                     # 简化：假设 entry_time 是 filled_at 之前的一个占位时间，如果模型中没有开仓时间的话
                     # 实际上 Order 模型应该记录 open_at 或类似的。这里我们主要关注 pnl 发生的时间
-                    all_trades.append(TradeRecord(
-                        entry_price=o.price or Decimal("0"),
-                        exit_price=o.avg_fill_price or Decimal("0"),
-                        quantity=o.filled_quantity,
-                        side=o.side,
-                        entry_time=o.created_at,
-                        exit_time=o.filled_at,
-                        pnl=o.pnl,
-                        commission=o.commission
-                    ))
+                    all_trades.append(
+                        TradeRecord(
+                            entry_price=o.price or Decimal("0"),
+                            exit_price=o.avg_fill_price or Decimal("0"),
+                            quantity=o.filled_quantity,
+                            side=o.side,
+                            entry_time=o.created_at,
+                            exit_time=o.filled_at,
+                            pnl=o.pnl,
+                            commission=o.commission,
+                        )
+                    )
 
         # 使用 PerformanceCalculator 计算绩效
         report = PerformanceCalculator.calculate(
-            trades=all_trades,
-            initial_capital=self.DEFAULT_INITIAL_CAPITAL
+            trades=all_trades, initial_capital=self.DEFAULT_INITIAL_CAPITAL
         )
 
         # 生成每日权益点
@@ -241,14 +245,16 @@ class AssetService:
 
         current_equity = self.DEFAULT_INITIAL_CAPITAL
         for i in range(days, -1, -1):
-            date = (datetime.now(timezone.utc) - timedelta(days=i)).date()
+            date = (datetime.now(UTC) - timedelta(days=i)).date()
             daily_pnl = sum((t.pnl for t in trades_by_date.get(date, [])), Decimal("0"))
             current_equity += daily_pnl
-            points.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "equity": float(current_equity),
-                "pnl": float(daily_pnl),
-            })
+            points.append(
+                {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "equity": float(current_equity),
+                    "pnl": float(daily_pnl),
+                }
+            )
 
         return {
             "points": points,

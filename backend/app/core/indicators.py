@@ -4,12 +4,11 @@
 所有函数接收 numpy 数组，返回等长数组（前面不足部分用 NaN 填充），
 确保输出与输入 K 线一一对应，rule_engine 按索引取最新值即可。
 """
-from typing import Tuple
 
 import numpy as np
 
-
 # ── 工具函数 ──────────────────────────────────────────────
+
 
 def _pad_to_length(data: np.ndarray, target_len: int) -> np.ndarray:
     """将短数组前面用 NaN 填充到目标长度"""
@@ -20,6 +19,7 @@ def _pad_to_length(data: np.ndarray, target_len: int) -> np.ndarray:
 
 
 # ── 趋势指标 ──────────────────────────────────────────────
+
 
 def calc_sma(closes: np.ndarray, period: int = 20) -> np.ndarray:
     """简单移动平均 SMA"""
@@ -55,6 +55,7 @@ def calc_dema(closes: np.ndarray, period: int = 20) -> np.ndarray:
 
 # ── 震荡指标 ──────────────────────────────────────────────
 
+
 def calc_rsi(closes: np.ndarray, period: int = 14) -> np.ndarray:
     """RSI 相对强弱指标 (0-100)"""
     if len(closes) < period + 1:
@@ -78,7 +79,7 @@ def calc_rsi(closes: np.ndarray, period: int = 14) -> np.ndarray:
 
     # deltas 比 closes 少1个元素
     result = np.full(len(closes), np.nan)
-    result[period:] = rsi_values[period - 1:]
+    result[period:] = rsi_values[period - 1 :]
     return result
 
 
@@ -87,7 +88,7 @@ def calc_macd(
     fast: int = 12,
     slow: int = 26,
     signal: int = 9,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """MACD → (macd_line, signal_line, histogram)"""
     ema_fast = calc_ema(closes, fast)
     ema_slow = calc_ema(closes, slow)
@@ -157,11 +158,12 @@ def calc_cci(
 
 # ── 波动率指标 ──────────────────────────────────────────────
 
+
 def calc_bollinger(
     closes: np.ndarray,
     period: int = 20,
     std_dev: float = 2.0,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """布林带 → (upper, middle, lower, pct_b)
     pct_b: 价格在布林带中的位置百分比 (0=下轨, 100=上轨)
     """
@@ -170,12 +172,14 @@ def calc_bollinger(
         empty = np.full_like(closes, np.nan)
         return empty.copy(), middle, empty.copy(), empty.copy()
 
-    std = np.array([
-        np.std(closes[max(0, i - period + 1) : i + 1])
-        if i >= period - 1 and not np.isnan(middle[i])
-        else np.nan
-        for i in range(len(closes))
-    ])
+    std = np.array(
+        [
+            np.std(closes[max(0, i - period + 1) : i + 1])
+            if i >= period - 1 and not np.isnan(middle[i])
+            else np.nan
+            for i in range(len(closes))
+        ]
+    )
 
     upper = middle + std * std_dev
     lower = middle - std * std_dev
@@ -221,6 +225,7 @@ def calc_atr(
 
 # ── 成交量指标 ──────────────────────────────────────────────
 
+
 def calc_volume_ma(volumes: np.ndarray, period: int = 20) -> np.ndarray:
     """成交量均线"""
     return calc_sma(volumes, period)
@@ -242,6 +247,7 @@ def calc_obv(closes: np.ndarray, volumes: np.ndarray) -> np.ndarray:
 
 
 # ── 价格衍生指标 ──────────────────────────────────────────────
+
 
 def calc_price_change_pct(closes: np.ndarray, period: int = 1) -> np.ndarray:
     """涨跌幅百分比（相对 period 根前的价格）"""

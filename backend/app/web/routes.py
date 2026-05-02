@@ -6,9 +6,11 @@ Web 控制台路由 - 轻量网页前端 + 安装向导
 - /web/       → 主控制台（安装完成后）
 - /web/static → 静态文件
 """
+
+from pathlib import Path
+
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, RedirectResponse
-from pathlib import Path
 
 from app.config import get_settings
 

@@ -1,20 +1,16 @@
 """
 策略服务
 """
-from decimal import Decimal
-from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
-from app.models.user import User
 from app.models.strategy import StrategyInstance, StrategyTemplate
+from app.models.user import User
 from app.repositories.strategy_repo import (
-    StrategyTemplateRepository,
     StrategyInstanceRepository,
+    StrategyTemplateRepository,
 )
-from app.api.deps import get_current_user
 
 
 class StrategyService:
@@ -48,6 +44,7 @@ class StrategyService:
         # 确定要查找的 code
         if isinstance(template_id, int):
             from app.constants import TEMPLATE_ID_TO_CODE
+
             code = TEMPLATE_ID_TO_CODE.get(template_id)
             if not code:
                 return None
@@ -127,8 +124,10 @@ class StrategyService:
 
         # 验证 account_id（如果指定）
         if account_id:
-            from app.models.exchange import ExchangeAccount
             from sqlalchemy import select
+
+            from app.models.exchange import ExchangeAccount
+
             result = await self.session.execute(
                 select(ExchangeAccount).where(
                     ExchangeAccount.id == account_id,
@@ -206,9 +205,11 @@ class StrategyService:
         # 启动策略运行器
         try:
             from app.core.strategy_runner import strategy_runner
+
             await strategy_runner.start_instance(instance_id)
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning("启动策略运行器失败: %s", exc)
 
         return instance
@@ -235,9 +236,11 @@ class StrategyService:
         # 先停止策略运行器
         try:
             from app.core.strategy_runner import strategy_runner
+
             await strategy_runner.stop_instance(instance_id)
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning("停止策略运行器失败: %s", exc)
 
         return await self.instance_repo.update(instance_id, status="stopped")

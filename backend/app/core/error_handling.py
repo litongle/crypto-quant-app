@@ -21,6 +21,7 @@
     async def call_exchange():
         ...
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -49,9 +50,7 @@ logger = logging.getLogger(__name__)
 # 用 contextvars 而不是 threading.local: 在 asyncio 协程间正确传递,
 # threading.local 在 async 上下文里会串味。
 
-_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "trace_id", default=None
-)
+_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 
 
 def get_trace_id() -> str:
@@ -114,9 +113,7 @@ def retry_on_retryable(
     抛出:
         最后一次的原始异常(不包成 RetryError)。
     """
-    wait = wait_exponential(
-        multiplier=min_wait_seconds, min=min_wait_seconds, max=max_wait_seconds
-    )
+    wait = wait_exponential(multiplier=min_wait_seconds, min=min_wait_seconds, max=max_wait_seconds)
     stop = stop_after_attempt(max_attempts)
     retry_cond = retry_if_exception(is_retryable)
 
@@ -136,9 +133,7 @@ def retry_on_retryable(
                         before_sleep=_log_retry,
                     ):
                         with attempt:
-                            return await cast(
-                                Callable[..., Awaitable[T]], func
-                            )(*args, **kwargs)
+                            return await cast(Callable[..., Awaitable[T]], func)(*args, **kwargs)
                 except RetryError as e:  # 兜底(reraise=True 通常不会到这)
                     raise e.last_attempt.exception() or e
                 raise RuntimeError("unreachable")  # type: ignore[unreachable]

@@ -1,12 +1,13 @@
 """
 资产相关 API 路由
 """
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
 from app.api.deps import get_current_user
 from app.core.schemas import APIResponse
+from app.database import get_session
 from app.services.asset_service import AssetService
 
 router = APIRouter()
@@ -75,6 +76,7 @@ async def get_equity_curve(
 
 # ============ 风控仪表盘 API — P1-7 ============
 
+
 @router.get("/risk-dashboard")
 async def get_risk_dashboard(
     current_user=Depends(get_current_user),
@@ -82,12 +84,14 @@ async def get_risk_dashboard(
 ) -> APIResponse:
     """获取风控仪表盘数据"""
     from app.services.risk_service import RiskService
+
     service = RiskService(session)
     data = await service.get_risk_dashboard(current_user.id)
     return APIResponse(data=data)
 
 
 # ============ 模拟盘(Paper Trading) API — P2-9 ============
+
 
 @router.post("/paper-account")
 async def create_paper_account(
@@ -96,15 +100,18 @@ async def create_paper_account(
 ) -> APIResponse:
     """创建模拟盘账户"""
     from app.services.paper_trading_service import PaperTradingService
+
     service = PaperTradingService(session)
     account = await service.create_paper_account(current_user.id)
     await session.commit()
-    return APIResponse(data={
-        "id": account.id,
-        "name": account.account_name,
-        "balance": 100000,
-        "exchange": "paper",
-    })
+    return APIResponse(
+        data={
+            "id": account.id,
+            "name": account.account_name,
+            "balance": 100000,
+            "exchange": "paper",
+        }
+    )
 
 
 @router.get("/paper-accounts")
@@ -114,14 +121,20 @@ async def get_paper_accounts(
 ) -> APIResponse:
     """获取用户的模拟盘账户列表"""
     from app.services.paper_trading_service import PaperTradingService
+
     service = PaperTradingService(session)
     accounts = await service.get_paper_accounts(current_user.id)
-    return APIResponse(data=[{
-        "id": a.id,
-        "name": a.account_name,
-        "exchange": a.exchange,
-        "isActive": a.is_active,
-    } for a in accounts])
+    return APIResponse(
+        data=[
+            {
+                "id": a.id,
+                "name": a.account_name,
+                "exchange": a.exchange,
+                "isActive": a.is_active,
+            }
+            for a in accounts
+        ]
+    )
 
 
 @router.post("/paper-account/{account_id}/reset")
@@ -132,6 +145,7 @@ async def reset_paper_account(
 ) -> APIResponse:
     """重置模拟盘账户"""
     from app.services.paper_trading_service import PaperTradingService
+
     service = PaperTradingService(session)
     await service.reset_paper_account(account_id)
     await session.commit()

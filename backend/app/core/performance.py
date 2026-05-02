@@ -16,9 +16,10 @@
    - PerformanceCalculator.calculate(orders, equity_curve) → PerformanceReport
    - 适用于回测结果 & 实盘绩效
 """
+
 import math
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -26,6 +27,7 @@ from typing import Any
 @dataclass
 class TradeRecord:
     """单笔交易记录（用于绩效计算）"""
+
     entry_price: Decimal
     exit_price: Decimal
     quantity: Decimal
@@ -39,6 +41,7 @@ class TradeRecord:
 @dataclass
 class EquityPoint:
     """权益曲线上的一个点"""
+
     timestamp: datetime
     equity: Decimal
 
@@ -46,6 +49,7 @@ class EquityPoint:
 @dataclass
 class PerformanceReport:
     """绩效报告"""
+
     # 基础统计
     total_trades: int = 0
     winning_trades: int = 0
@@ -53,24 +57,24 @@ class PerformanceReport:
 
     # 收益指标
     total_pnl: Decimal = Decimal("0")
-    total_return_pct: Decimal = Decimal("0")   # 总收益率 %
+    total_return_pct: Decimal = Decimal("0")  # 总收益率 %
     annualized_return_pct: Decimal = Decimal("0")  # 年化收益率 %
 
     # 风险指标
-    max_drawdown_pct: Decimal = Decimal("0")   # 最大回撤 %
-    max_drawdown_duration_hours: float = 0     # 最大回撤持续时长
+    max_drawdown_pct: Decimal = Decimal("0")  # 最大回撤 %
+    max_drawdown_duration_hours: float = 0  # 最大回撤持续时长
 
     # 风险调整收益
-    sharpe_ratio: Decimal = Decimal("0")       # 夏普比率
-    calmar_ratio: Decimal = Decimal("0")       # 卡玛比率
+    sharpe_ratio: Decimal = Decimal("0")  # 夏普比率
+    calmar_ratio: Decimal = Decimal("0")  # 卡玛比率
 
     # 交易质量
-    win_rate: Decimal = Decimal("0")           # 胜率 %
+    win_rate: Decimal = Decimal("0")  # 胜率 %
     profit_loss_ratio: Decimal = Decimal("0")  # 盈亏比
-    avg_profit: Decimal = Decimal("0")         # 平均盈利
-    avg_loss: Decimal = Decimal("0")           # 平均亏损
-    max_consecutive_wins: int = 0              # 最大连胜
-    max_consecutive_losses: int = 0            # 最大连亏
+    avg_profit: Decimal = Decimal("0")  # 平均盈利
+    avg_loss: Decimal = Decimal("0")  # 平均亏损
+    max_consecutive_wins: int = 0  # 最大连胜
+    max_consecutive_losses: int = 0  # 最大连亏
 
     # 附加信息
     initial_capital: Decimal = Decimal("100000")
@@ -160,7 +164,9 @@ class PerformanceCalculator:
 
         # 总收益率
         if initial_capital > 0:
-            report.total_return_pct = (report.final_equity - initial_capital) / initial_capital * 100
+            report.total_return_pct = (
+                (report.final_equity - initial_capital) / initial_capital * 100
+            )
 
         # 交易天数
         if report.start_time and report.end_time:
@@ -180,7 +186,9 @@ class PerformanceCalculator:
 
         # 胜率
         if report.total_trades > 0:
-            report.win_rate = Decimal(str(round(report.winning_trades / report.total_trades * 100, 2)))
+            report.win_rate = Decimal(
+                str(round(report.winning_trades / report.total_trades * 100, 2))
+            )
 
         # 平均盈利 / 平均亏损
         if wins:
@@ -193,11 +201,15 @@ class PerformanceCalculator:
             report.profit_loss_ratio = report.avg_profit / report.avg_loss
 
         # 最大连胜/连亏
-        report.max_consecutive_wins, report.max_consecutive_losses = cls._calc_streaks(sorted_trades)
+        report.max_consecutive_wins, report.max_consecutive_losses = cls._calc_streaks(
+            sorted_trades
+        )
 
         # 最大回撤
         if equity_curve:
-            report.max_drawdown_pct, report.max_drawdown_duration_hours = cls._calc_max_drawdown(equity_curve)
+            report.max_drawdown_pct, report.max_drawdown_duration_hours = cls._calc_max_drawdown(
+                equity_curve
+            )
 
         # 夏普比率
         if equity_curve and len(equity_curve) > 1:
@@ -216,7 +228,7 @@ class PerformanceCalculator:
         """从交易记录构建权益曲线"""
         curve: list[EquityPoint] = [
             EquityPoint(
-                timestamp=trades[0].entry_time if trades else datetime.now(timezone.utc),
+                timestamp=trades[0].entry_time if trades else datetime.now(UTC),
                 equity=initial_capital,
             )
         ]
@@ -224,10 +236,12 @@ class PerformanceCalculator:
 
         for t in trades:
             running_equity += t.pnl - t.commission
-            curve.append(EquityPoint(
-                timestamp=t.exit_time,
-                equity=running_equity,
-            ))
+            curve.append(
+                EquityPoint(
+                    timestamp=t.exit_time,
+                    equity=running_equity,
+                )
+            )
 
         return curve
 
@@ -341,7 +355,9 @@ class PerformanceCalculator:
         return Decimal(str(round(sharpe, 4)))
 
     @classmethod
-    def from_order_models(cls, orders: list[Any], initial_capital: Decimal = Decimal("100000")) -> PerformanceReport:
+    def from_order_models(
+        cls, orders: list[Any], initial_capital: Decimal = Decimal("100000")
+    ) -> PerformanceReport:
         """从 ORM Order 对象列表计算绩效
 
         便捷方法，直接接受 SQLAlchemy Order 模型列表。
@@ -354,24 +370,30 @@ class PerformanceCalculator:
             if not hasattr(o, "filled_quantity") or not o.filled_quantity:
                 continue
 
-            entry_price = getattr(o, "avg_fill_price", None) or getattr(o, "price", None) or Decimal("0")
+            entry_price = (
+                getattr(o, "avg_fill_price", None) or getattr(o, "price", None) or Decimal("0")
+            )
             exit_price = entry_price  # 简化：单笔订单视为完整交易
             quantity = getattr(o, "filled_quantity", Decimal("0"))
             side = getattr(o, "side", "long")
-            entry_time = getattr(o, "created_at", None) or datetime.now(timezone.utc)
-            exit_time = getattr(o, "filled_at", None) or getattr(o, "updated_at", None) or entry_time
+            entry_time = getattr(o, "created_at", None) or datetime.now(UTC)
+            exit_time = (
+                getattr(o, "filled_at", None) or getattr(o, "updated_at", None) or entry_time
+            )
             pnl = o.pnl or Decimal("0")
             commission = getattr(o, "commission", Decimal("0"))
 
-            trades.append(TradeRecord(
-                entry_price=entry_price,
-                exit_price=exit_price,
-                quantity=quantity,
-                side=side,
-                entry_time=entry_time,
-                exit_time=exit_time,
-                pnl=pnl,
-                commission=commission,
-            ))
+            trades.append(
+                TradeRecord(
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    quantity=quantity,
+                    side=side,
+                    entry_time=entry_time,
+                    exit_time=exit_time,
+                    pnl=pnl,
+                    commission=commission,
+                )
+            )
 
         return cls.calculate(trades, initial_capital=initial_capital)

@@ -1,29 +1,29 @@
 """
 Huobi (HTX) 交易所适配器实现
 """
+
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from urllib.parse import urlencode
-from typing import Any
 
 from app.core.exceptions import (
     ExchangeAPIError,
     OrderRejectedError,
 )
 from app.core.exchanges.base import (
+    Balance,
     BaseExchangeAdapter,
-    Ticker,
     Kline,
     OrderBook,
-    Balance,
     OrderResult,
     PositionInfo,
+    SymbolInfo,
+    Ticker,
     _safe_decimal,
     _safe_divide,
 )
@@ -37,6 +37,7 @@ _HUOBI_STATUS_MAP = {
     "canceled": "cancelled",
     "partial-canceled": "cancelled",
 }
+
 
 class HuobiAdapter(BaseExchangeAdapter):
     """Huobi (HTX) 交易所适配器"""
@@ -78,9 +79,7 @@ class HuobiAdapter(BaseExchangeAdapter):
         host = self.BASE_URL.replace("https://", "").replace("http://", "")
         payload = f"{method.upper()}\n{host}\n{path}\n{query_string}"
         signature = base64.b64encode(
-            hmac.new(
-                self.secret_key.encode(), payload.encode(), hashlib.sha256
-            ).digest()
+            hmac.new(self.secret_key.encode(), payload.encode(), hashlib.sha256).digest()
         ).decode()
         sign_params["Signature"] = signature
         return sign_params
@@ -101,7 +100,9 @@ class HuobiAdapter(BaseExchangeAdapter):
         data = await self._request_with_retry(_do, context="get_account_id")
         if data.get("status") != "ok":
             err_code = data.get("err-code", "unknown")
-            raise ExchangeAPIError("Huobi", data.get("err-msg", "获取账户ID失败"), detail_code=err_code)
+            raise ExchangeAPIError(
+                "Huobi", data.get("err-msg", "获取账户ID失败"), detail_code=err_code
+            )
 
         for account in data.get("data", []):
             if account.get("type") == "spot":
@@ -120,8 +121,10 @@ class HuobiAdapter(BaseExchangeAdapter):
             err_msg = data.get("err-msg", "Unknown error")
             err_code = data.get("err-code", "unknown")
             reject_codes = {
-                "order-invalid-order-price", "order-invalid-order-amount",
-                "insufficient-balance", "invalid-account-id",
+                "order-invalid-order-price",
+                "order-invalid-order-amount",
+                "insufficient-balance",
+                "invalid-account-id",
                 "order-limitorder-amount-min-error",
             }
             if err_code in reject_codes:
@@ -130,6 +133,7 @@ class HuobiAdapter(BaseExchangeAdapter):
 
     async def get_ticker(self, symbol: str) -> Ticker:
         huobi_symbol = self._to_huobi_symbol(symbol)
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -147,20 +151,33 @@ class HuobiAdapter(BaseExchangeAdapter):
         open_p = _safe_decimal(tick.get("open"))
         price_change_pct = _safe_divide((close - open_p) * 100, open_p, Decimal("0"))
         return Ticker(
-            symbol=symbol, price=close, price_change=close - open_p,
+            symbol=symbol,
+            price=close,
+            price_change=close - open_p,
             price_change_percent=price_change_pct or Decimal("0"),
-            high_24h=_safe_decimal(tick.get("high")), low_24h=_safe_decimal(tick.get("low")),
-            volume_24h=_safe_decimal(tick.get("vol")), quote_volume_24h=_safe_decimal(tick.get("amount")),
-            timestamp=datetime.fromtimestamp(float(_safe_decimal(tick.get("version")) / 1000), tz=timezone.utc),
+            high_24h=_safe_decimal(tick.get("high")),
+            low_24h=_safe_decimal(tick.get("low")),
+            volume_24h=_safe_decimal(tick.get("vol")),
+            quote_volume_24h=_safe_decimal(tick.get("amount")),
+            timestamp=datetime.fromtimestamp(
+                float(_safe_decimal(tick.get("version")) / 1000), tz=UTC
+            ),
         )
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
         huobi_symbol = self._to_huobi_symbol(symbol)
         period_map = {
-            "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
-            "1h": "60min", "4h": "4hour", "1d": "1day", "1w": "1week",
+            "1m": "1min",
+            "5m": "5min",
+            "15m": "15min",
+            "30m": "30min",
+            "1h": "60min",
+            "4h": "4hour",
+            "1d": "1day",
+            "1w": "1week",
         }
         period = period_map.get(interval, "60min")
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -175,17 +192,24 @@ class HuobiAdapter(BaseExchangeAdapter):
             raise ExchangeAPIError("Huobi", data.get("err-msg", "获取K线失败"))
         klines = []
         for k in data.get("data", []):
-            klines.append(Kline(
-                timestamp=datetime.fromtimestamp(float(_safe_decimal(k.get("id"))), tz=timezone.utc),
-                open=_safe_decimal(k.get("open")), high=_safe_decimal(k.get("high")),
-                low=_safe_decimal(k.get("low")), close=_safe_decimal(k.get("close")),
-                volume=_safe_decimal(k.get("vol")),
-                close_time=datetime.fromtimestamp(float(_safe_decimal(k.get("id")) + 60), tz=timezone.utc),
-            ))
+            klines.append(
+                Kline(
+                    timestamp=datetime.fromtimestamp(float(_safe_decimal(k.get("id"))), tz=UTC),
+                    open=_safe_decimal(k.get("open")),
+                    high=_safe_decimal(k.get("high")),
+                    low=_safe_decimal(k.get("low")),
+                    close=_safe_decimal(k.get("close")),
+                    volume=_safe_decimal(k.get("vol")),
+                    close_time=datetime.fromtimestamp(
+                        float(_safe_decimal(k.get("id")) + 60), tz=UTC
+                    ),
+                )
+            )
         return klines
 
     async def get_orderbook(self, symbol: str, limit: int = 20) -> OrderBook:
         huobi_symbol = self._to_huobi_symbol(symbol)
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -207,6 +231,7 @@ class HuobiAdapter(BaseExchangeAdapter):
     async def get_balance(self) -> list[Balance]:
         account_id = await self._get_account_id()
         path = f"/v1/account/accounts/{account_id}/balance"
+
         async def _do():
             params = self._sign_params("GET", path)
             client = await self.get_shared_client()
@@ -235,7 +260,12 @@ class HuobiAdapter(BaseExchangeAdapter):
         return []
 
     async def create_order(
-        self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Decimal | None = None,
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        quantity: Decimal,
+        price: Decimal | None = None,
     ) -> OrderResult:
         try:
             account_id = await self._get_account_id()
@@ -247,8 +277,11 @@ class HuobiAdapter(BaseExchangeAdapter):
         huobi_type = f"{side.lower()}-{order_type.lower()}"
         path = "/v1/order/orders/place"
         body = {
-            "account-id": account_id, "symbol": huobi_symbol, "type": huobi_type,
-            "amount": str(quantity), "source": "spot-api",
+            "account-id": account_id,
+            "symbol": huobi_symbol,
+            "type": huobi_type,
+            "amount": str(quantity),
+            "source": "spot-api",
         }
         if price and order_type.lower() == "limit":
             body["price"] = str(price)
@@ -261,38 +294,52 @@ class HuobiAdapter(BaseExchangeAdapter):
             return resp.json()
 
         try:
-            data = await self._request_with_retry(_do, max_attempts=1, context=f"create_order({symbol})")
+            data = await self._request_with_retry(
+                _do, max_attempts=1, context=f"create_order({symbol})"
+            )
         except ExchangeAPIError as exc:
             if exc.detail_code == "invalid-account-id" or "account" in str(exc.message).lower():
                 self._invalidate_account_id_cache()
             raise
         self._check_huobi_response(data)
         return OrderResult(
-            exchange_order_id=str(data.get("data", "")), symbol=symbol, side=side.lower(),
-            order_type=order_type.lower(), quantity=quantity, price=price, status="pending",
-            filled_quantity=Decimal("0"), avg_fill_price=None,
+            exchange_order_id=str(data.get("data", "")),
+            symbol=symbol,
+            side=side.lower(),
+            order_type=order_type.lower(),
+            quantity=quantity,
+            price=price,
+            status="pending",
+            filled_quantity=Decimal("0"),
+            avg_fill_price=None,
         )
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         path = f"/v1/order/orders/{order_id}/submitcancel"
+
         async def _do():
             params = self._sign_params("POST", path)
             client = await self.get_shared_client()
             resp = await client.post(f"{self.BASE_URL}{path}", params=params)
             resp.raise_for_status()
             return resp.json()
-        data = await self._request_with_retry(_do, max_attempts=2, context=f"cancel_order({order_id})")
+
+        data = await self._request_with_retry(
+            _do, max_attempts=2, context=f"cancel_order({order_id})"
+        )
         self._check_huobi_response(data)
         return str(data.get("data", "")) == order_id
 
     async def get_order(self, order_id: str, symbol: str) -> OrderResult:
         path = f"/v1/order/orders/{order_id}"
+
         async def _do():
             params = self._sign_params("GET", path)
             client = await self.get_shared_client()
             resp = await client.get(f"{self.BASE_URL}{path}", params=params)
             resp.raise_for_status()
             return resp.json()
+
         data = await self._request_with_retry(_do, context=f"get_order({order_id})")
         self._check_huobi_response(data)
         o = data.get("data", {})
@@ -300,34 +347,82 @@ class HuobiAdapter(BaseExchangeAdapter):
         cash = _safe_decimal(o.get("field-cash-amount"))
         parts = o.get("type", "buy-market").split("-")
         return OrderResult(
-            exchange_order_id=str(o.get("id", "")), symbol=o.get("symbol", symbol).upper(),
-            side=parts[0], order_type=parts[1] if len(parts) > 1 else "market",
+            exchange_order_id=str(o.get("id", "")),
+            symbol=o.get("symbol", symbol).upper(),
+            side=parts[0],
+            order_type=parts[1] if len(parts) > 1 else "market",
             quantity=_safe_decimal(o.get("amount")),
             price=_safe_decimal(o.get("price")) if _safe_decimal(o.get("price")) > 0 else None,
             status=_HUOBI_STATUS_MAP.get(o.get("state", ""), "pending"),
-            filled_quantity=filled, avg_fill_price=_safe_divide(cash, filled),
+            filled_quantity=filled,
+            avg_fill_price=_safe_divide(cash, filled),
         )
 
     async def create_stop_order(
-        self, symbol: str, side: str, quantity: Decimal, stop_price: Decimal, order_type: str = "stop_loss",
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
     ) -> OrderResult:
         account_id = await self._get_account_id()
         otype = "sell-stop" if side == "sell" else "buy-stop"
         body = {
-            "accountId": account_id, "symbol": symbol.lower(), "orderType": "market",
-            "type": otype, "amount": str(quantity), "stopPrice": str(stop_price), "source": "api",
+            "accountId": account_id,
+            "symbol": symbol.lower(),
+            "orderType": "market",
+            "type": otype,
+            "amount": str(quantity),
+            "stopPrice": str(stop_price),
+            "source": "api",
         }
+
         async def _do():
             params = self._sign_params("POST", "/v2/order/algo")
             client = await self.get_shared_client()
             resp = await client.post(f"{self.BASE_URL}/v2/order/algo", params=params, json=body)
             resp.raise_for_status()
             return resp.json()
-        data = await self._request_with_retry(_do, max_attempts=1, context=f"create_stop_order({symbol})")
+
+        data = await self._request_with_retry(
+            _do, max_attempts=1, context=f"create_stop_order({symbol})"
+        )
         if data.get("status") != "ok":
             raise OrderRejectedError("huobi", data.get("err-msg", "unknown"))
         return OrderResult(
-            exchange_order_id=str(data.get("data", "")), symbol=symbol.upper(), side=side,
-            order_type=order_type, quantity=quantity, price=stop_price, status="pending",
-            filled_quantity=Decimal("0"), avg_fill_price=None,
+            exchange_order_id=str(data.get("data", "")),
+            symbol=symbol.upper(),
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            price=stop_price,
+            status="pending",
+            filled_quantity=Decimal("0"),
+            avg_fill_price=None,
         )
+
+    async def get_exchange_info(self, symbol: str) -> SymbolInfo:
+        """获取交易对精度信息（评审问题2：Huobi API）"""
+        symbol_lower = symbol.lower()
+
+        async def _do():
+            client = await self.get_shared_client()
+            resp = await client.get(f"{self.BASE_URL}/v2/settings/common/symbols")
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(_do, context=f"get_exchange_info({symbol})")
+        if data.get("status") != "ok":
+            raise ExchangeAPIError("Huobi", "获取交易对信息失败")
+
+        for s in data.get("data", []):
+            if s.get("sc").lower() == symbol_lower:
+                return SymbolInfo(
+                    symbol=symbol.upper(),
+                    min_qty=_safe_decimal(s.get("minoa")),
+                    step_size=_safe_decimal(s.get("toa")),
+                    min_notional=_safe_decimal(s.get("minov")),
+                    tick_size=_safe_decimal(s.get("tp")),
+                )
+        raise ExchangeAPIError("Huobi", f"交易对 {symbol} 不存在")

@@ -1,14 +1,14 @@
 """
 用户 API — 审计日志查询
 """
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
 from app.api.deps import get_current_user
 from app.core.schemas import APIResponse
+from app.database import get_session
 from app.services.audit_service import AuditService
-from app.models.user import User
 
 router = APIRouter()
 
@@ -31,13 +31,18 @@ async def get_audit_logs(
         limit=limit,
         offset=offset,
     )
-    return APIResponse(data=[{
-        "id": log.id,
-        "action": log.action,
-        "resource": log.resource,
-        "resourceId": log.resource_id,
-        "detail": log.detail,
-        "status": log.status,
-        "ipAddress": log.ip_address,
-        "createdAt": log.created_at.isoformat() + "Z" if log.created_at else "",
-    } for log in logs])
+    return APIResponse(
+        data=[
+            {
+                "id": log.id,
+                "action": log.action,
+                "resource": log.resource,
+                "resourceId": log.resource_id,
+                "detail": log.detail,
+                "status": log.status,
+                "ipAddress": log.ip_address,
+                "createdAt": log.created_at.isoformat() + "Z" if log.created_at else "",
+            }
+            for log in logs
+        ]
+    )

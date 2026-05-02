@@ -1,15 +1,13 @@
 """
 市场数据 API — 统一 APIResponse 响应格式
 """
-from typing import Annotated
 
-import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.services.market_service import MarketService, SUPPORTED_SYMBOLS
-from app.core.trade_schemas import TickerSchema, KlineSchema, OrderBookSchema
-from app.core.schemas import APIResponse
 from app.api.deps import DbSession
+from app.core.schemas import APIResponse
+from app.core.trade_schemas import OrderBookSchema, TickerSchema
+from app.services.market_service import SUPPORTED_SYMBOLS, MarketService
 
 router = APIRouter()
 
@@ -47,12 +45,14 @@ async def get_kline(
     service = MarketService(session)
     klines = await service.get_kline(symbol, interval, limit, exchange, market_type=market)
     # klines 已经是 list[dict]
-    return APIResponse(data={
-        "symbol": symbol.upper(),
-        "interval": interval,
-        "market": market,
-        "klines": klines,
-    })
+    return APIResponse(
+        data={
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "market": market,
+            "klines": klines,
+        }
+    )
 
 
 @router.get("/orderbook/{symbol}")
@@ -74,17 +74,18 @@ async def get_orderbook(
 @router.get("/symbols")
 async def get_supported_symbols() -> APIResponse:
     """获取支持的交易对列表"""
-    return APIResponse(data={
-        "symbols": list(SUPPORTED_SYMBOLS),
-        "count": len(SUPPORTED_SYMBOLS),
-    })
+    return APIResponse(
+        data={
+            "symbols": list(SUPPORTED_SYMBOLS),
+            "count": len(SUPPORTED_SYMBOLS),
+        }
+    )
 
 
 @router.get("/tickers")
 async def get_batch_tickers(
     symbols: str = Query(
-        default="BTC,ETH,SOL,BNB,DOGE",
-        description="逗号分隔的交易对符号（不带USDT后缀）"
+        default="BTC,ETH,SOL,BNB,DOGE", description="逗号分隔的交易对符号（不带USDT后缀）"
     ),
 ) -> APIResponse:
     """
@@ -125,17 +126,19 @@ async def get_batch_tickers(
                 "DOGEUSDT": 0.3850,
             }.get(symbol, 100.0)
             change = base_price * 0.012 * (hash(symbol) % 10 - 5) / 5
-            tickers.append({
-                "symbol": symbol,
-                "price": base_price + change,
-                "price_change": change,
-                "price_change_percent": change / base_price * 100,
-                "volume_24h": 15000000000,
-                "high_24h": base_price * 1.02,
-                "low_24h": base_price * 0.98,
-                "sparkline": [],
-                "data_source": "mock",  # P2-1: 明确标注模拟数据
-            })
+            tickers.append(
+                {
+                    "symbol": symbol,
+                    "price": base_price + change,
+                    "price_change": change,
+                    "price_change_percent": change / base_price * 100,
+                    "volume_24h": 15000000000,
+                    "high_24h": base_price * 1.02,
+                    "low_24h": base_price * 0.98,
+                    "sparkline": [],
+                    "data_source": "mock",  # P2-1: 明确标注模拟数据
+                }
+            )
 
     return APIResponse(data=tickers)
 

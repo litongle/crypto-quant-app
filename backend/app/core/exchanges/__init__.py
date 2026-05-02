@@ -1,21 +1,25 @@
 """
 交易所适配器模块
 """
+
 import logging
+
 from .base import (
+    Balance,
     BaseExchangeAdapter,
-    Ticker,
     Kline,
     OrderBook,
-    Balance,
     OrderResult,
     PositionInfo,
+    SymbolInfo,
+    Ticker,
 )
 from .binance import BinanceAdapter
-from .okx import OKXAdapter
 from .huobi import HuobiAdapter
+from .okx import OKXAdapter
 
 logger = logging.getLogger(__name__)
+
 
 def get_exchange_adapter(
     exchange: str,
@@ -27,7 +31,7 @@ def get_exchange_adapter(
 ) -> BaseExchangeAdapter:
     """获取交易所适配器工厂函数"""
     exchange_lower = exchange.lower()
-    
+
     if exchange_lower == "binance":
         return BinanceAdapter(api_key, secret_key, passphrase, testnet=testnet)
     elif exchange_lower == "okx":

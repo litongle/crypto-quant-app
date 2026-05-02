@@ -15,8 +15,9 @@ RSI 分层极值追踪策略
 持仓状态由策略自身维护(基于自己发出的信号),Step 2 起将由 runner
 注入实际成交结果以应对滑点/部分成交。
 """
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import IntEnum
 from typing import Any
@@ -289,7 +290,9 @@ class RsiLayeredStrategy(BaseStrategy):
             )
         if self._holding_periods >= self.max_holding_candles:
             return self._close_signal_for(
-                "long", kline, "timeout",
+                "long",
+                kline,
+                "timeout",
                 f"RSI_TIMEOUT_LONG holding={self._holding_periods}",
             )
         return None
@@ -333,7 +336,9 @@ class RsiLayeredStrategy(BaseStrategy):
             )
         if self._holding_periods >= self.max_holding_candles:
             return self._close_signal_for(
-                "short", kline, "timeout",
+                "short",
+                kline,
+                "timeout",
                 f"RSI_TIMEOUT_SHORT holding={self._holding_periods}",
             )
         return None
@@ -407,9 +412,7 @@ class RsiLayeredStrategy(BaseStrategy):
         self._max_profit = 0.0
         self._additional_positions_count = 0
 
-    def _close_signal_for(
-        self, dir_: str, kline: dict, kind: str, reason: str
-    ) -> Signal:
+    def _close_signal_for(self, dir_: str, kline: dict, kind: str, reason: str) -> Signal:
         # 多头平仓 → sell;空头平仓 → buy
         action = "sell" if dir_ == "long" else "buy"
         self._close_position()
@@ -435,7 +438,7 @@ class RsiLayeredStrategy(BaseStrategy):
             confidence=0.7,
             entry_price=Decimal(str(kline["close"])),
             reason=reason,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             metadata={
                 "intent": intent,
                 "direction": direction,
@@ -452,17 +455,13 @@ class RsiLayeredStrategy(BaseStrategy):
             "long_monitoring": self._long_monitoring,
             "long_extreme_value": self._long_extreme_value,
             "long_extreme_time": (
-                self._long_extreme_time.isoformat()
-                if self._long_extreme_time
-                else None
+                self._long_extreme_time.isoformat() if self._long_extreme_time else None
             ),
             "long_level": int(self._long_level),
             "short_monitoring": self._short_monitoring,
             "short_extreme_value": self._short_extreme_value,
             "short_extreme_time": (
-                self._short_extreme_time.isoformat()
-                if self._short_extreme_time
-                else None
+                self._short_extreme_time.isoformat() if self._short_extreme_time else None
             ),
             "short_level": int(self._short_level),
             "position_dir": self._position_dir,
@@ -486,27 +485,24 @@ class RsiLayeredStrategy(BaseStrategy):
         self._short_monitoring = bool(data.get("short_monitoring", False))
         self._short_extreme_value = data.get("short_extreme_value")
         short_t = data.get("short_extreme_time")
-        self._short_extreme_time = (
-            datetime.fromisoformat(short_t) if short_t else None
-        )
+        self._short_extreme_time = datetime.fromisoformat(short_t) if short_t else None
         self._short_level = RsiLevel(int(data.get("short_level", 0)))
 
         self._position_dir = data.get("position_dir")
         self._entry_price = data.get("entry_price")
         self._holding_periods = int(data.get("holding_periods", 0))
         self._max_profit = float(data.get("max_profit", 0.0))
-        self._additional_positions_count = int(
-            data.get("additional_positions_count", 0)
-        )
+        self._additional_positions_count = int(data.get("additional_positions_count", 0))
         self._last_kline_ts = data.get("last_kline_ts")
 
 
 # ── 工具函数 ───────────────────────────────────────────────
 
+
 def _ts_to_dt(ts: int) -> datetime:
     """K 线时间戳转 datetime,自动识别秒/毫秒级"""
     if ts == 0:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if ts > 10_000_000_000:  # 13 位以上视为毫秒
-        return datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
-    return datetime.fromtimestamp(ts, tz=timezone.utc)
+        return datetime.fromtimestamp(ts / 1000, tz=UTC)
+    return datetime.fromtimestamp(ts, tz=UTC)

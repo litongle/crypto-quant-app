@@ -1,6 +1,7 @@
 """
 认证 API — 统一 APIResponse 响应格式
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -8,19 +9,20 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
+from app.core.schemas import APIResponse
 from app.database import get_session
 from app.models.user import User
 from app.services.auth_service import AuthService
-from app.api.deps import get_current_user
-from app.core.schemas import APIResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
 class RegisterRequest(BaseModel):
     """注册请求"""
+
     email: EmailStr
     password: str = Field(min_length=8, max_length=72, description="密码长度8-72位")
     name: str = Field(min_length=1, max_length=50)
@@ -28,6 +30,7 @@ class RegisterRequest(BaseModel):
 
 class UserResponse(BaseModel):
     """用户响应"""
+
     id: int
     email: str
     name: str
@@ -40,6 +43,7 @@ class UserResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     """Token响应"""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -47,12 +51,14 @@ class TokenResponse(BaseModel):
 
 class LoginResponse(TokenResponse):
     """登录响应"""
+
     user: UserResponse
     requires_2fa: bool = False
 
 
 class RefreshRequest(BaseModel):
     """刷新Token请求"""
+
     refresh_token: str
 
 
@@ -69,11 +75,13 @@ async def register(
         name=request.name,
     )
     await session.commit()
-    return APIResponse(data=LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=UserResponse.model_validate(user),
-    ).model_dump())
+    return APIResponse(
+        data=LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserResponse.model_validate(user),
+        ).model_dump()
+    )
 
 
 @router.post("/login")
@@ -99,12 +107,14 @@ async def login(
         email=form_data.username,
         password=form_data.password,
     )
-    return APIResponse(data=LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=UserResponse.model_validate(user),
-        requires_2fa=requires_2fa,
-    ).model_dump())
+    return APIResponse(
+        data=LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserResponse.model_validate(user),
+            requires_2fa=requires_2fa,
+        ).model_dump()
+    )
 
 
 @router.post("/refresh")
@@ -115,10 +125,12 @@ async def refresh_token(
     """刷新Token (P2-18: 统一响应格式)"""
     auth_service = AuthService(session)
     access_token, refresh_token = await auth_service.refresh_tokens(request.refresh_token)
-    return APIResponse(data=TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-    ).model_dump())
+    return APIResponse(
+        data=TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+        ).model_dump()
+    )
 
 
 @router.get("/me")
@@ -131,19 +143,23 @@ async def get_current_user_info(
 
 # ============ TOTP 2FA API — P1-5 ============
 
+
 class TotpSetupResponse(BaseModel):
     """TOTP 设置响应"""
+
     secret: str
     uri: str
 
 
 class TotpVerifyRequest(BaseModel):
     """TOTP 验证请求"""
+
     code: str = Field(min_length=6, max_length=6, description="6位数字验证码")
 
 
 class TotpLoginRequest(BaseModel):
     """2FA 登录请求"""
+
     email: EmailStr
     password: str
     code: str = Field(min_length=6, max_length=6, description="6位TOTP验证码")
@@ -155,7 +171,7 @@ async def setup_2fa(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> APIResponse[TotpSetupResponse]:
     """生成 TOTP 密钥和二维码 URI"""
-    from app.services.totp_service import generate_totp_secret, encrypt_totp_secret
+    from app.services.totp_service import encrypt_totp_secret, generate_totp_secret
 
     result = await generate_totp_secret(current_user.id, current_user.email)
 
@@ -166,10 +182,12 @@ async def setup_2fa(
     current_user.totp_verified = False
     await session.commit()
 
-    return APIResponse(data=TotpSetupResponse(
-        secret=result["secret"],
-        uri=result["uri"],
-    ).model_dump())
+    return APIResponse(
+        data=TotpSetupResponse(
+            secret=result["secret"],
+            uri=result["uri"],
+        ).model_dump()
+    )
 
 
 @router.post("/2fa/verify")
@@ -225,11 +243,13 @@ async def get_2fa_status(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> APIResponse:
     """获取 2FA 状态"""
-    return APIResponse(data={
-        "enabled": current_user.totp_enabled,
-        "verified": current_user.totp_verified,
-        "has_2fa": current_user.has_2fa,
-    })
+    return APIResponse(
+        data={
+            "enabled": current_user.totp_enabled,
+            "verified": current_user.totp_verified,
+            "has_2fa": current_user.has_2fa,
+        }
+    )
 
 
 @router.post("/login-2fa")
@@ -244,8 +264,10 @@ async def login_with_2fa(
         password=request.password,
         totp_code=request.code,
     )
-    return APIResponse(data=LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=UserResponse.model_validate(user),
-    ).model_dump())
+    return APIResponse(
+        data=LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserResponse.model_validate(user),
+        ).model_dump()
+    )

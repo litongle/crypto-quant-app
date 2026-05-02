@@ -1,12 +1,13 @@
 """
 WebSocket 连接管理器单元测试 — 注册/订阅/路由/广播
 """
+
 from unittest.mock import MagicMock
 
 from app.api.v1.ws.manager import Subscription, WSConnectionManager
 
-
 # ==================== Subscription 数据类 ====================
+
 
 class TestSubscriptionDataclass:
     def test_defaults(self):
@@ -26,6 +27,7 @@ class TestSubscriptionDataclass:
 
 
 # ==================== 注册 ====================
+
 
 class TestRegister:
     def setup_method(self):
@@ -52,6 +54,7 @@ class TestRegister:
 
 
 # ==================== 注销 ====================
+
 
 class TestUnregister:
     def setup_method(self):
@@ -86,6 +89,7 @@ class TestUnregister:
 
 # ==================== 订阅 ====================
 
+
 class TestSubscribe:
     def setup_method(self):
         self.mgr = WSConnectionManager()
@@ -108,7 +112,7 @@ class TestSubscribe:
         self.mgr.subscribe("c1", ["ticker", "kline"], ["BTCUSDT", "ETHUSDT"])
         for ch in ("ticker", "kline"):
             for sym in ("BTCUSDT", "ETHUSDT"):
-                assert ("c1" in self.mgr._routing[(ch, sym)])
+                assert "c1" in self.mgr._routing[(ch, sym)]
 
     def test_subscribe_updates_sub_channels_and_symbols(self):
         self.mgr.subscribe("c1", ["ticker"], ["BTCUSDT"])
@@ -123,6 +127,7 @@ class TestSubscribe:
 
 
 # ==================== 取消订阅 ====================
+
 
 class TestUnsubscribe:
     def setup_method(self):
@@ -146,6 +151,7 @@ class TestUnsubscribe:
 
 
 # ==================== get_subscribers ====================
+
 
 class TestGetSubscribers:
     def setup_method(self):
@@ -181,6 +187,7 @@ class TestGetSubscribers:
 
 # ==================== has_subscribers ====================
 
+
 class TestHasSubscribers:
     def setup_method(self):
         self.mgr = WSConnectionManager()
@@ -201,6 +208,7 @@ class TestHasSubscribers:
 
 
 # ==================== register_proxy ====================
+
 
 class TestRegisterProxy:
     def test_proxy_stored(self):

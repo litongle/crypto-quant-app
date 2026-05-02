@@ -1,27 +1,39 @@
 """
 规则引擎测试 — 指标计算 / 条件评估 / 规则校验 / RuleStrategy 信号生成
 """
-import pytest
-import numpy as np
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
+import numpy as np
+import pytest
+
 from app.core.indicators import (
-    calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger,
-    calc_atr, calc_price_change_pct, calc_stoch_k, calc_cci,
+    calc_atr,
+    calc_bollinger,
+    calc_cci,
+    calc_ema,
+    calc_macd,
+    calc_price_change_pct,
+    calc_rsi,
+    calc_sma,
+    calc_stoch_k,
 )
 from app.core.rule_engine import (
-    RuleEngine, RuleStrategy, validate_rules, describe_rules,
-    RuleValidationError, VALUE_INDICATORS, EVENT_INDICATORS,
+    RuleEngine,
+    RuleStrategy,
+    describe_rules,
+    validate_rules,
 )
-from app.core.strategy_engine import StrategyConfig, Signal, get_strategy
-
+from app.core.strategy_engine import StrategyConfig, get_strategy
 
 # ── 测试数据生成 ──────────────────────────────────────────
+
 
 def _make_klines(count: int = 100, base_price: float = 50000.0, trend: str = "up") -> list[dict]:
     """生成模拟 K 线数据"""
     import random
+
     random.seed(42)  # 固定种子，测试可重复
     klines = []
     price = base_price
@@ -32,21 +44,24 @@ def _make_klines(count: int = 100, base_price: float = 50000.0, trend: str = "up
             change = random.uniform(-0.03, 0.02)
         else:
             change = random.uniform(-0.02, 0.02)
-        price *= (1 + change)
+        price *= 1 + change
         high = price * (1 + random.uniform(0, 0.01))
         low = price * (1 - random.uniform(0, 0.01))
-        klines.append({
-            "open": price,
-            "high": high,
-            "low": low,
-            "close": price,
-            "volume": random.uniform(100, 1000),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        klines.append(
+            {
+                "open": price,
+                "high": high,
+                "low": low,
+                "close": price,
+                "volume": random.uniform(100, 1000),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
     return klines
 
 
 # ── 指标计算测试 ──────────────────────────────────────────
+
 
 class TestIndicators:
     """技术指标计算测试"""
@@ -145,6 +160,7 @@ class TestIndicators:
 
 # ── 规则校验测试 ──────────────────────────────────────────
 
+
 class TestRuleValidation:
     """规则 DSL 校验测试"""
 
@@ -206,7 +222,12 @@ class TestRuleValidation:
             "buy_rules": {
                 "logic": "AND",
                 "conditions": [
-                    {"indicator": "ma_cross", "params": {"fast_period": 5, "slow_period": 20}, "operator": "<", "value": 30},
+                    {
+                        "indicator": "ma_cross",
+                        "params": {"fast_period": 5, "slow_period": 20},
+                        "operator": "<",
+                        "value": 30,
+                    },
                 ],
             },
         }
@@ -282,6 +303,7 @@ class TestRuleValidation:
 
 
 # ── 规则引擎评估测试 ──────────────────────────────────────
+
 
 class TestRuleEngineEvaluation:
     """规则引擎条件评估测试"""
@@ -419,6 +441,7 @@ class TestRuleEngineEvaluation:
 
 
 # ── RuleStrategy 集成测试 ──────────────────────────────────
+
 
 class TestRuleStrategy:
     """RuleStrategy 策略类测试"""
@@ -588,6 +611,7 @@ class TestRuleStrategy:
 
 # ── 规则描述测试 ──────────────────────────────────────────
 
+
 class TestDescribeRules:
     """规则可读描述生成测试"""
 
@@ -620,7 +644,11 @@ class TestDescribeRules:
             "buy_rules": {
                 "logic": "AND",
                 "conditions": [
-                    {"indicator": "ma_cross", "params": {"fast_period": 5, "slow_period": 20}, "operator": "cross_up"},
+                    {
+                        "indicator": "ma_cross",
+                        "params": {"fast_period": 5, "slow_period": 20},
+                        "operator": "cross_up",
+                    },
                 ],
             },
         }

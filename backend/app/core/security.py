@@ -3,7 +3,8 @@
 
 改动：不再模块级缓存 settings，改为函数内取 get_settings()
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -38,16 +39,16 @@ def create_access_token(
     to_encode = data.copy()
 
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=settings.access_token_expire_minutes
-        )
+        expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
 
-    to_encode.update({
-        "exp": expire,
-        "type": "access",
-    })
+    to_encode.update(
+        {
+            "exp": expire,
+            "type": "access",
+        }
+    )
 
     return jwt.encode(
         to_encode,
@@ -65,16 +66,16 @@ def create_refresh_token(
     to_encode = data.copy()
 
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            days=settings.refresh_token_expire_days
-        )
+        expire = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
 
-    to_encode.update({
-        "exp": expire,
-        "type": "refresh",
-    })
+    to_encode.update(
+        {
+            "exp": expire,
+            "type": "refresh",
+        }
+    )
 
     return jwt.encode(
         to_encode,
@@ -111,9 +112,9 @@ def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
 
 import base64
 import hashlib
+from contextlib import contextmanager
 
 from cryptography.fernet import Fernet
-from contextlib import contextmanager
 
 
 def _get_encryption_key() -> bytes:
@@ -153,8 +154,10 @@ def decrypted_api_keys(account: Any):
     """
     api_key = account.get_api_key()
     secret_key = account.get_secret_key()
-    passphrase = account.get_passphrase() if getattr(account, "encrypted_passphrase", None) else None
-    
+    passphrase = (
+        account.get_passphrase() if getattr(account, "encrypted_passphrase", None) else None
+    )
+
     try:
         yield api_key, secret_key, passphrase
     finally:

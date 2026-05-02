@@ -7,10 +7,10 @@
 - 拒绝 → 更新 status=rejected
 - 部分成交 → 更新 status=partial
 """
+
 import asyncio
 import logging
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,9 +70,7 @@ class OrderReconciliationService:
 
             # 查询所有未完成的订单
             result = await session.execute(
-                select(Order).where(
-                    Order.status.in_(["submitted", "partial"])
-                )
+                select(Order).where(Order.status.in_(["submitted", "partial"]))
             )
             pending_orders = result.scalars().all()
 
@@ -96,7 +94,8 @@ class OrderReconciliationService:
                 except Exception as exc:
                     logger.error(
                         "[OrderReconciliation] 账户 #%d 对账失败: %s",
-                        account_id, exc,
+                        account_id,
+                        exc,
                     )
 
             await session.commit()
@@ -132,7 +131,8 @@ class OrderReconciliationService:
                 if not exchange_order:
                     logger.warning(
                         "[OrderReconciliation] 订单 #%d 在交易所不存在: exchange_order_id=%s",
-                        order.id, order.exchange_order_id,
+                        order.id,
+                        order.exchange_order_id,
                     )
                     continue
 
@@ -155,7 +155,9 @@ class OrderReconciliationService:
                     order.status = mapped_status
                     logger.info(
                         "[OrderReconciliation] 订单 #%d 状态更新: %s → %s",
-                        order.id, old_status, mapped_status,
+                        order.id,
+                        old_status,
+                        mapped_status,
                     )
 
                 # 更新成交信息
@@ -172,7 +174,7 @@ class OrderReconciliationService:
 
                 # 成交时间
                 if mapped_status == "filled" and not order.filled_at:
-                    order.filled_at = datetime.now(timezone.utc)
+                    order.filled_at = datetime.now(UTC)
 
                 # 计算已实现盈亏（如果是平仓订单）
                 if mapped_status == "filled" and order.strategy_instance_id:
@@ -181,7 +183,8 @@ class OrderReconciliationService:
             except Exception as exc:
                 logger.warning(
                     "[OrderReconciliation] 订单 #%d 同步失败: %s",
-                    order.id, exc,
+                    order.id,
+                    exc,
                 )
 
     async def _calculate_realized_pnl(self, session: AsyncSession, order: Order) -> None:
@@ -202,10 +205,14 @@ class OrderReconciliationService:
             if position and order.avg_fill_price and position.entry_price:
                 if position.side == "long" and order.side == "sell":
                     # 平多
-                    order.pnl = (order.avg_fill_price - position.entry_price) * order.filled_quantity
+                    order.pnl = (
+                        order.avg_fill_price - position.entry_price
+                    ) * order.filled_quantity
                 elif position.side == "short" and order.side == "buy":
                     # 平空
-                    order.pnl = (position.entry_price - order.avg_fill_price) * order.filled_quantity
+                    order.pnl = (
+                        position.entry_price - order.avg_fill_price
+                    ) * order.filled_quantity
 
                 # 扣除手续费
                 if order.pnl and order.commission:

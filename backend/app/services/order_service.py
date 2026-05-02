@@ -1,9 +1,10 @@
 """
 订单服务
 """
+
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -19,13 +20,12 @@ from app.core.exceptions import (
 )
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order
-from app.models.strategy import StrategyInstance
+from app.repositories.strategy_repo import StrategyInstanceRepository
 from app.repositories.trading_repo import (
     ExchangeAccountRepository,
-    PositionRepository,
     OrderRepository,
+    PositionRepository,
 )
-from app.repositories.strategy_repo import StrategyInstanceRepository
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class OrderService:
     async def _get_adapter(self, account: ExchangeAccount):
         """获取交易所适配器助手 (P1-11: 统一解密逻辑)"""
         from app.core.exchange_adapter import get_exchange_adapter
+
         return get_exchange_adapter(
             exchange=account.exchange,
             api_key=account.get_api_key(),
@@ -56,7 +57,9 @@ class OrderService:
             is_demo=account.is_demo,
         )
 
-    async def sync_account_balance(self, account_id: int, user_id: int | None = None) -> ExchangeAccount:
+    async def sync_account_balance(
+        self, account_id: int, user_id: int | None = None
+    ) -> ExchangeAccount:
         """从交易所同步账户真实余额
 
         调用交易所 get_balance() API，将 USDT 余额写回 ExchangeAccount。
@@ -91,8 +94,9 @@ class OrderService:
                     account.balance = balances[0].free
                     account.frozen_balance = balances[0].locked
 
-            from datetime import datetime, timezone
-            account.last_sync_at = datetime.now(timezone.utc)
+            from datetime import datetime
+
+            account.last_sync_at = datetime.now(UTC)
             account.status = "active"
             account.error_message = None
 
@@ -102,8 +106,10 @@ class OrderService:
             logger.info(
                 "[OrderService] 余额同步成功: account_id=%d, exchange=%s, "
                 "balance=%.4f USDT, frozen=%.4f",
-                account_id, account.exchange,
-                float(account.balance), float(account.frozen_balance),
+                account_id,
+                account.exchange,
+                float(account.balance),
+                float(account.frozen_balance),
             )
             return account
 
@@ -115,7 +121,9 @@ class OrderService:
 
             logger.error(
                 "[OrderService] 余额同步失败: account_id=%d, exchange=%s, error=%s",
-                account_id, account.exchange, str(exc),
+                account_id,
+                account.exchange,
+                str(exc),
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -203,7 +211,11 @@ class OrderService:
 
         # P0-2: 幂等性保护 — 已非 pending 的订单直接返回
         if order.status != "pending":
-            logger.info("[OrderService] 订单已提交过，幂等返回: order_id=%d, status=%s", order_id, order.status)
+            logger.info(
+                "[OrderService] 订单已提交过，幂等返回: order_id=%d, status=%s",
+                order_id,
+                order.status,
+            )
             return order
 
         # 调用真实交易所 API
@@ -213,8 +225,12 @@ class OrderService:
             logger.info(
                 "[OrderService] 提交订单: order_id=%d, symbol=%s, side=%s, "
                 "exchange=%s, demo=%s, testnet=%s, client_order_id=%s",
-                order_id, order.symbol, order.side,
-                account.exchange, account.is_demo, account.is_testnet,
+                order_id,
+                order.symbol,
+                order.side,
+                account.exchange,
+                account.is_demo,
+                account.is_testnet,
                 order.client_order_id,
             )
 
@@ -229,7 +245,7 @@ class OrderService:
             # 更新订单状态
             order.exchange_order_id = result.exchange_order_id
             order.status = result.status
-            order.submitted_at = datetime.now(timezone.utc)
+            order.submitted_at = datetime.now(UTC)
 
             # 市价单直接用交易所返回值更新成交
             if result.filled_quantity > 0:
@@ -239,20 +255,27 @@ class OrderService:
                     order.order_value = result.avg_fill_price * result.filled_quantity
 
             if result.status == "filled":
-                order.filled_at = datetime.now(timezone.utc)
+                order.filled_at = datetime.now(UTC)
 
             logger.info(
                 "[OrderService] 订单提交成功: order_id=%d, exchange_order_id=%s, status=%s",
-                order_id, result.exchange_order_id, result.status,
+                order_id,
+                result.exchange_order_id,
+                result.status,
             )
 
             await self.session.commit()
             await self.session.refresh(order)
 
+            # 评审问题4: 订单成交后自动创建/更新 Position 记录
+            if result.status == "filled":
+                await self._sync_position_on_fill(order, account, result)
+
             # P0-1: 大额成交通知（订单价值 > 1000 USDT）
             if order.order_value and order.order_value >= Decimal("1000"):
                 try:
                     from app.services.notification_service import notify_large_trade
+
                     await notify_large_trade(
                         symbol=order.symbol,
                         side=order.side,
@@ -275,7 +298,10 @@ class OrderService:
             await self.session.refresh(order)
             logger.warning(
                 "[OrderService] 订单被拒: order_id=%d, exchange=%s, code=%s, msg=%s",
-                order_id, exc.exchange, exc.detail_code, exc.message,
+                order_id,
+                exc.exchange,
+                exc.detail_code,
+                exc.message,
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -286,11 +312,12 @@ class OrderService:
             # 限流 → 不改状态，让前端可重试
             logger.warning(
                 "[OrderService] 交易所限流: order_id=%d, exchange=%s",
-                order_id, exc.exchange,
+                order_id,
+                exc.exchange,
             )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"交易所请求频率超限，请稍后重试",
+                detail="交易所请求频率超限，请稍后重试",
             )
 
         except NetworkError as exc:
@@ -300,7 +327,9 @@ class OrderService:
             await self.session.refresh(order)
             logger.error(
                 "[OrderService] 网络异常: order_id=%d, exchange=%s, msg=%s",
-                order_id, exc.exchange, exc.message,
+                order_id,
+                exc.exchange,
+                exc.message,
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -315,7 +344,10 @@ class OrderService:
             await self.session.refresh(order)
             logger.error(
                 "[OrderService] 交易所API错误: order_id=%d, exchange=%s, code=%s, retryable=%s",
-                order_id, exc.exchange, exc.detail_code, exc.retryable,
+                order_id,
+                exc.exchange,
+                exc.detail_code,
+                exc.retryable,
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -330,7 +362,8 @@ class OrderService:
             await self.session.commit()
             await self.session.refresh(order)
             logger.exception(
-                "[OrderService] 下单未知异常: order_id=%d", order_id,
+                "[OrderService] 下单未知异常: order_id=%d",
+                order_id,
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -366,14 +399,17 @@ class OrderService:
 
                 logger.info(
                     "[OrderService] 撤单: order_id=%d, exchange_order_id=%s, symbol=%s",
-                    order_id, order.exchange_order_id, order.symbol,
+                    order_id,
+                    order.exchange_order_id,
+                    order.symbol,
                 )
 
                 success = await adapter.cancel_order(order.exchange_order_id, order.symbol)
                 if not success:
                     logger.warning(
                         "[OrderService] 撤单未成功: order_id=%d, exchange_order_id=%s",
-                        order_id, order.exchange_order_id,
+                        order_id,
+                        order.exchange_order_id,
                     )
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
@@ -384,7 +420,7 @@ class OrderService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"撤单被拒: {exc.message}",
                 )
-            except RateLimitError as exc:
+            except RateLimitError:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail="交易所请求频率超限，请稍后重试",
@@ -392,7 +428,8 @@ class OrderService:
             except NetworkError as exc:
                 logger.error(
                     "[OrderService] 撤单网络异常: order_id=%d, msg=%s",
-                    order_id, exc.message,
+                    order_id,
+                    exc.message,
                 )
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
@@ -412,7 +449,7 @@ class OrderService:
                 )
 
         order.status = "cancelled"
-        order.cancelled_at = datetime.now(timezone.utc)
+        order.cancelled_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(order)
         return order
@@ -506,7 +543,7 @@ class OrderService:
 
         # 只有交易所确认成功后才标记平仓
         position.status = "closed"
-        position.closed_at = datetime.now(timezone.utc)
+        position.closed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(position)
 
@@ -515,13 +552,17 @@ class OrderService:
             if position.stop_loss_price and order.avg_fill_price:
                 # 判断是否触发止损
                 sl_triggered = False
-                if position.side == "long" and order.avg_fill_price <= position.stop_loss_price:
-                    sl_triggered = True
-                elif position.side == "short" and order.avg_fill_price >= position.stop_loss_price:
+                if (
+                    position.side == "long"
+                    and order.avg_fill_price <= position.stop_loss_price
+                    or position.side == "short"
+                    and order.avg_fill_price >= position.stop_loss_price
+                ):
                     sl_triggered = True
 
                 if sl_triggered:
                     from app.services.notification_service import notify_stop_loss
+
                     await notify_stop_loss(
                         symbol=position.symbol,
                         side=position.side,
@@ -536,13 +577,17 @@ class OrderService:
             if position.take_profit_price and order.avg_fill_price:
                 # 判断是否触发止盈
                 tp_triggered = False
-                if position.side == "long" and order.avg_fill_price >= position.take_profit_price:
-                    tp_triggered = True
-                elif position.side == "short" and order.avg_fill_price <= position.take_profit_price:
+                if (
+                    position.side == "long"
+                    and order.avg_fill_price >= position.take_profit_price
+                    or position.side == "short"
+                    and order.avg_fill_price <= position.take_profit_price
+                ):
                     tp_triggered = True
 
                 if tp_triggered:
                     from app.services.notification_service import notify_take_profit
+
                     await notify_take_profit(
                         symbol=position.symbol,
                         side=position.side,
@@ -573,9 +618,7 @@ class OrderService:
 
         return closed_positions
 
-    async def set_stop_loss(
-        self, position_id: int, user_id: int, stop_price: Decimal
-    ) -> Position:
+    async def set_stop_loss(self, position_id: int, user_id: int, stop_price: Decimal) -> Position:
         """设置止损价格 — P0-3: 同时提交交易所条件单"""
         position = await self.position_repo.get_by_id(position_id)
         if not position:
@@ -630,14 +673,18 @@ class OrderService:
             logger.info(
                 "[OrderService] 止损条件单已提交: position_id=%d, symbol=%s, "
                 "stop_price=%s, exchange_order_id=%s",
-                position_id, position.symbol, stop_price, result.exchange_order_id,
+                position_id,
+                position.symbol,
+                stop_price,
+                result.exchange_order_id,
             )
 
         except Exception as exc:
             # 条件单提交失败时仍保存本地止损价（降级模式）
             logger.warning(
                 "[OrderService] 止损条件单提交失败，降级为本地止损: position_id=%d, error=%s",
-                position_id, str(exc),
+                position_id,
+                str(exc),
             )
 
         position.stop_loss_price = stop_price
@@ -645,9 +692,7 @@ class OrderService:
         await self.session.refresh(position)
         return position
 
-    async def set_take_profit(
-        self, position_id: int, user_id: int, tp_price: Decimal
-    ) -> Position:
+    async def set_take_profit(self, position_id: int, user_id: int, tp_price: Decimal) -> Position:
         """设置止盈价格 — P0-3: 同时提交交易所条件单"""
         position = await self.position_repo.get_by_id(position_id)
         if not position:
@@ -702,17 +747,143 @@ class OrderService:
             logger.info(
                 "[OrderService] 止盈条件单已提交: position_id=%d, symbol=%s, "
                 "tp_price=%s, exchange_order_id=%s",
-                position_id, position.symbol, tp_price, result.exchange_order_id,
+                position_id,
+                position.symbol,
+                tp_price,
+                result.exchange_order_id,
             )
 
         except Exception as exc:
             # 条件单提交失败时仍保存本地止盈价（降级模式）
             logger.warning(
                 "[OrderService] 止盈条件单提交失败，降级为本地止盈: position_id=%d, error=%s",
-                position_id, str(exc),
+                position_id,
+                str(exc),
             )
 
         position.take_profit_price = tp_price
         await self.session.commit()
         await self.session.refresh(position)
         return position
+
+    async def _sync_position_on_fill(
+        self,
+        order: Order,
+        account,
+        result: "OrderResult",
+    ) -> None:
+        """评审问题4：订单完全成交后自动创建 Position 记录
+
+        买入(buy) → 创建新 long 持仓（或增加现有持仓数量）
+        卖出(sell) → 若有关联 strategy_instance 的 open 持仓，标记为 closed
+                     否则也创建 short 持仓
+        """
+        try:
+            if order.side == "buy":
+                # 买入 → 寻找已有同方向 open 持仓合并，或新建
+                existing = await self.position_repo.get_by_account_and_symbol(
+                    order.account_id,
+                    order.symbol,
+                )
+                # 只合并 strategy_instance_id 匹配的 long 持仓
+                merge_target = None
+                for p in existing:
+                    if (
+                        p.side == "long"
+                        and p.status == "open"
+                        and p.strategy_instance_id == order.strategy_instance_id
+                    ):
+                        merge_target = p
+                        break
+
+                if merge_target:
+                    # 加仓：加权平均开仓价
+                    total_qty = merge_target.quantity + order.filled_quantity
+                    if order.avg_fill_price:
+                        weighted_price = (
+                            merge_target.entry_price * merge_target.quantity
+                            + order.avg_fill_price * order.filled_quantity
+                        ) / total_qty
+                        merge_target.entry_price = weighted_price
+                    merge_target.quantity = total_qty
+                    merge_target.current_price = order.avg_fill_price or merge_target.current_price
+                    merge_target.updated_at = datetime.now(UTC)
+                    logger.info(
+                        "[OrderService] 加仓 Position #%d: qty=%s, avg_price=%s",
+                        merge_target.id,
+                        merge_target.quantity,
+                        merge_target.entry_price,
+                    )
+                else:
+                    # 新建 long 持仓
+                    new_pos = Position(
+                        account_id=order.account_id,
+                        symbol=order.symbol,
+                        side="long",
+                        quantity=order.filled_quantity,
+                        entry_price=order.avg_fill_price or Decimal("0"),
+                        current_price=order.avg_fill_price or Decimal("0"),
+                        status="open",
+                        strategy_instance_id=order.strategy_instance_id,
+                        opened_at=datetime.now(UTC),
+                    )
+                    self.session.add(new_pos)
+                    await self.session.flush()
+                    logger.info(
+                        "[OrderService] 新建 long Position #%d: symbol=%s, qty=%s",
+                        new_pos.id,
+                        order.symbol,
+                        order.filled_quantity,
+                    )
+
+            elif order.side == "sell":
+                # 卖出 → 查找关联的 open 持仓平掉
+                existing = await self.position_repo.get_by_account_and_symbol(
+                    order.account_id,
+                    order.symbol,
+                )
+                close_target = None
+                for p in existing:
+                    if p.status == "open" and p.strategy_instance_id == order.strategy_instance_id:
+                        # 平 long 持仓 或完全平 short
+                        if p.side in ("long", "short"):
+                            close_target = p
+                            break
+
+                if close_target:
+                    close_target.status = "closed"
+                    close_target.closed_at = datetime.now(UTC)
+                    logger.info(
+                        "[OrderService] 平仓 Position #%d (side=%s)",
+                        close_target.id,
+                        close_target.side,
+                    )
+                else:
+                    # 无匹配持仓 → 可能是开空仓
+                    new_pos = Position(
+                        account_id=order.account_id,
+                        symbol=order.symbol,
+                        side="short",
+                        quantity=order.filled_quantity,
+                        entry_price=order.avg_fill_price or Decimal("0"),
+                        current_price=order.avg_fill_price or Decimal("0"),
+                        status="open",
+                        strategy_instance_id=order.strategy_instance_id,
+                        opened_at=datetime.now(UTC),
+                    )
+                    self.session.add(new_pos)
+                    await self.session.flush()
+                    logger.info(
+                        "[OrderService] 新建 short Position #%d: symbol=%s, qty=%s",
+                        new_pos.id,
+                        order.symbol,
+                        order.filled_quantity,
+                    )
+
+            await self.session.commit()
+        except Exception as exc:
+            logger.error(
+                "[OrderService] Position 同步失败 order_id=%d: %s",
+                order.id,
+                exc,
+            )

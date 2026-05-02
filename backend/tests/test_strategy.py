@@ -1,11 +1,14 @@
 """
 策略引擎测试 — 信号生成 / 金额计算
 """
-import pytest
+
+from datetime import UTC, datetime
 from decimal import Decimal
-from datetime import datetime, timezone
+
+import pytest
+
+from app.core.strategy_engine import Signal, StrategyConfig, get_strategy
 from app.core.strategy_runner import StrategyRunner
-from app.core.strategy_engine import StrategyConfig, Signal, get_strategy
 
 
 class TestOrderQuantityCalculation:
@@ -137,7 +140,7 @@ class TestSignalModel:
             stop_loss_price=Decimal("48000"),
             take_profit_price=Decimal("55000"),
             reason="MA golden cross",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert signal.action == "buy"
         assert signal.confidence == 0.85
@@ -152,7 +155,7 @@ class TestSignalModel:
             stop_loss_price=Decimal("48000"),
             take_profit_price=Decimal("55000"),
             reason="RSI oversold",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert signal.stop_loss_price == Decimal("48000")
         assert signal.take_profit_price == Decimal("55000")

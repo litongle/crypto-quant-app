@@ -1,10 +1,9 @@
 """
 绩效计算测试 — 覆盖 PerformanceCalculator 核心指标
 """
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 
-import pytest
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from app.core.performance import (
     EquityPoint,
@@ -16,7 +15,7 @@ from app.core.performance import (
 
 def _ts(days: int = 0, hours: int = 0) -> datetime:
     """Construct a deterministic UTC timestamp offset from a fixed base."""
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2024, 1, 1, tzinfo=UTC)
     return base + timedelta(days=days, hours=hours)
 
 
@@ -56,9 +55,7 @@ class TestEmptyTrades:
         assert report.final_equity == Decimal("100000")
 
     def test_empty_trades_custom_capital(self):
-        report = PerformanceCalculator.calculate(
-            [], initial_capital=Decimal("50000")
-        )
+        report = PerformanceCalculator.calculate([], initial_capital=Decimal("50000"))
         assert report.initial_capital == Decimal("50000")
         assert report.final_equity == Decimal("50000")
 
@@ -155,9 +152,7 @@ class TestStreaks:
     def test_alternating_streaks(self):
         # W L W W L L L W
         pnls = ["10", "-5", "20", "30", "-1", "-2", "-3", "40"]
-        trades = [
-            _trade(p, entry_day=i, exit_day=i + 1) for i, p in enumerate(pnls)
-        ]
+        trades = [_trade(p, entry_day=i, exit_day=i + 1) for i, p in enumerate(pnls)]
         report = PerformanceCalculator.calculate(trades)
         assert report.max_consecutive_wins == 2
         assert report.max_consecutive_losses == 3
@@ -167,17 +162,13 @@ class TestTotalReturn:
     def test_total_return_pct(self):
         # 单笔盈利 1000，初始 10000 → 10%
         trade = _trade("1000")
-        report = PerformanceCalculator.calculate(
-            [trade], initial_capital=Decimal("10000")
-        )
+        report = PerformanceCalculator.calculate([trade], initial_capital=Decimal("10000"))
         assert report.final_equity == Decimal("11000")
         assert report.total_return_pct == Decimal("10")
 
     def test_negative_total_return(self):
         trade = _trade("-2000")
-        report = PerformanceCalculator.calculate(
-            [trade], initial_capital=Decimal("10000")
-        )
+        report = PerformanceCalculator.calculate([trade], initial_capital=Decimal("10000"))
         assert report.final_equity == Decimal("8000")
         assert report.total_return_pct == Decimal("-20")
 
@@ -186,10 +177,7 @@ class TestMaxDrawdown:
     """最大回撤计算"""
 
     def test_no_drawdown_when_monotonic_increase(self):
-        equity = [
-            EquityPoint(_ts(days=i), Decimal(str(100 + i * 10)))
-            for i in range(5)
-        ]
+        equity = [EquityPoint(_ts(days=i), Decimal(str(100 + i * 10))) for i in range(5)]
         max_dd, _ = PerformanceCalculator._calc_max_drawdown(equity)
         assert max_dd == Decimal("0")
 
@@ -223,19 +211,14 @@ class TestMaxDrawdown:
 
 class TestSharpeRatio:
     def test_sharpe_zero_when_constant_equity(self):
-        equity = [
-            EquityPoint(_ts(days=i), Decimal("100")) for i in range(10)
-        ]
+        equity = [EquityPoint(_ts(days=i), Decimal("100")) for i in range(10)]
         sharpe = PerformanceCalculator._calc_sharpe_ratio(equity)
         # 收益率全为 0 → std=0 → sharpe=0
         assert sharpe == Decimal("0")
 
     def test_sharpe_positive_when_steady_growth(self):
         # 持续增长应当产生正夏普
-        equity = [
-            EquityPoint(_ts(days=i), Decimal(str(100 * (1.001 ** i))))
-            for i in range(30)
-        ]
+        equity = [EquityPoint(_ts(days=i), Decimal(str(100 * (1.001**i)))) for i in range(30)]
         sharpe = PerformanceCalculator._calc_sharpe_ratio(equity)
         assert sharpe > Decimal("0")
 
@@ -248,9 +231,7 @@ class TestSharpeRatio:
 class TestEquityCurveBuild:
     def test_build_from_trades(self):
         trades = [_trade("100", entry_day=0, exit_day=1, commission="5")]
-        curve = PerformanceCalculator._build_equity_curve(
-            trades, Decimal("10000")
-        )
+        curve = PerformanceCalculator._build_equity_curve(trades, Decimal("10000"))
         assert len(curve) == 2
         assert curve[0].equity == Decimal("10000")
         # initial + pnl - commission = 10000 + 100 - 5 = 10095
@@ -261,18 +242,14 @@ class TestCalmarRatio:
     def test_calmar_requires_drawdown(self):
         # 无回撤时 calmar 为 0
         trade = _trade("100", entry_day=0, exit_day=1)
-        report = PerformanceCalculator.calculate(
-            [trade], initial_capital=Decimal("10000")
-        )
+        report = PerformanceCalculator.calculate([trade], initial_capital=Decimal("10000"))
         # 单笔盈利的曲线只往上走，无回撤
         assert report.calmar_ratio == Decimal("0")
 
 
 class TestSerialization:
     def test_to_dict_keys(self):
-        report = PerformanceCalculator.calculate(
-            [_trade("100")], initial_capital=Decimal("10000")
-        )
+        report = PerformanceCalculator.calculate([_trade("100")], initial_capital=Decimal("10000"))
         d = report.to_dict()
         # 关键字段都在
         assert "total_trades" in d

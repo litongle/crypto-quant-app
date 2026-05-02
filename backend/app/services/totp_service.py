@@ -11,12 +11,12 @@ TOTP 双因素认证服务 - P1-5
 - totp_enabled: 是否启用 2FA
 - totp_verified: 是否已验证 (防止设置一半)
 """
+
 import base64
 import hashlib
 import logging
 
 from cryptography.fernet import Fernet
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ def _get_fernet() -> Fernet:
     if _fernet is not None:
         return _fernet
     from app.config import get_settings
+
     raw_key = get_settings().secret_key
     # 使用 sha256 将任意长度的 secret_key 转换为 32 字节密钥
     key_bytes = hashlib.sha256(raw_key.encode()).digest()

@@ -13,9 +13,9 @@
 - 风控告警 (risk_alert)
 - 系统通知 (system)
 """
-import asyncio
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -77,7 +77,7 @@ class NotificationService:
         if reason:
             lines.append(f"<b>原因:</b> {reason}")
 
-        lines.append(f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
+        lines.append(f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
 
         return await self._send(title, "\n".join(lines), "signal")
 
@@ -94,7 +94,11 @@ class NotificationService:
     ) -> dict:
         """推送止损触发通知"""
         title = f"🛑 止损触发 | {symbol}"
-        pnl_pct = (exit_price - entry_price) / entry_price * 100 if side == "long" else (entry_price - exit_price) / entry_price * 100
+        pnl_pct = (
+            (exit_price - entry_price) / entry_price * 100
+            if side == "long"
+            else (entry_price - exit_price) / entry_price * 100
+        )
         lines = [
             f"<b>交易对:</b> {symbol}",
             f"<b>方向:</b> {'📈 多头' if side == 'long' else '📉 空头'}",
@@ -107,7 +111,7 @@ class NotificationService:
         if position_id:
             lines.append(f"<b>持仓ID:</b> #{position_id}")
 
-        lines.append(f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
+        lines.append(f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
 
         return await self._send(title, "\n".join(lines), "stop_loss")
 
@@ -124,7 +128,11 @@ class NotificationService:
     ) -> dict:
         """推送止盈触发通知"""
         title = f"🎯 止盈触发 | {symbol}"
-        pnl_pct = (exit_price - entry_price) / entry_price * 100 if side == "long" else (entry_price - exit_price) / entry_price * 100
+        pnl_pct = (
+            (exit_price - entry_price) / entry_price * 100
+            if side == "long"
+            else (entry_price - exit_price) / entry_price * 100
+        )
         lines = [
             f"<b>交易对:</b> {symbol}",
             f"<b>方向:</b> {'📈 多头' if side == 'long' else '📉 空头'}",
@@ -137,7 +145,7 @@ class NotificationService:
         if position_id:
             lines.append(f"<b>持仓ID:</b> #{position_id}")
 
-        lines.append(f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
+        lines.append(f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
 
         return await self._send(title, "\n".join(lines), "take_profit")
 
@@ -161,7 +169,7 @@ class NotificationService:
             f"<b>价格:</b> {float(price):,.2f} USDT",
             f"<b>订单价值:</b> {float(order_value):,.2f} USDT",
             f"<b>订单ID:</b> #{order_id}",
-            f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>",
+            f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>",
         ]
 
         return await self._send(title, "\n".join(lines), "large_trade")
@@ -178,20 +186,23 @@ class NotificationService:
         if metrics:
             for k, v in metrics.items():
                 lines.append(f"<b>{k}:</b> {v}")
-        lines.append(f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
+        lines.append(f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>")
 
         return await self._send(title, "\n".join(lines), "risk_alert")
 
     async def notify_system(self, title: str, message: str) -> dict:
         """推送系统通知"""
-        lines = [f"<b>{title}</b>", "", message, f"\n<i>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>"]
+        lines = [
+            f"<b>{title}</b>",
+            "",
+            message,
+            f"\n<i>{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC</i>",
+        ]
         return await self._send(title, "\n".join(lines), "system")
 
     # ── 内部发送逻辑 ──────────────────────────────────────
 
-    async def _send(
-        self, title: str, message: str, notification_type: NotificationType
-    ) -> dict:
+    async def _send(self, title: str, message: str, notification_type: NotificationType) -> dict:
         """发送通知到所有已配置的渠道"""
         results = {"telegram": False, "wecom": False, "errors": []}
 
@@ -224,9 +235,7 @@ class NotificationService:
 
         return results
 
-    async def _send_telegram(
-        self, message: str, bot_token: str, chat_id: str
-    ) -> None:
+    async def _send_telegram(self, message: str, bot_token: str, chat_id: str) -> None:
         """发送 Telegram 消息"""
         client = await self._get_client()
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -242,9 +251,7 @@ class NotificationService:
         if not data.get("ok"):
             raise RuntimeError(f"Telegram API error: {data.get('description')}")
 
-    async def _send_wecom(
-        self, title: str, message: str, webhook_url: str
-    ) -> None:
+    async def _send_wecom(self, title: str, message: str, webhook_url: str) -> None:
         """发送企微 Webhook 消息"""
         client = await self._get_client()
         # 企微不支持 HTML，转换为 markdown
@@ -269,6 +276,7 @@ notification_service = NotificationService()
 
 
 # ── 便捷函数（供其他模块直接调用）─────────────────────────
+
 
 async def notify_signal(
     symbol: str,

@@ -14,19 +14,19 @@
 6. SETUP_COMPLETE=true 写回 .env
 7. 再次 reload + reset 让进程用最终配置
 """
-import secrets
-import logging
-import asyncio
-from pathlib import Path
-from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends
+import asyncio
+import logging
+import secrets
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
 from app.config import get_settings, reload_settings
-from app.database import init_db, reset_database, get_db_context
-from app.models.user import User
 from app.core.security import hash_password
+from app.database import get_db_context, init_db, reset_database
+from app.models.user import User
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ _SETUP_NONCE_FILE = Path("./.setup_nonce")
 
 class SetupRequest(BaseModel):
     """安装请求"""
+
     admin_email: EmailStr
     admin_password: str = Field(min_length=8, description="管理员密码，至少8位")
     admin_name: str = Field(min_length=2, max_length=100, description="管理员名称")
@@ -101,6 +102,7 @@ async def setup_status():
 async def setup_env_defaults():
     """返回当前环境变量中预置的数据库/Redis配置，供安装向导自动预填"""
     import re
+
     settings = get_settings()
     db_url = settings.database_url or ""
     redis_url = settings.redis_url or "redis://localhost:6379/0"

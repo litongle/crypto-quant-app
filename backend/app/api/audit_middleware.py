@@ -4,7 +4,9 @@
 自动记录所有写操作（POST/PUT/PATCH/DELETE）到审计日志。
 排除健康检查等无需审计的端点。
 """
+
 import logging
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -47,6 +49,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         # 尝试记录审计日志（异步，不阻塞响应）
         try:
             from app.database import get_session_maker
+
             user_id = getattr(request.state, "user_id", None)
             if user_id is None:
                 # 尝试从 token 中提取
@@ -54,13 +57,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 if auth_header.startswith("Bearer "):
                     try:
                         from app.core.security import decode_token
+
                         payload = decode_token(auth_header[7:])
                         user_id = int(payload.get("sub", 0))
                     except Exception:
                         pass
 
             if user_id:
-                action = f"{request.method.lower()}_{path.replace('/api/v1/', '').replace('/', '_')}"
+                action = (
+                    f"{request.method.lower()}_{path.replace('/api/v1/', '').replace('/', '_')}"
+                )
                 status = "success" if 200 <= response.status_code < 400 else "failure"
 
                 session_maker = await get_session_maker()

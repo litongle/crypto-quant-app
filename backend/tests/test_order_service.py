@@ -3,7 +3,7 @@ OrderService 测试 — 核心订单生命周期、止盈止损、紧急平仓
 
 通过替换 OrderService._get_adapter，避免对真实交易所的依赖。
 """
-from datetime import datetime, timezone
+
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -21,8 +21,8 @@ from app.models.exchange import ExchangeAccount, Position
 from app.models.user import User
 from app.services.order_service import OrderService
 
-
 # ==================== Helpers ====================
+
 
 async def _make_user(session, *, email: str = "svc@example.com") -> User:
     user = User(
@@ -99,8 +99,10 @@ def _mock_adapter(create_result: OrderResult | Exception | None = None):
 
 def _patch_adapter(service: OrderService, adapter):
     """替换 service._get_adapter"""
+
     async def _get(_):
         return adapter
+
     service._get_adapter = _get  # type: ignore[method-assign]
 
 
@@ -119,6 +121,7 @@ def _filled_order_result(qty: str = "0.01", price: str = "50000") -> OrderResult
 
 
 # ==================== create_order 校验 ====================
+
 
 class TestCreateOrder:
     async def test_create_order_success(self, db_session):
@@ -207,6 +210,7 @@ class TestCreateOrder:
 
 # ==================== submit_order 异常分类 ====================
 
+
 class TestSubmitOrder:
     async def test_submit_order_success_marks_filled(self, db_session):
         user = await _make_user(db_session, email="sub1@example.com")
@@ -235,8 +239,12 @@ class TestSubmitOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
         adapter = _mock_adapter(
             create_result=OrderRejectedError("binance", "余额不足", "INSUFFICIENT")
@@ -256,12 +264,14 @@ class TestSubmitOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
-        adapter = _mock_adapter(
-            create_result=RateLimitError("binance")
-        )
+        adapter = _mock_adapter(create_result=RateLimitError("binance"))
         _patch_adapter(service, adapter)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -276,12 +286,14 @@ class TestSubmitOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
-        adapter = _mock_adapter(
-            create_result=NetworkError("binance", "连接超时")
-        )
+        adapter = _mock_adapter(create_result=NetworkError("binance", "连接超时"))
         _patch_adapter(service, adapter)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -305,8 +317,12 @@ class TestSubmitOrder:
         account = await _make_account(db_session, user_a.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user_a.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user_a.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -316,6 +332,7 @@ class TestSubmitOrder:
 
 # ==================== cancel_order ====================
 
+
 class TestCancelOrder:
     async def test_cancel_pending_order_no_exchange_call(self, db_session):
         """没有 exchange_order_id 时直接本地标记为 cancelled"""
@@ -323,8 +340,12 @@ class TestCancelOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
         # 订单尚未提交到交易所，没 exchange_order_id
         cancelled = await service.cancel_order(order.id, user.id)
@@ -336,8 +357,12 @@ class TestCancelOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
         order.status = "filled"
         await db_session.commit()
@@ -351,8 +376,12 @@ class TestCancelOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
         order.status = "submitted"
         order.exchange_order_id = "EX-CANCEL-1"
@@ -371,8 +400,12 @@ class TestCancelOrder:
         account = await _make_account(db_session, user.id)
         service = OrderService(db_session)
         order = await service.create_order(
-            user_id=user.id, account_id=account.id, symbol="BTCUSDT",
-            side="buy", order_type="market", quantity=Decimal("0.01"),
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
         )
         order.status = "submitted"
         order.exchange_order_id = "EX-CANCEL-2"
@@ -389,55 +422,40 @@ class TestCancelOrder:
 
 # ==================== 止损/止盈价格校验 ====================
 
+
 class TestStopLossValidation:
     async def test_long_stop_loss_must_be_below_entry(self, db_session):
         user = await _make_user(db_session, email="sl1@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="long", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="long", entry_price="50000")
         service = OrderService(db_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await service.set_stop_loss(
-                position.id, user.id, Decimal("51000")
-            )
+            await service.set_stop_loss(position.id, user.id, Decimal("51000"))
         assert exc_info.value.status_code == 400
 
     async def test_short_stop_loss_must_be_above_entry(self, db_session):
         user = await _make_user(db_session, email="sl2@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="short", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="short", entry_price="50000")
         service = OrderService(db_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await service.set_stop_loss(
-                position.id, user.id, Decimal("49000")
-            )
+            await service.set_stop_loss(position.id, user.id, Decimal("49000"))
         assert exc_info.value.status_code == 400
 
-    async def test_set_stop_loss_falls_back_to_local_on_exchange_failure(
-        self, db_session
-    ):
+    async def test_set_stop_loss_falls_back_to_local_on_exchange_failure(self, db_session):
         """交易所条件单失败应当降级为本地止损（不抛出）"""
         user = await _make_user(db_session, email="sl3@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="long", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="long", entry_price="50000")
         service = OrderService(db_session)
 
         adapter = _mock_adapter()
-        adapter.create_stop_order.side_effect = NetworkError(
-            "binance", "条件单提交失败"
-        )
+        adapter.create_stop_order.side_effect = NetworkError("binance", "条件单提交失败")
         _patch_adapter(service, adapter)
 
-        result = await service.set_stop_loss(
-            position.id, user.id, Decimal("48000")
-        )
+        result = await service.set_stop_loss(position.id, user.id, Decimal("48000"))
         # 本地止损价仍然写入
         assert result.stop_loss_price == Decimal("48000")
         # 没有 exchange order id
@@ -446,9 +464,7 @@ class TestStopLossValidation:
     async def test_set_stop_loss_saves_exchange_order_id(self, db_session):
         user = await _make_user(db_session, email="sl4@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="long", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="long", entry_price="50000")
         service = OrderService(db_session)
 
         adapter = _mock_adapter()
@@ -465,9 +481,7 @@ class TestStopLossValidation:
         )
         _patch_adapter(service, adapter)
 
-        result = await service.set_stop_loss(
-            position.id, user.id, Decimal("48000")
-        )
+        result = await service.set_stop_loss(position.id, user.id, Decimal("48000"))
         assert result.stop_loss_order_id == "EX-SL-1"
         assert result.stop_loss_price == Decimal("48000")
         # 校验止损方向：long 持仓 → sell 止损
@@ -480,46 +494,35 @@ class TestTakeProfitValidation:
     async def test_long_tp_must_be_above_entry(self, db_session):
         user = await _make_user(db_session, email="tp1@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="long", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="long", entry_price="50000")
         service = OrderService(db_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await service.set_take_profit(
-                position.id, user.id, Decimal("49000")
-            )
+            await service.set_take_profit(position.id, user.id, Decimal("49000"))
         assert exc_info.value.status_code == 400
 
     async def test_short_tp_must_be_below_entry(self, db_session):
         user = await _make_user(db_session, email="tp2@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="short", entry_price="50000"
-        )
+        position = await _make_position(db_session, account.id, side="short", entry_price="50000")
         service = OrderService(db_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await service.set_take_profit(
-                position.id, user.id, Decimal("51000")
-            )
+            await service.set_take_profit(position.id, user.id, Decimal("51000"))
         assert exc_info.value.status_code == 400
 
 
 # ==================== 平仓 ====================
 
+
 class TestClosePosition:
     async def test_close_long_position_creates_sell_order(self, db_session):
         user = await _make_user(db_session, email="cp1@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, side="long", quantity="1"
-        )
+        position = await _make_position(db_session, account.id, side="long", quantity="1")
         service = OrderService(db_session)
 
-        adapter = _mock_adapter(
-            create_result=_filled_order_result(qty="1", price="50000")
-        )
+        adapter = _mock_adapter(create_result=_filled_order_result(qty="1", price="50000"))
         _patch_adapter(service, adapter)
 
         closed = await service.close_position(position.id, user.id)
@@ -532,9 +535,7 @@ class TestClosePosition:
     async def test_close_already_closed_rejected(self, db_session):
         user = await _make_user(db_session, email="cp2@example.com")
         account = await _make_account(db_session, user.id)
-        position = await _make_position(
-            db_session, account.id, status="closed"
-        )
+        position = await _make_position(db_session, account.id, status="closed")
         service = OrderService(db_session)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -543,6 +544,7 @@ class TestClosePosition:
 
 
 # ==================== 余额同步 ====================
+
 
 class TestSyncAccountBalance:
     async def test_sync_writes_usdt_balance(self, db_session):

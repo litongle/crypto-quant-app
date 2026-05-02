@@ -7,17 +7,18 @@ Create Date: 2026-04-27 22:30:00.000000
 Step 3: 策略状态机持久化 — 重启不丢仓位/极值/cooling_count。
 runner 每 tick 末写入 strategy.to_dict(),启动时调 from_dict() 恢复。
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, Sequence[str], None] = "d5fb4b2de1b0"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "d5fb4b2de1b0"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

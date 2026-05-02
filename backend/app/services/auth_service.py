@@ -1,28 +1,25 @@
 """
 认证服务
 """
-from datetime import datetime, timedelta
-from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
-from app.database import get_session
-from app.models.user import User
-from app.repositories.user_repo import UserRepository
 from app.core.security import (
     create_access_token,
     create_refresh_token,
-    decode_token,
     verify_token,
-    pwd_context,
-    verify_password as _verify_password,
+)
+from app.core.security import (
     hash_password as _hash_password,
 )
+from app.core.security import (
+    verify_password as _verify_password,
+)
+from app.models.user import User
+from app.repositories.user_repo import UserRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -44,9 +41,7 @@ class AuthService:
         self.session = session
         self.user_repo = UserRepository(session)
 
-    async def register(
-        self, email: str, password: str, name: str
-    ) -> tuple[User, str, str]:
+    async def register(self, email: str, password: str, name: str) -> tuple[User, str, str]:
         """注册用户"""
         # 检查邮箱是否存在
         if await self.user_repo.email_exists(email):
@@ -95,11 +90,11 @@ class AuthService:
     async def login(self, email: str, password: str) -> tuple[User, str, str, bool]:
         """用户登录。如果开启了2FA，返回 requires_2fa=True，不发token。"""
         user = await self.authenticate(email, password)
-        
+
         # 如果启用了2FA，只返回用户信息提示需要2FA
         if user.has_2fa:
             return user, "", "", True
-        
+
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
         return user, access_token, refresh_token, False
@@ -109,22 +104,22 @@ class AuthService:
     ) -> tuple[User, str, str]:
         """带 TOTP 验证码的登录"""
         from app.services.totp_service import decrypt_totp_secret, verify_totp
-        
+
         user = await self.authenticate(email, password)
-        
+
         if not user.has_2fa:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="该账户未启用 2FA",
             )
-        
+
         secret = decrypt_totp_secret(user.totp_secret)
         if not await verify_totp(secret, totp_code):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="2FA 验证码无效",
             )
-        
+
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
         return user, access_token, refresh_token

@@ -7,11 +7,12 @@
 - init_db() 用于首次建表
 - get_session() 别名，修复代码库中 Depends(get_session) 引用
 """
+
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -33,8 +34,11 @@ def _set_test_engine(eng):
         _test_engine = eng
         _engine = eng
         _session_maker = async_sessionmaker(
-            eng, class_=AsyncSession, expire_on_commit=False,
-            autocommit=False, autoflush=False,
+            eng,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False,
         )
     else:
         _test_engine = None
@@ -44,6 +48,7 @@ def _set_test_engine(eng):
 
 class Base(DeclarativeBase):
     """SQLAlchemy 基类"""
+
     pass
 
 
@@ -121,6 +126,7 @@ async def init_db():
     # Stamp Alembic head version so future migrations don't replay
     try:
         from alembic.config import Config as AlembicConfig
+
         from alembic import command
 
         alembic_cfg = AlembicConfig()

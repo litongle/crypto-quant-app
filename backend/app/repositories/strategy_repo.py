@@ -1,11 +1,12 @@
 """
 策略仓储
 """
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.strategy import StrategyTemplate, StrategyInstance
+from app.models.strategy import StrategyInstance, StrategyTemplate
 from app.repositories.base import BaseRepository
 
 
@@ -70,9 +71,7 @@ class StrategyInstanceRepository(BaseRepository[StrategyInstance]):
         )
         return list(result.scalars().all())
 
-    async def get_by_user_and_symbol(
-        self, user_id: int, symbol: str
-    ) -> list[StrategyInstance]:
+    async def get_by_user_and_symbol(self, user_id: int, symbol: str) -> list[StrategyInstance]:
         """获取用户在指定交易对上的策略"""
         result = await self.session.execute(
             select(StrategyInstance).where(
@@ -93,7 +92,6 @@ class StrategyInstanceRepository(BaseRepository[StrategyInstance]):
 
     async def get_with_template_for_update(self, instance_id: int) -> StrategyInstance | None:
         """获取策略实例（含模板），加行级锁防止并发启动"""
-        from sqlalchemy.orm import joinedload
         result = await self.session.execute(
             select(StrategyInstance)
             .where(StrategyInstance.id == instance_id)

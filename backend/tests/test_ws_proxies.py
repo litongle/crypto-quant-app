@@ -1,10 +1,9 @@
 """
 WebSocket 交易所代理单元测试 — 消息解析、路由键、广播、任务管理
 """
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from app.api.v1.ws.proxies import (
     BinanceWSProxy,
@@ -15,8 +14,8 @@ from app.api.v1.ws.proxies import (
 )
 from app.core.trade_schemas import WSMessage
 
-
 # ==================== _stream_key ====================
+
 
 def test_stream_key_spot():
     assert _stream_key("ticker", "BTCUSDT", "spot") == "ticker:BTCUSDT:spot"
@@ -28,14 +27,20 @@ def test_stream_key_perp():
 
 # ==================== BinanceWSProxy._parse_message ====================
 
+
 class TestBinanceParseMessage:
     def setup_method(self):
         self.proxy = BinanceWSProxy(MagicMock())
 
     def test_ticker_full(self):
         data = {
-            "c": "50000", "p": "100", "P": "0.2",
-            "h": "51000", "l": "49000", "v": "1000", "q": "50000000",
+            "c": "50000",
+            "p": "100",
+            "P": "0.2",
+            "h": "51000",
+            "l": "49000",
+            "v": "1000",
+            "q": "50000000",
         }
         msg = self.proxy._parse_message(data, "ticker", "BTCUSDT")
         assert msg is not None
@@ -50,10 +55,16 @@ class TestBinanceParseMessage:
         assert msg is None
 
     def test_kline_full(self):
-        data = {"k": {
-            "o": "49000", "h": "51000", "l": "48000",
-            "c": "50000", "v": "100", "x": True,
-        }}
+        data = {
+            "k": {
+                "o": "49000",
+                "h": "51000",
+                "l": "48000",
+                "c": "50000",
+                "v": "100",
+                "x": True,
+            }
+        }
         msg = self.proxy._parse_message(data, "kline", "BTCUSDT")
         assert msg is not None
         assert msg.type == "kline"
@@ -86,6 +97,7 @@ class TestBinanceParseMessage:
 
 # ==================== OKXProxy ====================
 
+
 class TestOKXToInstId:
     def test_usdt_spot(self):
         assert OKXProxy._to_inst_id("BTCUSDT", "spot") == "BTC-USDT"
@@ -110,11 +122,16 @@ class TestOKXParseMessage:
     def test_ticker(self):
         data = {
             "arg": {"channel": "tickers"},
-            "data": [{
-                "last": "50000", "changeUtc24h": "0.5",
-                "high24h": "51000", "low24h": "49000",
-                "vol24h": "1000", "volCcy24h": "50000000",
-            }],
+            "data": [
+                {
+                    "last": "50000",
+                    "changeUtc24h": "0.5",
+                    "high24h": "51000",
+                    "low24h": "49000",
+                    "vol24h": "1000",
+                    "volCcy24h": "50000000",
+                }
+            ],
         }
         msg = self.proxy._parse_message(data, "ticker", "BTCUSDT")
         assert msg is not None
@@ -154,6 +171,7 @@ class TestOKXParseMessage:
 
 # ==================== HuobiProxy ====================
 
+
 class TestHuobiToPerpCode:
     def test_usdt(self):
         assert HuobiProxy._to_perp_code("BTCUSDT") == "BTC-USDT"
@@ -171,8 +189,12 @@ class TestHuobiParseMessage:
 
     def _ticker_tick(self):
         return {
-            "close": 50000, "change": 0.5,
-            "high": 51000, "low": 49000, "vol": 1000, "amount": 50000000,
+            "close": 50000,
+            "change": 0.5,
+            "high": 51000,
+            "low": 49000,
+            "vol": 1000,
+            "amount": 50000000,
         }
 
     def test_ticker_via_detail_in_ch(self):
@@ -217,6 +239,7 @@ class TestHuobiParseMessage:
 
 # ==================== ExchangeWSProxy._broadcast ====================
 
+
 class TestBroadcast:
     async def test_sends_to_all_subscribers(self):
         ws1, ws2 = AsyncMock(), AsyncMock()
@@ -255,6 +278,7 @@ class TestBroadcast:
 
 # ==================== start_if_needed / stop_if_idle ====================
 
+
 class TestStartStopProxy:
     async def test_start_if_needed_creates_task_when_has_subscribers(self, monkeypatch):
         mock_mgr = MagicMock()
@@ -274,7 +298,9 @@ class TestStartStopProxy:
 
         call_count = []
         task = MagicMock(spec=asyncio.Task)
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: (call_count.append(1), task)[1])
+        monkeypatch.setattr(
+            asyncio, "create_task", lambda coro, **kw: (call_count.append(1), task)[1]
+        )
 
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
@@ -318,6 +344,7 @@ class TestStartStopProxy:
 
 # ==================== _restart_on_error ====================
 
+
 class TestRestartOnError:
     async def test_sleeps_5s_then_restarts_when_has_subscribers(self, monkeypatch):
         slept = []
@@ -357,6 +384,7 @@ class TestRestartOnError:
 
 
 # ==================== PollingFallback ====================
+
 
 class TestPollingFallback:
     async def test_start_sets_running_and_creates_task(self, monkeypatch):

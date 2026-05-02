@@ -1,7 +1,8 @@
 """API v1 Router"""
+
 from fastapi import APIRouter
 
-from app.api.v1 import auth, strategies, users, market, orders, asset, backtest, setup, ws_market
+from app.api.v1 import asset, auth, backtest, market, orders, setup, strategies, users, ws_market
 
 api_router = APIRouter()
 

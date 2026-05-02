@@ -1,8 +1,9 @@
 """
 策略运行器单元测试 — select_position_to_close、数量计算、生命周期管理
 """
+
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,8 +12,8 @@ import pytest
 from app.core.strategy_engine import Signal, StrategyConfig
 from app.core.strategy_runner import StrategyRunner, select_position_to_close
 
-
 # ==================== Fixtures ====================
+
 
 @pytest.fixture
 def runner():
@@ -50,6 +51,7 @@ def _make_session_mock(instances=_UNSET, scalar_result=_UNSET):
 
 
 # ==================== select_position_to_close ====================
+
 
 class TestSelectPositionToClose:
     def test_empty_list_returns_none(self):
@@ -92,6 +94,7 @@ class TestSelectPositionToClose:
 
 
 # ==================== _calculate_order_quantity ====================
+
 
 class TestCalculateOrderQuantity:
     def setup_method(self):
@@ -139,9 +142,7 @@ class TestCalculateOrderQuantity:
 
     def test_other_symbol_below_min_1_returns_zero(self):
         # balance=1, price=10 → invest=0.3, qty=0.03 < 1
-        qty = self.runner._calculate_order_quantity(
-            Decimal("1"), Decimal("10"), "XYZUSDT", "buy"
-        )
+        qty = self.runner._calculate_order_quantity(Decimal("1"), Decimal("10"), "XYZUSDT", "buy")
         assert qty == Decimal("0")
 
     def test_sell_skips_min_check(self):
@@ -154,13 +155,17 @@ class TestCalculateOrderQuantity:
     def test_custom_max_invest_percent(self):
         # 10% of 1000 = 100 / 1000 = 0.1 qty < 1 (other symbol min)
         qty = self.runner._calculate_order_quantity(
-            Decimal("1000"), Decimal("1000"), "XYZUSDT", "buy",
+            Decimal("1000"),
+            Decimal("1000"),
+            "XYZUSDT",
+            "buy",
             max_invest_percent=Decimal("0.10"),
         )
         assert qty == Decimal("0")
 
 
 # ==================== 单例 ====================
+
 
 class TestSingleton:
     def test_same_instance_returned_twice(self):
@@ -174,6 +179,7 @@ class TestSingleton:
 
 
 # ==================== 生命周期 ====================
+
 
 class TestLifecycle:
     async def test_stop_cancels_all_tasks_and_clears_state(self, runner):
@@ -248,6 +254,7 @@ class TestLifecycle:
 
 # ==================== start_instance ====================
 
+
 class TestStartInstance:
     async def test_returns_false_when_already_running(self, runner):
         runner._runners = {1: MagicMock()}
@@ -264,17 +271,19 @@ class TestStartInstance:
 
 # ==================== _handle_signal 防抖 ====================
 
+
 class TestHandleSignalDebounce:
     def _config(self, auto_trade=False):
         return StrategyConfig(
-            symbol="BTCUSDT", exchange="binance",
+            symbol="BTCUSDT",
+            exchange="binance",
             direction="both",
             params={"auto_trade": auto_trade},
             risk_params={},
         )
 
     async def test_debounce_within_60s_skips_processing(self, runner):
-        recent = datetime.now(timezone.utc) - timedelta(seconds=10)
+        recent = datetime.now(UTC) - timedelta(seconds=10)
         runner._last_signal_at[1] = recent
 
         signal = Signal(action="buy", confidence=0.8, reason="test")
@@ -298,7 +307,7 @@ class TestHandleSignalDebounce:
         assert 1 in runner._last_signal_at
 
     async def test_signal_after_60s_is_processed(self, runner):
-        old = datetime.now(timezone.utc) - timedelta(seconds=61)
+        old = datetime.now(UTC) - timedelta(seconds=61)
         runner._last_signal_at[1] = old
 
         signal = Signal(action="sell", confidence=0.9, reason="timeout")
@@ -315,6 +324,7 @@ class TestHandleSignalDebounce:
 
 
 # ==================== update_stats ====================
+
 
 class TestUpdateStats:
     async def test_updates_pnl_and_trades(self, runner):

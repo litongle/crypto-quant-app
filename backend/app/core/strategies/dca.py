@@ -6,8 +6,8 @@ DCA（定投）策略实现 - P2-10
 - 支持动态调整定投金额（基于价格偏离度）
 - 支持止盈平仓
 """
+
 import logging
-from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -123,7 +123,11 @@ class DCAStrategy(BaseStrategy):
                         + (" [智能:RSI放大]" if invest_amount > self.invest_per_trade else "")
                         + (" [智能:RSI缩减]" if invest_amount < self.invest_per_trade else "")
                     ),
-                    metadata={"intent": "open", "direction": "long", "invest_amount": float(invest_amount)},
+                    metadata={
+                        "intent": "open",
+                        "direction": "long",
+                        "invest_amount": float(invest_amount),
+                    },
                 )
 
         return None

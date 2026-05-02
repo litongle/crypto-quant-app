@@ -8,9 +8,8 @@ FastAPI 主入口
 - P1-3: 行情 API 限流中间件
 - P2-9: 改进全局异常处理器
 """
+
 import logging
-import time
-from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -28,13 +27,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     settings = get_settings()
-    logger.info("Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment)
+    logger.info(
+        "Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment
+    )
     if settings.setup_required:
         logger.info("⚠️ 首次运行，请访问 /web/setup 完成安装向导")
 
     # 启动 WebSocket 行情代理
     try:
         from app.api.v1.ws_market import init_ws_proxies
+
         await init_ws_proxies()
     except Exception as exc:
         logger.warning("WebSocket 代理初始化失败（不影响 REST API）: %s", exc)
@@ -43,6 +45,7 @@ async def lifespan(app: FastAPI):
     if not settings.setup_required:
         try:
             from app.seed_data import init_strategy_templates
+
             await init_strategy_templates()
             logger.info("策略模板数据已就绪")
         except Exception as exc:
@@ -52,6 +55,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.core.strategy_runner import strategy_runner
         from app.database import get_session_maker
+
         session_maker = await get_session_maker()
         await strategy_runner.start(session_maker)
     except Exception as exc:
@@ -60,6 +64,7 @@ async def lifespan(app: FastAPI):
     # 启动订单对账服务 — P0-3
     try:
         from app.services.order_reconciliation_service import start_reconciliation
+
         session_maker = await get_session_maker()
         await start_reconciliation(session_maker)
     except Exception as exc:
@@ -68,6 +73,7 @@ async def lifespan(app: FastAPI):
     # 启动定时同步调度器 — P1-4
     try:
         from app.services.sync_scheduler import start_sync_scheduler
+
         session_maker = await get_session_maker()
         await start_sync_scheduler(session_maker)
     except Exception as exc:
@@ -78,32 +84,39 @@ async def lifespan(app: FastAPI):
     # 关闭时清理
     try:
         from app.api.v1.ws_market import cleanup_ws_proxies
+
         await cleanup_ws_proxies()
     except Exception:
         pass
     try:
         from app.core.strategy_runner import strategy_runner
+
         await strategy_runner.stop()
     except Exception:
         pass
     try:
         from app.services.order_reconciliation_service import stop_reconciliation
+
         await stop_reconciliation()
     except Exception:
         pass
     try:
         from app.services.sync_scheduler import stop_sync_scheduler
+
         await stop_sync_scheduler()
     except Exception:
         pass
     try:
         from app.services.notification_service import notification_service
+
         await notification_service.close()
     except Exception:
         pass
     from app.redis import close_redis
+
     await close_redis()
     from app.database import reset_database
+
     await reset_database()
     logger.info("Shutting down...")
 
@@ -131,6 +144,7 @@ def create_app() -> FastAPI:
     # 审计日志中间件 — P1-6
     try:
         from app.api.audit_middleware import AuditMiddleware
+
         app.add_middleware(AuditMiddleware)
         logger.info("审计日志中间件已注册")
     except Exception as exc:
@@ -150,18 +164,19 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
-        
+
         try:
             from app.redis import get_redis_client
+
             r = await get_redis_client()
-            
+
             key = f"rate_limit:market:{client_ip}"
-            
+
             # 使用 Redis INCR + EXPIRE 实现固定窗口限流
             count = await r.incr(key)
             if count == 1:
                 await r.expire(key, MARKET_RATE_WINDOW)
-            
+
             if count > MARKET_RATE_LIMIT:
                 return JSONResponse(
                     status_code=429,
@@ -176,7 +191,7 @@ def create_app() -> FastAPI:
         except Exception as exc:
             # Redis 故障时降级：记录日志并放行，避免影响核心业务
             logger.warning("[RateLimit] Redis 访问失败，已降级放行: %s", exc)
-        
+
         return await call_next(request)
 
     # 异常处理
@@ -196,8 +211,7 @@ def create_app() -> FastAPI:
         # 判断是否为网络/外部服务类错误（可重试）
         error_name = type(exc).__name__
         is_retryable = any(
-            kw in error_name.lower()
-            for kw in ("network", "timeout", "connection", "gateway")
+            kw in error_name.lower() for kw in ("network", "timeout", "connection", "gateway")
         )
         # 判断是否为交易所相关异常
         is_exchange_error = "exchange" in error_name.lower() or "api" in error_name.lower()
@@ -207,7 +221,10 @@ def create_app() -> FastAPI:
 
         logger.error(
             "[GlobalExceptionHandler] %s: %s (path=%s, retryable=%s)",
-            error_name, str(exc)[:200], request.url.path, is_retryable,
+            error_name,
+            str(exc)[:200],
+            request.url.path,
+            is_retryable,
         )
 
         return JSONResponse(
@@ -216,7 +233,9 @@ def create_app() -> FastAPI:
                 "success": False,
                 "error": {
                     "code": error_code,
-                    "message": "外部服务异常，请稍后重试" if status_code == 502 else "服务器内部错误",
+                    "message": "外部服务异常，请稍后重试"
+                    if status_code == 502
+                    else "服务器内部错误",
                     "retryable": is_retryable,
                 },
             },
@@ -230,6 +249,7 @@ def create_app() -> FastAPI:
         # 数据库连接检查
         try:
             from app.database import get_engine
+
             engine = await get_engine()
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
@@ -241,6 +261,7 @@ def create_app() -> FastAPI:
         # Redis 连接检查
         try:
             from app.redis import get_redis_client
+
             r = await get_redis_client()
             if r:
                 await r.ping()
@@ -267,10 +288,12 @@ def create_app() -> FastAPI:
 
     # 注册路由
     from app.api.v1 import api_router
+
     app.include_router(api_router, prefix="/api/v1")
 
     # Web 控制台
     from app.web.routes import router as web_router
+
     app.include_router(web_router)
 
     return app

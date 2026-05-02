@@ -7,12 +7,12 @@
 - 回测结果详情查看
 - 所有 5 种策略类型
 """
+
 import json
 import logging
 from datetime import datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +27,10 @@ router = APIRouter()
 
 # ============ 请求模型 ============
 
+
 class BacktestRequest(BaseModel):
     """回测请求"""
+
     templateId: str = Field(..., description="策略模板ID (ma_cross/rsi/bollinger/grid/martingale)")
     symbol: str = Field(..., description="交易对 (BTCUSDT)")
     exchange: str = Field(default="binance", description="交易所")
@@ -39,6 +41,7 @@ class BacktestRequest(BaseModel):
 
 
 # ============ 路由 ============
+
 
 @router.post("/run")
 async def run_backtest(
@@ -120,6 +123,7 @@ async def get_backtest_history(
     获取回测历史记录 (P2-17: 使用 Service 层)
     """
     from app.services.backtest_service import BacktestService
+
     service = BacktestService(session)
     history = await service.get_user_history(current_user.id, limit)
     return APIResponse(data=history)
@@ -135,9 +139,10 @@ async def get_backtest_result(
     获取回测结果详情 (P2-17: 使用 Service 层)
     """
     from app.services.backtest_service import BacktestService
+
     service = BacktestService(session)
     result = await service.get_result_by_id(backtest_id, current_user.id)
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="回测记录不存在")
 
@@ -145,6 +150,7 @@ async def get_backtest_result(
 
 
 # ============ 内部辅助 ============
+
 
 async def _save_backtest_history(
     session: AsyncSession,
@@ -199,8 +205,12 @@ async def _save_backtest_history(
         equity_curve=equity_curve_str,
         trades=trades_str,
         # 时间
-        start_time=datetime.fromisoformat(result["startTime"].rstrip("Z")) if result.get("startTime") else None,
-        end_time=datetime.fromisoformat(result["endTime"].rstrip("Z")) if result.get("endTime") else None,
+        start_time=datetime.fromisoformat(result["startTime"].rstrip("Z"))
+        if result.get("startTime")
+        else None,
+        end_time=datetime.fromisoformat(result["endTime"].rstrip("Z"))
+        if result.get("endTime")
+        else None,
     )
 
     session.add(record)

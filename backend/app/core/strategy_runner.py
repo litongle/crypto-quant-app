@@ -19,14 +19,14 @@
     │     5. sleep(interval) 后重复
     └── 关闭时清理所有 Task
 """
+
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.strategy_engine import (
@@ -45,13 +45,13 @@ logger = logging.getLogger(__name__)
 # 思路:每根 K 线封盘附近触发一次 analyze,既不延迟太多也不过度频繁。
 # 短周期为减少封盘漏触发取约 1/2 K 线长度,长周期取 1/4 K 线长度封顶 5 分钟。
 _KLINE_INTERVAL_TO_POLL_SECONDS = {
-    "1m":  30,
-    "5m":  60,
+    "1m": 30,
+    "5m": 60,
     "15m": 120,
     "30m": 180,
-    "1h":  300,
-    "4h":  300,
-    "1d":  300,
+    "1h": 300,
+    "4h": 300,
+    "1d": 300,
 }
 
 
@@ -126,6 +126,14 @@ class StrategyRunner:
         self._last_signal_at: dict[int, datetime] = {}
         self._running = False
         self._session_maker = None
+        # K线请求去重: (exchange, symbol, interval) → (timestamp, klines)
+        self._kline_cache: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
+        # K线请求 flight lock: (exchange, symbol, interval) → asyncio.Event
+        self._kline_locks: dict[tuple[str, str, str], asyncio.Event | None] = {}
+        # 交易对最小下单量缓存（评审问题2：不再硬编码白名单）
+        self._symbol_min_qty_cache: dict[tuple[str, str], Decimal] = {}
+        # 余额同步防抖：account_id → last_sync_ts
+        self._balance_sync_at: dict[int, float] = {}
 
     async def start(self, session_maker) -> None:
         """启动运行器，加载所有 running 状态的策略实例"""
@@ -217,17 +225,33 @@ class StrategyRunner:
         # Step 3: 启动时从 DB 恢复策略状态机(重启不丢仓位/极值/cooling)
         if inst.state_json:
             try:
-                strategy.from_dict(inst.state_json)
+                # 评审问题5: 恢复前校验关键字段
+                state = inst.state_json
+                mode = state.get("mode", "monitoring")
+                if mode not in ("monitoring", "long", "short", "cooling"):
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d 状态 mode=%s 非法,重置为 monitoring",
+                        inst.id,
+                        mode,
+                    )
+                    state = {}
+                strategy.from_dict(state)
                 logger.info(
-                    "[StrategyRunner] 策略 #%d 状态已从 DB 恢复",
+                    "[StrategyRunner] 策略 #%d 状态已从 DB 恢复 (mode=%s)",
                     inst.id,
+                    mode if state else "monitoring",
                 )
             except Exception as exc:
                 # 恢复失败不阻塞启动 — 退化为从零开始,记录告警
                 logger.warning(
                     "[StrategyRunner] 策略 #%d 状态恢复失败,从零开始: %s",
-                    inst.id, exc,
+                    inst.id,
+                    exc,
                 )
+
+        # 评审问题9: 启动时从 DB 同步真实持仓状态，覆盖策略内部状态
+        if inst.account_id and strategy_type == "rsi_layered":
+            await self._sync_strategy_state_from_db(inst.id, inst.account_id, inst.symbol, strategy)
 
         self._strategies[inst.id] = strategy
         self._runners[inst.id] = asyncio.create_task(
@@ -236,10 +260,14 @@ class StrategyRunner:
         )
         logger.info(
             "[StrategyRunner] 策略 #%d (%s/%s) 已启动",
-            inst.id, strategy_type, inst.symbol,
+            inst.id,
+            strategy_type,
+            inst.symbol,
         )
 
-    async def _run_loop(self, instance_id: int, strategy: BaseStrategy, config: StrategyConfig) -> None:
+    async def _run_loop(
+        self, instance_id: int, strategy: BaseStrategy, config: StrategyConfig
+    ) -> None:
         """策略运行主循环"""
         # K 线周期 — 决定信号触发的时间精度,与回测一致
         kline_interval = str(config.params.get("kline_interval", "1h"))
@@ -252,8 +280,14 @@ class StrategyRunner:
 
         while self._running:
             try:
-                # 1. 获取 K 线数据
-                klines = await self._fetch_klines(config.exchange, config.symbol, kline_limit, kline_interval)
+                # 1. 获取 K 线数据（去重缓存：同交易对+周期的策略共享请求）
+                klines = await self._fetch_klines_cached(
+                    config.exchange,
+                    config.symbol,
+                    kline_limit,
+                    kline_interval,
+                    cache_ttl_seconds=max(30, interval // 2),
+                )
 
                 if not klines:
                     await asyncio.sleep(interval)
@@ -267,9 +301,12 @@ class StrategyRunner:
                     await self._handle_signal(instance_id, signal, config)
 
                 # 4. 更新持仓价格 — P0-2: 持仓价格自动刷新
+                #    同时把信号（含止损/止盈价格）传下去（评审问题3：动态止损/止盈）
                 if klines:
                     current_price = Decimal(str(klines[-1]["close"]))
-                    await self._update_position_prices(instance_id, config.symbol, current_price)
+                    await self._update_position_prices(
+                        instance_id, config.symbol, current_price, signal=signal
+                    )
 
                 # 5. 更新 last_run_at + Step 3: 持久化策略状态
                 await self._update_last_run_and_state(instance_id, strategy)
@@ -281,7 +318,71 @@ class StrategyRunner:
                 break
             except Exception as exc:
                 logger.error("[StrategyRunner] 策略 #%d 运行异常: %s", instance_id, exc)
-                await asyncio.sleep(min(interval * 2, 300))  # 异常后等待更长时间
+                # 评审问题10: 区分异常类型，缩短网络抖动重试间隔
+                retry_delay = self._calc_retry_delay(exc, interval)
+                logger.info(
+                    "[StrategyRunner] 策略 #%d 异常重试,等待 %.1f 秒",
+                    instance_id,
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+
+    async def _fetch_klines_cached(
+        self,
+        exchange: str,
+        symbol: str,
+        limit: int,
+        interval: str = "1h",
+        cache_ttl_seconds: int = 60,
+    ) -> list[dict]:
+        """获取 K 线数据，带内存缓存去重
+
+        多策略共享同一交易对+周期时，合并为一次 API 请求。
+        使用 asyncio Event 作为飞行锁，避免并发重复请求。
+        """
+        import time
+
+        cache_key = (exchange, symbol, interval)
+        now = time.time()
+
+        # 缓存命中 → 直接返回
+        if cache_key in self._kline_cache:
+            cached_at, cached_data = self._kline_cache[cache_key]
+            if now - cached_at < cache_ttl_seconds:
+                logger.debug(
+                    "[StrategyRunner] K线缓存命中: %s/%s/%s (%.1fs 前)",
+                    exchange,
+                    symbol,
+                    interval,
+                    now - cached_at,
+                )
+                return cached_data
+
+        # 飞行锁: 已有在途请求 → 等待它完成
+        inflight = self._kline_locks.get(cache_key)
+        if inflight is not None:
+            logger.debug(
+                "[StrategyRunner] K线请求已在进行中，等待: %s/%s/%s",
+                exchange,
+                symbol,
+                interval,
+            )
+            await inflight.wait()
+            # 请求完成后从缓存读
+            if cache_key in self._kline_cache:
+                return self._kline_cache[cache_key][1]
+
+        # 无缓存且无在途请求 → 发起新请求
+        lock = asyncio.Event()
+        self._kline_locks[cache_key] = lock
+        try:
+            klines = await self._fetch_klines(exchange, symbol, limit, interval)
+            if klines:
+                self._kline_cache[cache_key] = (now, klines)
+            return klines
+        finally:
+            self._kline_locks.pop(cache_key, None)
+            lock.set()  # 唤醒所有等待者
 
     async def _fetch_klines(
         self, exchange: str, symbol: str, limit: int, interval: str = "1h"
@@ -289,6 +390,7 @@ class StrategyRunner:
         """从交易所获取 K 线数据(按策略配置的 kline_interval)"""
         try:
             from app.core.exchange_adapter import get_exchange_adapter
+
             # 使用公开数据不需要 API Key，传入空字符串
             adapter = get_exchange_adapter(
                 exchange=exchange,
@@ -311,10 +413,12 @@ class StrategyRunner:
             logger.warning("[StrategyRunner] 获取K线失败 %s/%s: %s", exchange, symbol, exc)
             return []
 
-    async def _handle_signal(self, instance_id: int, signal: Signal, config: StrategyConfig) -> None:
+    async def _handle_signal(
+        self, instance_id: int, signal: Signal, config: StrategyConfig
+    ) -> None:
         """处理策略信号：持久化信号 + WS推送 + 通知 + 自动下单"""
         # 防抖：60 秒内同策略不重复发信号
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         last = self._last_signal_at.get(instance_id)
         if last and (now - last).total_seconds() < 60:
             return
@@ -323,7 +427,10 @@ class StrategyRunner:
 
         logger.info(
             "[StrategyRunner] 策略 #%d 产生信号: action=%s, confidence=%.2f, reason=%s",
-            instance_id, signal.action, signal.confidence, signal.reason,
+            instance_id,
+            signal.action,
+            signal.confidence,
+            signal.reason,
         )
 
         # ① 持久化信号到数据库
@@ -332,6 +439,7 @@ class StrategyRunner:
         # ② 通过 WebSocket 推送信号通知
         try:
             from app.api.v1.ws_market import manager
+
             msg = WSMessage(
                 type="signal",
                 exchange=config.exchange,
@@ -342,8 +450,12 @@ class StrategyRunner:
                     "action": signal.action,
                     "confidence": signal.confidence,
                     "entry_price": str(signal.entry_price) if signal.entry_price else None,
-                    "stop_loss_price": str(signal.stop_loss_price) if signal.stop_loss_price else None,
-                    "take_profit_price": str(signal.take_profit_price) if signal.take_profit_price else None,
+                    "stop_loss_price": str(signal.stop_loss_price)
+                    if signal.stop_loss_price
+                    else None,
+                    "take_profit_price": str(signal.take_profit_price)
+                    if signal.take_profit_price
+                    else None,
                     "reason": signal.reason,
                 },
             )
@@ -359,6 +471,7 @@ class StrategyRunner:
         # ③ 推送通知（Telegram/企微）— P0-1: 信号通知系统
         try:
             from app.services.notification_service import notify_signal
+
             await notify_signal(
                 symbol=config.symbol,
                 action=signal.action,
@@ -387,6 +500,7 @@ class StrategyRunner:
         try:
             async with self._session_maker() as session:
                 from app.models.order import Signal as SignalModel
+
                 db_signal = SignalModel(
                     strategy_instance_id=instance_id,
                     symbol=config.symbol,
@@ -397,12 +511,16 @@ class StrategyRunner:
                     take_profit_price=signal.take_profit_price,
                     status="pending",
                     reason=signal.reason,
-                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    expires_at=datetime.now(UTC) + timedelta(hours=1),
                 )
                 session.add(db_signal)
                 await session.commit()
                 await session.refresh(db_signal)
-                logger.info("[StrategyRunner] 信号已持久化: signal_id=%d, action=%s", db_signal.id, signal.action)
+                logger.info(
+                    "[StrategyRunner] 信号已持久化: signal_id=%d, action=%s",
+                    db_signal.id,
+                    signal.action,
+                )
                 return db_signal.id
         except Exception as exc:
             logger.error("[StrategyRunner] 信号持久化失败: %s", exc)
@@ -420,8 +538,7 @@ class StrategyRunner:
             async with self._session_maker() as session:
                 # 查找策略实例及其绑定的账户
                 result = await session.execute(
-                    select(StrategyInstance)
-                    .where(StrategyInstance.id == instance_id)
+                    select(StrategyInstance).where(StrategyInstance.id == instance_id)
                 )
                 inst = result.scalar_one_or_none()
                 if not inst:
@@ -435,11 +552,14 @@ class StrategyRunner:
                     )
                     # 更新信号状态为 rejected
                     if signal_id:
-                        await self._update_signal_status(signal_id, "rejected", reason="未绑定交易所账户")
+                        await self._update_signal_status(
+                            signal_id, "rejected", reason="未绑定交易所账户"
+                        )
                     return
 
                 # 获取绑定的交易所账户
                 from app.models.exchange import ExchangeAccount
+
                 acct_result = await session.execute(
                     select(ExchangeAccount).where(ExchangeAccount.id == inst.account_id)
                 )
@@ -447,10 +567,13 @@ class StrategyRunner:
                 if not account or not account.is_active or account.user_id != inst.user_id:
                     logger.warning(
                         "[StrategyRunner] 策略 #%d 绑定的账户 #%d 不可用",
-                        instance_id, inst.account_id,
+                        instance_id,
+                        inst.account_id,
                     )
                     if signal_id:
-                        await self._update_signal_status(signal_id, "rejected", reason="交易所账户不可用")
+                        await self._update_signal_status(
+                            signal_id, "rejected", reason="交易所账户不可用"
+                        )
                     return
 
                 # ── intent 路由(Step 2a) ────────────────────────
@@ -538,6 +661,7 @@ class StrategyRunner:
         elif signal.action == "close":
             # 旧路径: 没 metadata.intent 但 action=close 的策略,查持仓反推方向
             from app.models.exchange import Position
+
             pos_result = await session.execute(
                 select(Position).where(
                     Position.account_id == account.id,
@@ -554,10 +678,37 @@ class StrategyRunner:
             logger.warning("[StrategyRunner] 未知信号动作: %s", signal.action)
             return False
 
+        # 评审问题8：先同步余额，避免使用过期余额计算下单量
+        import time
+
+        acct_id = account.id
+        now = time.time()
+        last_sync = self._balance_sync_at.get(acct_id, 0)
+        if now - last_sync > 60:  # 60 秒内不同步第二次
+            try:
+                from app.services.order_service import OrderService
+
+                svc = OrderService(session)
+                account = await svc.sync_account_balance(acct_id)
+                self._balance_sync_at[acct_id] = now
+            except Exception as exc:
+                logger.warning(
+                    "[StrategyRunner] 余额同步失败,使用缓存余额: %s",
+                    exc,
+                )
+
+        # 评审问题2：从交易所 API 获取真实 min_qty
+        min_qty = await self._get_symbol_min_qty(config.exchange, config.symbol)
+
         # 计算下单数量
         max_invest_pct = Decimal(str(config.params.get("max_invest_percent", 30))) / 100
         quantity = self._calculate_order_quantity(
-            account.balance, signal.entry_price, config.symbol, side, max_invest_pct,
+            account.balance,
+            signal.entry_price,
+            config.symbol,
+            side,
+            max_invest_pct,
+            min_qty=min_qty,
         )
         if quantity <= 0:
             logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0,跳过", instance_id)
@@ -593,7 +744,10 @@ class StrategyRunner:
 
         logger.info(
             "[StrategyRunner] 策略 #%d 下单成功: order_id=%d, side=%s, qty=%s",
-            instance_id, order.id, side, quantity,
+            instance_id,
+            order.id,
+            side,
+            quantity,
         )
         return True
 
@@ -652,14 +806,17 @@ class StrategyRunner:
             )
             if signal_id:
                 await self._update_signal_status(
-                    signal_id, "rejected", reason="reverse 平原仓失败",
+                    signal_id,
+                    "rejected",
+                    reason="reverse 平原仓失败",
                 )
             return False
 
         # 2. 再开: 调 _auto_open_position
         logger.info(
             "[StrategyRunner] 策略 #%d reverse 平仓成功,开新 %s 仓",
-            instance_id, target_direction,
+            instance_id,
+            target_direction,
         )
         opened = await self._auto_open_position(
             session=session,
@@ -672,18 +829,151 @@ class StrategyRunner:
         )
         return opened
 
+    # ── 辅助方法 ─────────────────────────────────────────
+
+    async def _sync_strategy_state_from_db(
+        self,
+        instance_id: int,
+        account_id: int,
+        symbol: str,
+        strategy,
+    ) -> None:
+        """评审问题9：启动时从 DB 加载真实持仓，覆盖策略内部状态
+
+        若用户手动在交易所平仓（绕过系统），DB 的 Position 为 open 但
+        策略内部状态机认为有持仓，会导致信号卡死。这里以 DB 为准同步。
+        """
+        try:
+            async with self._session_maker() as session:
+                from app.models.exchange import Position
+
+                result = await session.execute(
+                    select(Position).where(
+                        Position.account_id == account_id,
+                        Position.symbol == symbol.upper(),
+                        Position.status == "open",
+                        Position.strategy_instance_id == instance_id,
+                    )
+                )
+                db_positions = result.scalars().all()
+
+                # RsiLayered 策略有 _position_dir 字段追踪内部持仓方向
+                strategy_pos_dir = getattr(strategy, "_position_dir", None)
+
+                if not db_positions and strategy_pos_dir is not None:
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d DB 无持仓但策略状态有 %s 仓,"
+                        "重置为 monitoring (可能手动平仓)",
+                        instance_id,
+                        strategy_pos_dir,
+                    )
+                    strategy._mode = "monitoring"
+                    strategy._position_dir = None
+                    strategy._entry_price = None
+                    strategy._holding_periods = 0
+                    strategy._max_profit = 0.0
+                    strategy._additional_positions_count = 0
+                elif db_positions and strategy_pos_dir != db_positions[0].side:
+                    logger.warning(
+                        "[StrategyRunner] 策略 #%d DB 持仓方向 %s 与策略内部 %s 不一致,以 DB 为准",
+                        instance_id,
+                        db_positions[0].side,
+                        strategy_pos_dir,
+                    )
+                    db_side = db_positions[0].side
+                    strategy._mode = db_side
+                    strategy._position_dir = db_side
+                    strategy._entry_price = float(db_positions[0].entry_price)
+        except Exception as exc:
+            logger.warning(
+                "[StrategyRunner] 策略 #%d 持仓状态同步失败: %s",
+                instance_id,
+                exc,
+            )
+
+    async def _get_symbol_min_qty(
+        self,
+        exchange: str,
+        symbol: str,
+    ) -> Decimal:
+        """获取交易对最小下单量（评审问题2：从交易所API动态获取，带缓存）
+
+        优先从缓存取，缓存未命中则调用交易所 get_exchange_info。
+        交易所 API 调用失败时降级为保守默认值 0.001。
+        """
+        cache_key = (exchange, symbol.upper())
+        if cache_key in self._symbol_min_qty_cache:
+            return self._symbol_min_qty_cache[cache_key]
+
+        try:
+            from app.core.exchange_adapter import get_exchange_adapter
+
+            adapter = get_exchange_adapter(
+                exchange=exchange,
+                api_key="",
+                secret_key="",
+            )
+            info = await adapter.get_exchange_info(symbol)
+            min_qty = info.min_qty if info.min_qty > 0 else Decimal("0.001")
+            self._symbol_min_qty_cache[cache_key] = min_qty
+            logger.debug(
+                "[StrategyRunner] 获取 %s min_qty=%s (来源: %s)",
+                symbol,
+                min_qty,
+                exchange,
+            )
+            return min_qty
+        except Exception as exc:
+            logger.warning(
+                "[StrategyRunner] 获取 %s 最小下单量失败,降级为 0.001: %s",
+                symbol,
+                exc,
+            )
+            fallback = Decimal("0.001")
+            self._symbol_min_qty_cache[cache_key] = fallback
+            return fallback
+
+    def _calc_retry_delay(self, exc: Exception, interval: int) -> float:
+        """评审问题10：根据异常类型计算重试间隔
+
+        - 网络错误（timeout/connection）→ 10s 快速重试
+        - 限流（429/RateLimitError）→ 60s
+        - 其他错误 → min(interval*2, 120)
+        """
+        exc_name = type(exc).__name__
+        msg = str(exc).lower()
+
+        # 网络层错误
+        if (
+            "timeout" in msg
+            or "connection" in msg
+            or "connect" in msg
+            or "NetworkError" in exc_name
+            or "Timeout" in exc_name
+        ):
+            return 10.0
+
+        # 限流错误
+        if "429" in msg or "rate" in msg or "RateLimit" in exc_name or "too many" in msg:
+            return 60.0
+
+        # 其他错误
+        return min(interval * 2, 120)
+
     def _calculate_order_quantity(
         self,
         balance: Decimal,
         entry_price: Decimal | None,
         symbol: str,
         side: str,
-        max_invest_percent: Decimal = Decimal("0.30"),  # P1-7: 默认30%，可配置
+        max_invest_percent: Decimal = Decimal("0.30"),
+        min_qty: Decimal = Decimal("0.001"),  # 评审问题2：外部传入精度
     ) -> Decimal:
         """计算下单数量
 
         Args:
             max_invest_percent: 最大使用余额比例，默认0.30(30%)
+            min_qty: 最小下单量（从交易所API获取），默认 0.001
         """
         if not entry_price or entry_price <= 0:
             return Decimal("0")
@@ -691,16 +981,9 @@ class StrategyRunner:
         invest_amount = balance * max_invest_percent
         quantity = invest_amount / entry_price
 
-        # 根据交易对确定最小下单量
-        symbol_upper = symbol.upper()
-        if "BTC" in symbol_upper:
+        # 评审问题2：移除硬编码白名单
+        if min_qty <= 0:
             min_qty = Decimal("0.001")
-        elif "ETH" in symbol_upper:
-            min_qty = Decimal("0.01")
-        elif "SOL" in symbol_upper:
-            min_qty = Decimal("0.1")
-        else:
-            min_qty = Decimal("1")
 
         # 卖出不受余额限制（平仓场景）
         if side == "sell":
@@ -709,7 +992,11 @@ class StrategyRunner:
         return max(quantity, min_qty) if quantity >= min_qty else Decimal("0")
 
     async def _update_position_prices(
-        self, instance_id: int, symbol: str, current_price: Decimal
+        self,
+        instance_id: int,
+        symbol: str,
+        current_price: Decimal,
+        signal: Signal | None = None,  # 评审问题3：接收信号以更新止损/止盈
     ) -> None:
         """更新持仓价格 — P0-2: 持仓价格自动刷新
 
@@ -719,7 +1006,6 @@ class StrategyRunner:
         try:
             async with self._session_maker() as session:
                 from app.models.exchange import Position
-                from sqlalchemy import update
 
                 # 先找到策略实例获取 account_id
                 result = await session.execute(
@@ -744,15 +1030,28 @@ class StrategyRunner:
 
                     # 计算未实现盈亏
                     if position.side == "long":
-                        position.unrealized_pnl = (current_price - position.entry_price) * position.quantity
+                        position.unrealized_pnl = (
+                            current_price - position.entry_price
+                        ) * position.quantity
                     else:  # short
-                        position.unrealized_pnl = (position.entry_price - current_price) * position.quantity
+                        position.unrealized_pnl = (
+                            position.entry_price - current_price
+                        ) * position.quantity
 
                     # 计算百分比
                     if position.entry_price and position.entry_price > 0:
                         position.unrealized_pnl_percent = (
-                            position.unrealized_pnl / (position.entry_price * position.quantity) * 100
+                            position.unrealized_pnl
+                            / (position.entry_price * position.quantity)
+                            * 100
                         )
+
+                    # 评审问题3：信号包含止损/止盈时同步更新持仓
+                    if signal is not None:
+                        if signal.stop_loss_price is not None:
+                            position.stop_loss_price = signal.stop_loss_price
+                        if signal.take_profit_price is not None:
+                            position.take_profit_price = signal.take_profit_price
 
                 if positions:
                     await session.commit()
@@ -797,6 +1096,7 @@ class StrategyRunner:
         try:
             async with self._session_maker() as session:
                 from app.models.order import Signal as SignalModel
+
                 result = await session.execute(
                     select(SignalModel).where(SignalModel.id == signal_id)
                 )
@@ -805,7 +1105,7 @@ class StrategyRunner:
                     db_signal.status = status
                     if order_id:
                         db_signal.executed_order_id = order_id
-                        db_signal.executed_at = datetime.now(timezone.utc)
+                        db_signal.executed_at = datetime.now(UTC)
                     if reason and status == "rejected":
                         db_signal.reason = (db_signal.reason or "") + f" [{reason}]"
                     await session.commit()
@@ -844,24 +1144,53 @@ class StrategyRunner:
 
         try:
             # 找该账户在该交易对上所有 open 持仓
-            result = await session.execute(
-                select(Position).where(
+            # 评审问题1: 若已知方向，查询时直接过滤，避免双向持仓选错
+            if direction in ("long", "short"):
+                pos_query = select(Position).where(
+                    Position.account_id == account.id,
+                    Position.symbol == config.symbol,
+                    Position.status == "open",
+                    Position.side == direction,
+                )
+            else:
+                pos_query = select(Position).where(
                     Position.account_id == account.id,
                     Position.symbol == config.symbol,
                     Position.status == "open",
                 )
-            )
+            result = await session.execute(pos_query)
             positions = list(result.scalars().all())
+
+            # 评审问题1: 若未指定方向但存在双向持仓，明确拒绝
+            if direction is None and len(positions) > 0:
+                sides = {p.side for p in positions}
+                if len(sides) > 1:
+                    logger.error(
+                        "[StrategyRunner] 策略 #%d intent=%s 双向持仓(%s),拒绝平仓"
+                        "（请手动处理或指定 direction）",
+                        instance_id,
+                        intent,
+                        ",".join(sorted(sides)),
+                    )
+                    if signal_id:
+                        await self._update_signal_status(
+                            signal_id,
+                            "rejected",
+                            reason=f"intent={intent} 双向持仓拒绝",
+                        )
+                    return False
 
             if not positions:
                 logger.warning(
                     "[StrategyRunner] 策略 #%d intent=%s 但 DB 无开仓,跳过平仓。"
                     "策略状态可能与 DB 不一致(手工平仓 / 上次平仓未持久化?)",
-                    instance_id, intent,
+                    instance_id,
+                    intent,
                 )
                 if signal_id:
                     await self._update_signal_status(
-                        signal_id, "rejected",
+                        signal_id,
+                        "rejected",
                         reason=f"intent={intent} 但 DB 无开仓",
                     )
                 return False
@@ -871,11 +1200,14 @@ class StrategyRunner:
                 # 理论上 not positions 已先返回,这里走不到。保险起见再处理一次。
                 logger.warning(
                     "[StrategyRunner] 策略 #%d intent=%s 选不出平仓目标,跳过",
-                    instance_id, intent,
+                    instance_id,
+                    intent,
                 )
                 if signal_id:
                     await self._update_signal_status(
-                        signal_id, "rejected", reason=f"intent={intent} 无匹配持仓",
+                        signal_id,
+                        "rejected",
+                        reason=f"intent={intent} 无匹配持仓",
                     )
                 return False
 
@@ -883,7 +1215,10 @@ class StrategyRunner:
                 logger.warning(
                     "[StrategyRunner] 策略 #%d intent=%s 该 symbol 上有 %d 个开仓,"
                     "选择 #%d (其余暂不处理,需手动检视)",
-                    instance_id, intent, len(positions), position.id,
+                    instance_id,
+                    intent,
+                    len(positions),
+                    position.id,
                 )
 
             # 调 OrderService.close_position(已有事务安全顺序:
@@ -893,7 +1228,9 @@ class StrategyRunner:
 
             logger.info(
                 "[StrategyRunner] 策略 #%d intent=%s 平仓成功: position_id=%d",
-                instance_id, intent, position.id,
+                instance_id,
+                intent,
+                position.id,
             )
             if signal_id:
                 await self._update_signal_status(signal_id, "executed")
@@ -901,19 +1238,25 @@ class StrategyRunner:
         except Exception as exc:
             logger.error(
                 "[StrategyRunner] 策略 #%d intent=%s 平仓失败: %s",
-                instance_id, intent, exc,
+                instance_id,
+                intent,
+                exc,
             )
             if signal_id:
                 try:
                     await self._update_signal_status(
-                        signal_id, "rejected", reason=str(exc),
+                        signal_id,
+                        "rejected",
+                        reason=str(exc),
                     )
                 except Exception:
                     pass
             return False
 
     async def _update_last_run_and_state(
-        self, instance_id: int, strategy: BaseStrategy,
+        self,
+        instance_id: int,
+        strategy: BaseStrategy,
     ) -> None:
         """更新 last_run_at + 持久化策略状态机(Step 3)。
 
@@ -925,7 +1268,8 @@ class StrategyRunner:
         except Exception as exc:
             logger.warning(
                 "[StrategyRunner] 策略 #%d to_dict 失败,跳过状态持久化: %s",
-                instance_id, exc,
+                instance_id,
+                exc,
             )
             state = None
 
@@ -936,7 +1280,7 @@ class StrategyRunner:
                 )
                 inst = result.scalar_one_or_none()
                 if inst:
-                    inst.last_run_at = datetime.now(timezone.utc)
+                    inst.last_run_at = datetime.now(UTC)
                     if state is not None:
                         inst.state_json = state
                     await session.commit()

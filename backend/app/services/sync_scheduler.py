@@ -6,11 +6,10 @@ FastAPI lifespan 内启动 asyncio.Task，每 5 分钟自动同步：
 - 持仓数据
 - 订单状态
 """
+
 import asyncio
 import logging
-from datetime import datetime, timezone
-
-from app.services.order_reconciliation_service import OrderReconciliationService
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +28,7 @@ class SyncScheduler:
         if self._running:
             return
         self._running = True
-        self._task = asyncio.create_task(
-            self._sync_loop(), name="sync-scheduler"
-        )
+        self._task = asyncio.create_task(self._sync_loop(), name="sync-scheduler")
         logger.info("[SyncScheduler] 启动，同步间隔 %d 秒", _SYNC_INTERVAL)
 
     async def stop(self) -> None:
@@ -52,8 +49,9 @@ class SyncScheduler:
     async def _sync_all(self) -> None:
         """执行全量同步"""
         async with self._session_maker() as session:
-            from app.models.exchange import ExchangeAccount
             from sqlalchemy import select
+
+            from app.models.exchange import ExchangeAccount
 
             result = await session.execute(
                 select(ExchangeAccount).where(
@@ -74,7 +72,9 @@ class SyncScheduler:
                 except Exception as exc:
                     logger.error(
                         "[SyncScheduler] 账户 #%d (%s) 同步失败: %s",
-                        account.id, account.account_name, exc,
+                        account.id,
+                        account.account_name,
+                        exc,
                     )
 
             await session.commit()
@@ -98,19 +98,23 @@ class SyncScheduler:
             if balance_info:
                 account.balance = balance_info.get("free", account.balance)
                 account.frozen_balance = balance_info.get("frozen", account.frozen_balance)
-                account.last_sync_at = datetime.now(timezone.utc)
+                account.last_sync_at = datetime.now(UTC)
                 logger.debug(
                     "[SyncScheduler] 账户 #%d 余额同步: free=%s, frozen=%s",
-                    account.id, account.balance, account.frozen_balance,
+                    account.id,
+                    account.balance,
+                    account.frozen_balance,
                 )
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 余额同步失败: %s", account.id, exc)
 
         # 2. 同步持仓
         try:
-            from app.models.exchange import Position
             from decimal import Decimal
+
             from sqlalchemy import select
+
+            from app.models.exchange import Position
 
             exchange_positions = await adapter.get_positions()
             if exchange_positions:
@@ -161,7 +165,8 @@ class SyncScheduler:
 
                 logger.debug(
                     "[SyncScheduler] 账户 #%d 持仓同步: %d 个",
-                    account.id, len(exchange_positions),
+                    account.id,
+                    len(exchange_positions),
                 )
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 持仓同步失败: %s", account.id, exc)

@@ -5,23 +5,24 @@ P1-5: 删除冗余 inst_ 前缀，ID 直接用整数
 P1-6: 策略实例创建上限（每用户最多 20 个）
 补充: 业务错误统一用 HTTPException
 """
+
 from decimal import Decimal
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
+from app.core.performance import PerformanceCalculator
+from app.core.rule_engine import describe_rules, validate_rules
+from app.core.schemas import APIResponse
 from app.database import get_session
-from app.models.user import User
 from app.models.order import Order
 from app.models.strategy import StrategyInstance
-from app.api.deps import get_current_user
+from app.models.user import User
 from app.services.strategy_service import StrategyService
-from app.core.schemas import APIResponse
-from app.core.performance import PerformanceCalculator, PerformanceReport
-from app.core.rule_engine import validate_rules, describe_rules, RuleValidationError
 
 router = APIRouter()
 
@@ -34,8 +35,10 @@ MAX_INSTANCES_PER_USER = 20
 
 # ============ 请求模型 ============
 
+
 class CreateStrategyRequest(BaseModel):
     """创建策略请求"""
+
     name: str = Field(..., description="实例名称", min_length=1, max_length=100)
     templateId: str = Field(..., description="策略模板ID")
     exchange: str = Field(..., description="交易所 (binance/okx/htx)")
@@ -46,11 +49,13 @@ class CreateStrategyRequest(BaseModel):
 
 class UpdateStrategyRequest(BaseModel):
     """更新策略请求"""
+
     name: str | None = None
     params: dict | None = None
 
 
 # ============ 响应模型 ============
+
 
 class ParamSchema(BaseModel):
     """参数定义
@@ -64,11 +69,18 @@ class ParamSchema(BaseModel):
       array_double      -> 逗号分隔文本,解析为 float 列表
       json              -> textarea + JSON.parse
     """
+
     key: str
     name: str
     type: Literal[
-        "int", "double", "select", "rules",
-        "bool", "array_int", "array_double", "json",
+        "int",
+        "double",
+        "select",
+        "rules",
+        "bool",
+        "array_int",
+        "array_double",
+        "json",
     ]
     # default 容纳标量 / 列表 / 嵌套(json/array_*) / bool
     default: int | float | str | bool | list | dict | None = None
@@ -81,6 +93,7 @@ class ParamSchema(BaseModel):
 
 class StrategyTemplateResponse(BaseModel):
     """策略模板响应"""
+
     id: str
     name: str
     description: str
@@ -96,6 +109,7 @@ class StrategyTemplateResponse(BaseModel):
 
 class StrategyInstanceResponse(BaseModel):
     """策略实例响应"""
+
     model_config = ConfigDict(populate_by_name=True)
 
     id: int
@@ -105,7 +119,7 @@ class StrategyInstanceResponse(BaseModel):
     status: Literal["running", "stopped", "paused"]
     exchange: str = ""
     symbol: str = ""
-    accountId: Optional[int] = None
+    accountId: int | None = None
     isLive: bool = False
     params: dict = {}
     totalPnl: float = Field(default=0, alias="totalPnl")
@@ -118,6 +132,7 @@ class StrategyInstanceResponse(BaseModel):
 
 class CreateInstanceResponse(BaseModel):
     """创建策略响应"""
+
     id: int
     status: str
 
@@ -126,7 +141,6 @@ class CreateInstanceResponse(BaseModel):
 
 # 从 seed_data 统一加载模板定义，避免硬编码重复
 from app.seed_data import STRATEGY_TEMPLATES as _SEED_TEMPLATES
-
 
 # 策略模板展示顺序：突出平台的“自定义运行”定位，其次展示用户自研策略，再给基础模板示例。
 TEMPLATE_DISPLAY_ORDER = [
@@ -167,29 +181,32 @@ def _build_predefined_templates() -> list[dict]:
         ),
     )
     for _, t in ordered_seed_templates:
-
         params = []
         for p in t["params_schema"].get("params", []):
-            params.append(ParamSchema(
-                key=p["key"],
-                name=p["name"],
-                type=p.get("type", "int"),
-                default=p.get("default", 0),
-                min=p.get("min"),
-                max=p.get("max"),
-                step=p.get("step"),
-                options=p.get("options"),
-                description=p.get("description"),
-            ).model_dump())
-        templates.append({
-            "id": t["code"],
-            "name": t["name"],
-            "description": t["description"],
-            "icon": icon_map.get(t["code"], "info"),
-            "isActive": True,
-            "strategyType": t.get("strategy_type") or t.get("code", ""),
-            "params": params,
-        })
+            params.append(
+                ParamSchema(
+                    key=p["key"],
+                    name=p["name"],
+                    type=p.get("type", "int"),
+                    default=p.get("default", 0),
+                    min=p.get("min"),
+                    max=p.get("max"),
+                    step=p.get("step"),
+                    options=p.get("options"),
+                    description=p.get("description"),
+                ).model_dump()
+            )
+        templates.append(
+            {
+                "id": t["code"],
+                "name": t["name"],
+                "description": t["description"],
+                "icon": icon_map.get(t["code"], "info"),
+                "isActive": True,
+                "strategyType": t.get("strategy_type") or t.get("code", ""),
+                "params": params,
+            }
+        )
     return templates
 
 
@@ -199,6 +216,7 @@ PREDEFINED_TEMPLATES = _build_predefined_templates()
 
 
 # ============ 辅助函数 ============
+
 
 def _parse_instance_id(instance_id: str | int) -> int:
     """解析策略实例ID — 支持 "123" 和 "inst_123" 两种格式（兼容旧客户端）"""
@@ -238,12 +256,13 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "totalPnlPercent": float(inst.total_pnl_percent or 0),
         "winRate": float(inst.win_rate or 0),
         "totalTrades": inst.total_trades or 0,
-        "createdAt": inst.created_at.isoformat().replace('+00:00', 'Z') if inst.created_at else "",
-        "updatedAt": inst.updated_at.isoformat().replace('+00:00', 'Z') if inst.updated_at else "",
+        "createdAt": inst.created_at.isoformat().replace("+00:00", "Z") if inst.created_at else "",
+        "updatedAt": inst.updated_at.isoformat().replace("+00:00", "Z") if inst.updated_at else "",
     }
 
 
 # ============ 路由 ============
+
 
 @router.get("/templates")
 async def get_strategy_templates() -> APIResponse[list[StrategyTemplateResponse]]:
@@ -279,9 +298,7 @@ async def create_strategy(
     """创建策略实例 (P2-13: 类型化响应)"""
     # P1-6: 检查实例创建上限
     count_result = await session.execute(
-        select(func.count(StrategyInstance.id)).where(
-            StrategyInstance.user_id == current_user.id
-        )
+        select(func.count(StrategyInstance.id)).where(StrategyInstance.user_id == current_user.id)
     )
     current_count = count_result.scalar() or 0
     if current_count >= MAX_INSTANCES_PER_USER:
@@ -313,10 +330,9 @@ async def create_strategy(
     )
     await session.commit()
 
-    return APIResponse(data=CreateInstanceResponse(
-        id=str(instance.id),
-        status=instance.status
-    ).model_dump())
+    return APIResponse(
+        data=CreateInstanceResponse(id=str(instance.id), status=instance.status).model_dump()
+    )
 
 
 @router.get("/instances/{instance_id}")
@@ -372,17 +388,21 @@ async def update_strategy(
     if instance.status == "running":
         try:
             from app.core.strategy_runner import strategy_runner
+
             await strategy_runner.restart_instance(inst_id)
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning("重启策略运行器失败: %s", exc)
 
-    return APIResponse(data={
-        "id": instance.id,
-        "name": instance.name,
-        "status": instance.status,
-        "updatedAt": instance.updated_at.isoformat() + "Z" if instance.updated_at else "",
-    })
+    return APIResponse(
+        data={
+            "id": instance.id,
+            "name": instance.name,
+            "status": instance.status,
+            "updatedAt": instance.updated_at.isoformat() + "Z" if instance.updated_at else "",
+        }
+    )
 
 
 @router.post("/instances/{instance_id}/start")
@@ -401,10 +421,12 @@ async def start_strategy(
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
     await session.commit()
 
-    return APIResponse(data={
-        "id": instance.id,
-        "status": instance.status,
-    })
+    return APIResponse(
+        data={
+            "id": instance.id,
+            "status": instance.status,
+        }
+    )
 
 
 @router.post("/instances/{instance_id}/stop")
@@ -423,10 +445,12 @@ async def stop_strategy(
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
     await session.commit()
 
-    return APIResponse(data={
-        "id": instance.id,
-        "status": instance.status,
-    })
+    return APIResponse(
+        data={
+            "id": instance.id,
+            "status": instance.status,
+        }
+    )
 
 
 @router.delete("/instances/{instance_id}")
@@ -485,8 +509,10 @@ async def get_strategy_performance(
 
 # ============ 规则引擎 API ============
 
+
 class ValidateRulesRequest(BaseModel):
     """规则校验请求"""
+
     rules: dict = Field(..., description="JSON 规则定义，含 buy_rules/sell_rules/risk")
 
 
@@ -499,15 +525,19 @@ async def validate_strategy_rules(
     errors = validate_rules(request.rules)
 
     if errors:
-        return APIResponse(data={
-            "valid": False,
-            "errors": errors,
-            "description": "",
-        })
+        return APIResponse(
+            data={
+                "valid": False,
+                "errors": errors,
+                "description": "",
+            }
+        )
 
     description = describe_rules(request.rules)
-    return APIResponse(data={
-        "valid": True,
-        "errors": [],
-        "description": description,
-    })
+    return APIResponse(
+        data={
+            "valid": True,
+            "errors": [],
+            "description": description,
+        }
+    )

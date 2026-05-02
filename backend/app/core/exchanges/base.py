@@ -1,14 +1,16 @@
 """
 交易所适配器基类及统一模型
 """
+
 import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -23,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 # ==================== 重试配置 ====================
 
-DEFAULT_RETRY_MAX_ATTEMPTS = 3      # 最大重试次数
-DEFAULT_RETRY_BASE_DELAY = 1.0      # 基础延迟（秒）
-DEFAULT_RETRY_MAX_DELAY = 30.0      # 最大延迟（秒）
+DEFAULT_RETRY_MAX_ATTEMPTS = 3  # 最大重试次数
+DEFAULT_RETRY_BASE_DELAY = 1.0  # 基础延迟（秒）
+DEFAULT_RETRY_MAX_DELAY = 30.0  # 最大延迟（秒）
 DEFAULT_RETRY_BACKOFF_FACTOR = 2.0  # 退避因子
 
 
@@ -55,6 +57,7 @@ def _safe_divide(
 
 
 # ==================== 统一数据模型 ====================
+
 
 @dataclass
 class Ticker:
@@ -117,7 +120,19 @@ class PositionInfo:
     leverage: int
 
 
+@dataclass
+class SymbolInfo:
+    """交易对精度信息（评审问题2：动态获取 min_qty）"""
+
+    symbol: str
+    min_qty: Decimal  # 最小下单量
+    step_size: Decimal  # 数量步进
+    min_notional: Decimal  # 最小名义价值（USDT）
+    tick_size: Decimal  # 价格步进
+
+
 # ==================== 抽象基类 ====================
+
 
 class BaseExchangeAdapter(ABC):
     """交易所适配器基类"""
@@ -205,32 +220,54 @@ class BaseExchangeAdapter(ABC):
         raise last_exc or ExchangeAPIError(self.__class__.__name__, "未知错误")
 
     @abstractmethod
-    async def get_ticker(self, symbol: str) -> Ticker: pass
+    async def get_ticker(self, symbol: str) -> Ticker:
+        pass
 
     @abstractmethod
-    async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]: pass
+    async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
+        pass
 
     @abstractmethod
-    async def get_orderbook(self, symbol: str, limit: int = 20) -> OrderBook: pass
+    async def get_orderbook(self, symbol: str, limit: int = 20) -> OrderBook:
+        pass
 
     @abstractmethod
-    async def get_balance(self) -> list[Balance]: pass
+    async def get_balance(self) -> list[Balance]:
+        pass
 
     @abstractmethod
-    async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]: pass
+    async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
+        pass
 
     @abstractmethod
     async def create_order(
-        self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Decimal | None = None,
-    ) -> OrderResult: pass
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        quantity: Decimal,
+        price: Decimal | None = None,
+    ) -> OrderResult:
+        pass
 
     @abstractmethod
-    async def cancel_order(self, order_id: str, symbol: str) -> bool: pass
+    async def cancel_order(self, order_id: str, symbol: str) -> bool:
+        pass
 
     @abstractmethod
-    async def get_order(self, order_id: str, symbol: str) -> OrderResult: pass
+    async def get_order(self, order_id: str, symbol: str) -> OrderResult:
+        pass
+
+    async def get_exchange_info(self, symbol: str) -> SymbolInfo:
+        """获取交易对精度信息（min_qty, step_size 等）"""
+        raise NotImplementedError(f"{self.__class__.__name__} 尚未实现 get_exchange_info")
 
     async def create_stop_order(
-        self, symbol: str, side: str, quantity: Decimal, stop_price: Decimal, order_type: str = "stop_loss",
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_type: str = "stop_loss",
     ) -> OrderResult:
         raise NotImplementedError(f"{self.__class__.__name__} 尚未实现条件单 API")

@@ -1,6 +1,7 @@
 """
 用户模型
 """
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, String, func
@@ -26,9 +27,7 @@ class User(Base):
         Enum("conservative", "moderate", "aggressive", name="risk_level"),
         default="moderate",
     )
-    is_superuser: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
-    )
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     # TOTP 双因素认证 — P1-5
     totp_secret: Mapped[str | None] = mapped_column(

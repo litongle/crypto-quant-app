@@ -251,7 +251,7 @@ function renderInstanceList(instances) {
             <span class="sep">·</span>
             <span>${exchangeLabel}</span>
             <span class="sep">·</span>
-            <span style="font-family:var(--cq-font-mono);">${inst.symbol || '-'}</span>
+            <span style="font-family:var(--cq-font-mono);">${escapeHtml(inst.symbol || '-')}</span>
             <span class="sep">·</span>
             <span>${totalTrades} 笔交易</span>
             ${runDurationTag}

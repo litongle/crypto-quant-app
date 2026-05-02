@@ -1,12 +1,12 @@
 """
 应用配置管理 - 支持无 .env 启动 + 运行时重载 + 生产安全校验
 """
+
 import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"

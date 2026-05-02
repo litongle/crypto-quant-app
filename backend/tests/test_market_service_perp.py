@@ -4,13 +4,14 @@ F1: market_service 永续合约路由单元测试
 只测纯逻辑(URL 构建 + symbol 转换 + 校验),不打交易所网络。
 联调留给 docker compose 启动后的手工 smoke。
 """
+
 import pytest
 
-from app.services.market_service import (
-    MarketService,
-    SUPPORTED_MARKET_TYPES,
-)
 from app.core.exceptions import AppException
+from app.services.market_service import (
+    SUPPORTED_MARKET_TYPES,
+    MarketService,
+)
 
 
 @pytest.fixture
@@ -19,6 +20,7 @@ def svc():
 
 
 # ── 校验 ──────────────────────────────────────────────────
+
 
 class TestMarketTypeValidation:
     def test_unknown_market_type_raises(self, svc):
@@ -38,10 +40,11 @@ class TestMarketTypeValidation:
         svc._validate_symbol_market("ETHUSDT", "perp")
 
     def test_supported_market_types_constant(self):
-        assert SUPPORTED_MARKET_TYPES == {"spot", "perp"}
+        assert {"spot", "perp"} == SUPPORTED_MARKET_TYPES
 
 
 # ── Binance URL 路由(spot vs perp 是不同 host) ─────────────
+
 
 class TestBinanceUrlRouting:
     def test_spot_ticker_uses_api_binance_com(self, svc):
@@ -73,6 +76,7 @@ class TestBinanceUrlRouting:
 
 # ── OKX URL 路由(同 host,instId 不同) ─────────────────────
 
+
 class TestOkxRouting:
     def test_spot_inst_id(self, svc):
         assert svc._to_okx_inst_id("BTCUSDT", "spot") == "BTC-USDT"
@@ -102,6 +106,7 @@ class TestOkxRouting:
 
 
 # ── Huobi/HTX URL 路由(spot 和 perp host + 字段全不同) ─────
+
 
 class TestHuobiRouting:
     def test_perp_code_format(self, svc):
@@ -135,6 +140,7 @@ class TestHuobiRouting:
 
 
 # ── 不支持的交易所 ───────────────────────────────────────
+
 
 class TestUnsupportedExchange:
     def test_ticker_raises(self, svc):

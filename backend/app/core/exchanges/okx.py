@@ -1,29 +1,31 @@
 """
 OKX 交易所适配器实现
 """
+
 import base64
 import hashlib
 import hmac
 import json
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from urllib.parse import urlencode
 from typing import Any
+from urllib.parse import urlencode
 
 from app.core.exceptions import (
     ExchangeAPIError,
     OrderRejectedError,
 )
 from app.core.exchanges.base import (
+    Balance,
     BaseExchangeAdapter,
-    Ticker,
     Kline,
     OrderBook,
-    Balance,
     OrderResult,
     PositionInfo,
+    SymbolInfo,
+    Ticker,
     _safe_decimal,
     _safe_divide,
 )
@@ -36,6 +38,7 @@ _OKX_STATUS_MAP = {
     "filled": "filled",
     "canceled": "cancelled",
 }
+
 
 class OKXAdapter(BaseExchangeAdapter):
     """OKX 交易所适配器"""
@@ -66,7 +69,7 @@ class OKXAdapter(BaseExchangeAdapter):
         return symbol
 
     def _okx_timestamp(self) -> str:
-        adjusted = datetime.now(timezone.utc) + timedelta(milliseconds=self._time_offset_ms)
+        adjusted = datetime.now(UTC) + timedelta(milliseconds=self._time_offset_ms)
         return adjusted.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     async def _sync_server_time(self, retries: int = 3) -> bool:
@@ -86,7 +89,9 @@ class OKXAdapter(BaseExchangeAdapter):
                 return True
             except Exception as exc:
                 last_error = exc
-                logger.warning("[OKXAdapter] 时间同步失败 (尝试 %d/%d): %s", attempt + 1, retries, exc)
+                logger.warning(
+                    "[OKXAdapter] 时间同步失败 (尝试 %d/%d): %s", attempt + 1, retries, exc
+                )
 
         # 所有重试都失败后，明确标记为未同步
         self._time_synced = False
@@ -96,9 +101,7 @@ class OKXAdapter(BaseExchangeAdapter):
     def _sign(self, method: str, path: str, body: str = "") -> dict[str, str]:
         timestamp = self._okx_timestamp()
         message = timestamp + method.upper() + path + body
-        mac = hmac.new(
-            self.secret_key.encode(), message.encode(), hashlib.sha256
-        )
+        mac = hmac.new(self.secret_key.encode(), message.encode(), hashlib.sha256)
         sign = base64.b64encode(mac.digest()).decode()
         headers = {
             "OK-ACCESS-KEY": self.api_key,
@@ -126,6 +129,7 @@ class OKXAdapter(BaseExchangeAdapter):
 
     async def get_ticker(self, symbol: str) -> Ticker:
         inst_id = self._to_inst_id(symbol)
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -140,9 +144,7 @@ class OKXAdapter(BaseExchangeAdapter):
         t = data["data"][0]
         open_price = _safe_decimal(t.get("open24h"))
         last_price = _safe_decimal(t.get("last"))
-        price_change_pct = _safe_divide(
-            (last_price - open_price) * 100, open_price, Decimal("0")
-        )
+        price_change_pct = _safe_divide((last_price - open_price) * 100, open_price, Decimal("0"))
         return Ticker(
             symbol=symbol,
             price=last_price,
@@ -152,15 +154,12 @@ class OKXAdapter(BaseExchangeAdapter):
             low_24h=_safe_decimal(t.get("low24h")),
             volume_24h=_safe_decimal(t.get("vol24h")),
             quote_volume_24h=_safe_decimal(t.get("volCcy24h")),
-            timestamp=datetime.fromtimestamp(
-                float(_safe_decimal(t.get("ts")) / 1000), tz=timezone.utc
-            ),
+            timestamp=datetime.fromtimestamp(float(_safe_decimal(t.get("ts")) / 1000), tz=UTC),
         )
 
-    async def get_klines(
-        self, symbol: str, interval: str, limit: int = 100
-    ) -> list[Kline]:
+    async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
         inst_id = self._to_inst_id(symbol)
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -174,19 +173,22 @@ class OKXAdapter(BaseExchangeAdapter):
         self._check_okx_response(data)
         klines = []
         for k in data.get("data", []):
-            klines.append(Kline(
-                timestamp=datetime.fromtimestamp(float(_safe_decimal(k[0]) / 1000), tz=timezone.utc),
-                open=_safe_decimal(k[1]),
-                high=_safe_decimal(k[2]),
-                low=_safe_decimal(k[3]),
-                close=_safe_decimal(k[4]),
-                volume=_safe_decimal(k[5]),
-                close_time=datetime.fromtimestamp(float(_safe_decimal(k[6]) / 1000), tz=timezone.utc),
-            ))
+            klines.append(
+                Kline(
+                    timestamp=datetime.fromtimestamp(float(_safe_decimal(k[0]) / 1000), tz=UTC),
+                    open=_safe_decimal(k[1]),
+                    high=_safe_decimal(k[2]),
+                    low=_safe_decimal(k[3]),
+                    close=_safe_decimal(k[4]),
+                    volume=_safe_decimal(k[5]),
+                    close_time=datetime.fromtimestamp(float(_safe_decimal(k[6]) / 1000), tz=UTC),
+                )
+            )
         return klines
 
     async def get_orderbook(self, symbol: str, limit: int = 20) -> OrderBook:
         inst_id = self._to_inst_id(symbol)
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
@@ -207,6 +209,7 @@ class OKXAdapter(BaseExchangeAdapter):
     async def get_balance(self) -> list[Balance]:
         await self._ensure_time_synced()
         path = "/api/v5/account/balance"
+
         async def _do():
             headers = self._sign("GET", path)
             client = await self.get_shared_client()
@@ -222,11 +225,13 @@ class OKXAdapter(BaseExchangeAdapter):
                 free = _safe_decimal(b.get("availBal"))
                 locked = _safe_decimal(b.get("frozenBal"))
                 if free > 0 or locked > 0:
-                    balances.append(Balance(
-                        asset=b.get("ccy", ""),
-                        free=free,
-                        locked=locked,
-                    ))
+                    balances.append(
+                        Balance(
+                            asset=b.get("ccy", ""),
+                            free=free,
+                            locked=locked,
+                        )
+                    )
         return balances
 
     async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
@@ -237,6 +242,7 @@ class OKXAdapter(BaseExchangeAdapter):
             params["instId"] = self._to_inst_id(symbol)
         if params:
             path += "?" + urlencode(params)
+
         async def _do():
             headers = self._sign("GET", path)
             client = await self.get_shared_client()
@@ -248,15 +254,17 @@ class OKXAdapter(BaseExchangeAdapter):
         self._check_okx_response(data)
         positions = []
         for p in data.get("data", []):
-            positions.append(PositionInfo(
-                symbol=p.get("instId", ""),
-                side=p.get("posSide", "net"),
-                quantity=_safe_decimal(p.get("pos")),
-                entry_price=_safe_decimal(p.get("avgPx")),
-                current_price=_safe_decimal(p.get("markPx")),
-                unrealized_pnl=_safe_decimal(p.get("upl")),
-                leverage=int(_safe_decimal(p.get("lever"), Decimal("1"))),
-            ))
+            positions.append(
+                PositionInfo(
+                    symbol=p.get("instId", ""),
+                    side=p.get("posSide", "net"),
+                    quantity=_safe_decimal(p.get("pos")),
+                    entry_price=_safe_decimal(p.get("avgPx")),
+                    current_price=_safe_decimal(p.get("markPx")),
+                    unrealized_pnl=_safe_decimal(p.get("upl")),
+                    leverage=int(_safe_decimal(p.get("lever"), Decimal("1"))),
+                )
+            )
         return positions
 
     async def create_order(
@@ -274,12 +282,15 @@ class OKXAdapter(BaseExchangeAdapter):
             "instId": inst_id,
             "tdMode": "cash",
             "side": side.lower(),
-            "ordType": order_type.lower() if order_type.lower() in ("market", "limit", "post_only", "fok", "ioc") else "limit",
+            "ordType": order_type.lower()
+            if order_type.lower() in ("market", "limit", "post_only", "fok", "ioc")
+            else "limit",
             "sz": str(quantity),
         }
         if price and order_type.lower() == "limit":
             body_dict["px"] = str(price)
         body_json = json.dumps(body_dict)
+
         async def _do():
             headers = self._sign("POST", path, body_json)
             client = await self.get_shared_client()
@@ -287,7 +298,9 @@ class OKXAdapter(BaseExchangeAdapter):
             resp.raise_for_status()
             return resp.json()
 
-        data = await self._request_with_retry(_do, max_attempts=1, context=f"create_order({symbol},{side},{order_type})")
+        data = await self._request_with_retry(
+            _do, max_attempts=1, context=f"create_order({symbol},{side},{order_type})"
+        )
         self._check_okx_response(data)
         order_data = data["data"][0]
         return OrderResult(
@@ -308,6 +321,7 @@ class OKXAdapter(BaseExchangeAdapter):
         path = "/api/v5/trade/cancel-order"
         body_dict = {"instId": inst_id, "ordId": order_id}
         body_json = json.dumps(body_dict)
+
         async def _do():
             headers = self._sign("POST", path, body_json)
             client = await self.get_shared_client()
@@ -315,7 +329,9 @@ class OKXAdapter(BaseExchangeAdapter):
             resp.raise_for_status()
             return resp.json()
 
-        data = await self._request_with_retry(_do, max_attempts=2, context=f"cancel_order({symbol},{order_id})")
+        data = await self._request_with_retry(
+            _do, max_attempts=2, context=f"cancel_order({symbol},{order_id})"
+        )
         self._check_okx_response(data)
         return data["data"][0].get("sCode") == "0"
 
@@ -323,6 +339,7 @@ class OKXAdapter(BaseExchangeAdapter):
         await self._ensure_time_synced()
         inst_id = self._to_inst_id(symbol)
         path = f"/api/v5/trade/order?instId={inst_id}&ordId={order_id}"
+
         async def _do():
             headers = self._sign("GET", path)
             client = await self.get_shared_client()
@@ -359,15 +376,26 @@ class OKXAdapter(BaseExchangeAdapter):
         path = "/api/v5/trade/order"
         if order_type == "stop_loss":
             body_dict = {
-                "instId": inst_id, "tdMode": "cash", "side": side.lower(),
-                "ordType": "conditional", "sz": str(quantity), "slTriggerPx": str(stop_price), "slOrdPx": "-1"
+                "instId": inst_id,
+                "tdMode": "cash",
+                "side": side.lower(),
+                "ordType": "conditional",
+                "sz": str(quantity),
+                "slTriggerPx": str(stop_price),
+                "slOrdPx": "-1",
             }
         else:
             body_dict = {
-                "instId": inst_id, "tdMode": "cash", "side": side.lower(),
-                "ordType": "conditional", "sz": str(quantity), "tpTriggerPx": str(stop_price), "tpOrdPx": "-1"
+                "instId": inst_id,
+                "tdMode": "cash",
+                "side": side.lower(),
+                "ordType": "conditional",
+                "sz": str(quantity),
+                "tpTriggerPx": str(stop_price),
+                "tpOrdPx": "-1",
             }
         body_json = json.dumps(body_dict)
+
         async def _do():
             headers = self._sign("POST", path, body_json)
             client = await self.get_shared_client()
@@ -375,7 +403,9 @@ class OKXAdapter(BaseExchangeAdapter):
             resp.raise_for_status()
             return resp.json()
 
-        data = await self._request_with_retry(_do, max_attempts=1, context=f"create_stop_order({symbol},{order_type})")
+        data = await self._request_with_retry(
+            _do, max_attempts=1, context=f"create_stop_order({symbol},{order_type})"
+        )
         self._check_okx_response(data)
         o = data["data"][0]
         return OrderResult(
@@ -388,4 +418,31 @@ class OKXAdapter(BaseExchangeAdapter):
             status="pending",
             filled_quantity=Decimal("0"),
             avg_fill_price=None,
+        )
+
+    async def get_exchange_info(self, symbol: str) -> "SymbolInfo":
+        """获取交易对精度信息（评审问题2：OKX API）"""
+        inst_id = symbol.upper().replace("/", "-")
+
+        async def _do():
+            client = await self.get_shared_client()
+            resp = await client.get(
+                f"{self.base_url}/api/v5/public/instruments",
+                params={"instType": "SPOT", "instId": inst_id},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(_do, context=f"get_exchange_info({symbol})")
+        insts = data.get("data", [])
+        if not insts:
+            raise ExchangeAPIError("OKX", f"交易对 {symbol} 不存在")
+
+        i = insts[0]
+        return SymbolInfo(
+            symbol=symbol.upper(),
+            min_qty=_safe_decimal(i.get("minSz")),
+            step_size=_safe_decimal(i.get("lotSz")),
+            min_notional=_safe_decimal(i.get("minSz")) * Decimal("0.1"),
+            tick_size=_safe_decimal(i.get("tickSz")),
         )

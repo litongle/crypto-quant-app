@@ -46,11 +46,20 @@ const BT_RULE_INDICATORS = [
   { key: 'price', name: '当前价格', type: 'value', params: [] },
   { key: 'sma', name: 'SMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
   { key: 'ema', name: 'EMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'dema', name: 'DEMA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
   { key: 'rsi', name: 'RSI', type: 'value', params: [{ key: 'period', name: '周期', default: 14, min: 2, max: 100, type: 'int' }] },
   { key: 'macd', name: 'MACD', type: 'value', params: [] },
+  { key: 'stoch_k', name: 'Stoch K', type: 'value', params: [{ key: 'period', name: '周期', default: 14, min: 2, max: 100, type: 'int' }] },
+  { key: 'stoch_d', name: 'Stoch D', type: 'value', params: [{ key: 'period', name: '周期', default: 3, min: 1, max: 50, type: 'int' }] },
+  { key: 'cci', name: 'CCI', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 100, type: 'int' }] },
+  { key: 'obv', name: 'OBV', type: 'value', params: [] },
+  { key: 'atr', name: 'ATR', type: 'value', params: [{ key: 'period', name: '周期', default: 14, min: 2, max: 100, type: 'int' }] },
+  { key: 'volume_ma', name: '成交量MA', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
   { key: 'boll_mid', name: 'BOLL中轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
   { key: 'boll_upper', name: 'BOLL上轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
   { key: 'boll_lower', name: 'BOLL下轨', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'bollinger_pct', name: 'BOLL位置%', type: 'value', params: [{ key: 'period', name: '周期', default: 20, min: 2, max: 300, type: 'int' }] },
+  { key: 'price_change_pct', name: '价格涨跌幅%', type: 'value', params: [{ key: 'period', name: '周期', default: 1, min: 1, max: 100, type: 'int' }] },
 ];
 
 const BT_VALUE_OPERATORS = [
@@ -386,8 +395,17 @@ function renderBacktestResults(result) {
   const initialCapital = metrics.initialCapital ?? result.initialCapital ?? 100000;
   const finalCapital = metrics.finalCapital ?? result.finalCapital ?? 100000;
   const trades = result.trades || [];
+  const warning = result.warning || null;
 
   el.innerHTML = `
+    ${warning ? `
+    <div class="cq-alert cq-alert--warn" style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3);border:1px solid var(--cq-color-loss);border-radius:var(--cq-radius);background:rgba(239,68,68,0.08);display:flex;align-items:flex-start;gap:var(--cq-space-3);">
+      <span style="font-size:18px;flex-shrink:0;line-height:1;">⚠️</span>
+      <div>
+        <div style="font-weight:600;color:var(--cq-color-loss);margin-bottom:4px;">数据警告</div>
+        <div style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">${escapeHtml(warning)}</div>
+      </div>
+    </div>` : ''}
     <div class="cq-grid-3" style="margin-bottom:var(--cq-space-4);">
       <div class="cq-card stat-card">
         <div class="stat-label">总收益率</div>

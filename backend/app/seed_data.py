@@ -1,11 +1,12 @@
 """
 数据初始化脚本 - 初始化策略模板数据
 """
+
 import asyncio
 import logging
-from decimal import Decimal
 
-from app.database import get_session_maker, Base, init_db as db_init_db
+from app.database import get_session_maker
+from app.database import init_db as db_init_db
 from app.models.strategy import StrategyTemplate
 
 logger = logging.getLogger(__name__)
@@ -23,13 +24,13 @@ _KLINE_INTERVAL_PARAM = {
     "type": "select",
     "default": "1h",
     "options": [
-        {"value": "1m",  "label": "1 分钟"},
-        {"value": "5m",  "label": "5 分钟"},
+        {"value": "1m", "label": "1 分钟"},
+        {"value": "5m", "label": "5 分钟"},
         {"value": "15m", "label": "15 分钟"},
         {"value": "30m", "label": "30 分钟"},
-        {"value": "1h",  "label": "1 小时"},
-        {"value": "4h",  "label": "4 小时"},
-        {"value": "1d",  "label": "日线"},
+        {"value": "1h", "label": "1 小时"},
+        {"value": "4h", "label": "4 小时"},
+        {"value": "1d", "label": "日线"},
     ],
     "description": (
         "策略实时下单和回测共用的 K 线周期。"
@@ -50,8 +51,24 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "fastPeriod", "name": "快线周期", "type": "int", "default": 5, "min": 2, "max": 50, "step": 1},
-                {"key": "slowPeriod", "name": "慢线周期", "type": "int", "default": 20, "min": 5, "max": 200, "step": 1},
+                {
+                    "key": "fastPeriod",
+                    "name": "快线周期",
+                    "type": "int",
+                    "default": 5,
+                    "min": 2,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "slowPeriod",
+                    "name": "慢线周期",
+                    "type": "int",
+                    "default": 20,
+                    "min": 5,
+                    "max": 200,
+                    "step": 1,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         },
@@ -65,9 +82,33 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "period", "name": "RSI周期", "type": "int", "default": 14, "min": 5, "max": 50, "step": 1},
-                {"key": "oversold", "name": "超卖线", "type": "int", "default": 30, "min": 10, "max": 40, "step": 1},
-                {"key": "overbought", "name": "超买线", "type": "int", "default": 70, "min": 60, "max": 90, "step": 1},
+                {
+                    "key": "period",
+                    "name": "RSI周期",
+                    "type": "int",
+                    "default": 14,
+                    "min": 5,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "oversold",
+                    "name": "超卖线",
+                    "type": "int",
+                    "default": 30,
+                    "min": 10,
+                    "max": 40,
+                    "step": 1,
+                },
+                {
+                    "key": "overbought",
+                    "name": "超买线",
+                    "type": "int",
+                    "default": 70,
+                    "min": 60,
+                    "max": 90,
+                    "step": 1,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
@@ -81,8 +122,24 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "period", "name": "周期", "type": "int", "default": 20, "min": 10, "max": 50, "step": 1},
-                {"key": "stdDev", "name": "标准差倍数", "type": "double", "default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5},
+                {
+                    "key": "period",
+                    "name": "周期",
+                    "type": "int",
+                    "default": 20,
+                    "min": 10,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "stdDev",
+                    "name": "标准差倍数",
+                    "type": "double",
+                    "default": 2.0,
+                    "min": 1.0,
+                    "max": 4.0,
+                    "step": 0.5,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
         },
@@ -96,9 +153,33 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "gridCount", "name": "网格数量", "type": "int", "default": 10, "min": 5, "max": 50, "step": 1},
-                {"key": "investmentPerGrid", "name": "每格投入(USDT)", "type": "double", "default": 100, "min": 10, "max": 10000, "step": 10},
-                {"key": "priceRange", "name": "价格范围(%)", "type": "double", "default": 10, "min": 1, "max": 50, "step": 1},
+                {
+                    "key": "gridCount",
+                    "name": "网格数量",
+                    "type": "int",
+                    "default": 10,
+                    "min": 5,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "investmentPerGrid",
+                    "name": "每格投入(USDT)",
+                    "type": "double",
+                    "default": 100,
+                    "min": 10,
+                    "max": 10000,
+                    "step": 10,
+                },
+                {
+                    "key": "priceRange",
+                    "name": "价格范围(%)",
+                    "type": "double",
+                    "default": 10,
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         },
@@ -112,9 +193,33 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "initialInvestment", "name": "初始投资(USDT)", "type": "double", "default": 100, "min": 10, "max": 1000, "step": 10},
-                {"key": "multiplier", "name": "倍数", "type": "double", "default": 2.0, "min": 1.5, "max": 3.0, "step": 0.1},
-                {"key": "maxLosses", "name": "最大连续亏损", "type": "int", "default": 5, "min": 2, "max": 10, "step": 1},
+                {
+                    "key": "initialInvestment",
+                    "name": "初始投资(USDT)",
+                    "type": "double",
+                    "default": 100,
+                    "min": 10,
+                    "max": 1000,
+                    "step": 10,
+                },
+                {
+                    "key": "multiplier",
+                    "name": "倍数",
+                    "type": "double",
+                    "default": 2.0,
+                    "min": 1.5,
+                    "max": 3.0,
+                    "step": 0.1,
+                },
+                {
+                    "key": "maxLosses",
+                    "name": "最大连续亏损",
+                    "type": "int",
+                    "default": 5,
+                    "min": 2,
+                    "max": 10,
+                    "step": 1,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
@@ -140,41 +245,281 @@ STRATEGY_TEMPLATES = [
             # 前端规则构建器使用的指标元数据
             "indicators": [
                 {"key": "price", "name": "价格", "type": "value", "params": []},
-                {"key": "rsi", "name": "RSI", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
-                {"key": "ma", "name": "均线MA", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 200}]},
-                {"key": "ema", "name": "指数均线EMA", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 200}]},
-                {"key": "ma_cross", "name": "均线交叉", "type": "event", "params": [
-                    {"key": "fast_period", "name": "快线周期", "default": 5, "type": "int", "min": 2, "max": 50},
-                    {"key": "slow_period", "name": "慢线周期", "default": 20, "type": "int", "min": 5, "max": 200},
-                ]},
-                {"key": "bollinger_upper", "name": "布林上轨", "type": "value", "params": [
-                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
-                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
-                ]},
-                {"key": "bollinger_lower", "name": "布林下轨", "type": "value", "params": [
-                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
-                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
-                ]},
-                {"key": "bollinger_pct", "name": "布林位置%", "type": "value", "params": [
-                    {"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50},
-                    {"key": "std_dev", "name": "标准差", "default": 2.0, "type": "double", "min": 1.0, "max": 4.0},
-                ]},
+                {
+                    "key": "rsi",
+                    "name": "RSI",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 14,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        }
+                    ],
+                },
+                {
+                    "key": "ma",
+                    "name": "均线MA",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 2,
+                            "max": 200,
+                        }
+                    ],
+                },
+                {
+                    "key": "ema",
+                    "name": "指数均线EMA",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 2,
+                            "max": 200,
+                        }
+                    ],
+                },
+                {
+                    "key": "ma_cross",
+                    "name": "均线交叉",
+                    "type": "event",
+                    "params": [
+                        {
+                            "key": "fast_period",
+                            "name": "快线周期",
+                            "default": 5,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        },
+                        {
+                            "key": "slow_period",
+                            "name": "慢线周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 5,
+                            "max": 200,
+                        },
+                    ],
+                },
+                {
+                    "key": "bollinger_upper",
+                    "name": "布林上轨",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 5,
+                            "max": 50,
+                        },
+                        {
+                            "key": "std_dev",
+                            "name": "标准差",
+                            "default": 2.0,
+                            "type": "double",
+                            "min": 1.0,
+                            "max": 4.0,
+                        },
+                    ],
+                },
+                {
+                    "key": "bollinger_lower",
+                    "name": "布林下轨",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 5,
+                            "max": 50,
+                        },
+                        {
+                            "key": "std_dev",
+                            "name": "标准差",
+                            "default": 2.0,
+                            "type": "double",
+                            "min": 1.0,
+                            "max": 4.0,
+                        },
+                    ],
+                },
+                {
+                    "key": "bollinger_pct",
+                    "name": "布林位置%",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 5,
+                            "max": 50,
+                        },
+                        {
+                            "key": "std_dev",
+                            "name": "标准差",
+                            "default": 2.0,
+                            "type": "double",
+                            "min": 1.0,
+                            "max": 4.0,
+                        },
+                    ],
+                },
                 {"key": "volume", "name": "成交量", "type": "value", "params": []},
-                {"key": "volume_ma", "name": "成交量均线", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 2, "max": 100}]},
-                {"key": "atr", "name": "ATR波幅", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
-                {"key": "macd", "name": "MACD柱", "type": "value", "params": [
-                    {"key": "fast", "name": "快线", "default": 12, "type": "int", "min": 2, "max": 50},
-                    {"key": "slow", "name": "慢线", "default": 26, "type": "int", "min": 5, "max": 100},
-                    {"key": "signal", "name": "信号线", "default": 9, "type": "int", "min": 2, "max": 50},
-                ]},
-                {"key": "macd_cross", "name": "MACD交叉", "type": "event", "params": [
-                    {"key": "fast", "name": "快线", "default": 12, "type": "int", "min": 2, "max": 50},
-                    {"key": "slow", "name": "慢线", "default": 26, "type": "int", "min": 5, "max": 100},
-                    {"key": "signal", "name": "信号线", "default": 9, "type": "int", "min": 2, "max": 50},
-                ]},
-                {"key": "price_change_pct", "name": "涨跌幅%", "type": "value", "params": [{"key": "period", "name": "K线数", "default": 1, "type": "int", "min": 1, "max": 50}]},
-                {"key": "stoch_k", "name": "KDJ-K值", "type": "value", "params": [{"key": "period", "name": "周期", "default": 14, "type": "int", "min": 2, "max": 50}]},
-                {"key": "cci", "name": "CCI", "type": "value", "params": [{"key": "period", "name": "周期", "default": 20, "type": "int", "min": 5, "max": 50}]},
+                {
+                    "key": "volume_ma",
+                    "name": "成交量均线",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 2,
+                            "max": 100,
+                        }
+                    ],
+                },
+                {
+                    "key": "atr",
+                    "name": "ATR波幅",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 14,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        }
+                    ],
+                },
+                {
+                    "key": "macd",
+                    "name": "MACD柱",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "fast",
+                            "name": "快线",
+                            "default": 12,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        },
+                        {
+                            "key": "slow",
+                            "name": "慢线",
+                            "default": 26,
+                            "type": "int",
+                            "min": 5,
+                            "max": 100,
+                        },
+                        {
+                            "key": "signal",
+                            "name": "信号线",
+                            "default": 9,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        },
+                    ],
+                },
+                {
+                    "key": "macd_cross",
+                    "name": "MACD交叉",
+                    "type": "event",
+                    "params": [
+                        {
+                            "key": "fast",
+                            "name": "快线",
+                            "default": 12,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        },
+                        {
+                            "key": "slow",
+                            "name": "慢线",
+                            "default": 26,
+                            "type": "int",
+                            "min": 5,
+                            "max": 100,
+                        },
+                        {
+                            "key": "signal",
+                            "name": "信号线",
+                            "default": 9,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        },
+                    ],
+                },
+                {
+                    "key": "price_change_pct",
+                    "name": "涨跌幅%",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "K线数",
+                            "default": 1,
+                            "type": "int",
+                            "min": 1,
+                            "max": 50,
+                        }
+                    ],
+                },
+                {
+                    "key": "stoch_k",
+                    "name": "KDJ-K值",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 14,
+                            "type": "int",
+                            "min": 2,
+                            "max": 50,
+                        }
+                    ],
+                },
+                {
+                    "key": "cci",
+                    "name": "CCI",
+                    "type": "value",
+                    "params": [
+                        {
+                            "key": "period",
+                            "name": "周期",
+                            "default": 20,
+                            "type": "int",
+                            "min": 5,
+                            "max": 50,
+                        }
+                    ],
+                },
             ],
         },
     },
@@ -191,34 +536,92 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "rsi_period", "name": "RSI 周期", "type": "int",
-                 "default": 14, "min": 5, "max": 50, "step": 1},
-                {"key": "long_levels", "name": "多头三层阈值",
-                 "type": "array_int", "default": [30, 25, 20],
-                 "description": "RSI 跌破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深"},
-                {"key": "short_levels", "name": "空头三层阈值",
-                 "type": "array_int", "default": [70, 75, 80],
-                 "description": "RSI 突破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深"},
-                {"key": "retracement_points", "name": "极值回撤触发(点)",
-                 "type": "double", "default": 2.0, "min": 0.5, "max": 10.0, "step": 0.5},
-                {"key": "max_additional_positions", "name": "最大加仓次数",
-                 "type": "int", "default": 4, "min": 0, "max": 10, "step": 1},
-                {"key": "fixed_stop_loss_points", "name": "固定止损(价格点)",
-                 "type": "double", "default": 6.0, "min": 1.0, "max": 100.0, "step": 1.0},
-                {"key": "max_holding_candles", "name": "最大持仓 K 线数",
-                 "type": "int", "default": 60, "min": 5, "max": 500, "step": 5},
-                {"key": "cooling_candles", "name": "平仓后冷却 K 线",
-                 "type": "int", "default": 3, "min": 0, "max": 50, "step": 1},
-                {"key": "profit_taking_config", "name": "分层浮动止盈",
-                 "type": "json", "default": [[10, 3.0, 2.0], [30, 5.0, 3.0], [60, 10.0, 5.0]],
-                 "description": (
-                     "按持仓周期分层止盈,每层 [窗口K线数, 回撤点数, 最小盈利点数](单位:价格点)。"
-                     "三个条件同时满足才平仓:持仓K线数≥窗口 且 浮盈从最高点回撤≥回撤点数 且 当前浮盈≥最小盈利。"
-                     "默认 [[10,3,2],[30,5,3],[60,10,5]] 表示:短线小赚保利→中线放宽回撤→长线让利润奔跑。"
-                 )},
-                {"key": "auto_trade", "name": "自动下单(谨慎)",
-                 "type": "bool", "default": False,
-                 "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号"},
+                {
+                    "key": "rsi_period",
+                    "name": "RSI 周期",
+                    "type": "int",
+                    "default": 14,
+                    "min": 5,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "long_levels",
+                    "name": "多头三层阈值",
+                    "type": "array_int",
+                    "default": [30, 25, 20],
+                    "description": "RSI 跌破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深",
+                },
+                {
+                    "key": "short_levels",
+                    "name": "空头三层阈值",
+                    "type": "array_int",
+                    "default": [70, 75, 80],
+                    "description": "RSI 突破第 1/2/3 层后开始追踪极值,逗号分隔,从浅到深",
+                },
+                {
+                    "key": "retracement_points",
+                    "name": "极值回撤触发(点)",
+                    "type": "double",
+                    "default": 2.0,
+                    "min": 0.5,
+                    "max": 10.0,
+                    "step": 0.5,
+                },
+                {
+                    "key": "max_additional_positions",
+                    "name": "最大加仓次数",
+                    "type": "int",
+                    "default": 4,
+                    "min": 0,
+                    "max": 10,
+                    "step": 1,
+                },
+                {
+                    "key": "fixed_stop_loss_points",
+                    "name": "固定止损(价格点)",
+                    "type": "double",
+                    "default": 6.0,
+                    "min": 1.0,
+                    "max": 100.0,
+                    "step": 1.0,
+                },
+                {
+                    "key": "max_holding_candles",
+                    "name": "最大持仓 K 线数",
+                    "type": "int",
+                    "default": 60,
+                    "min": 5,
+                    "max": 500,
+                    "step": 5,
+                },
+                {
+                    "key": "cooling_candles",
+                    "name": "平仓后冷却 K 线",
+                    "type": "int",
+                    "default": 3,
+                    "min": 0,
+                    "max": 50,
+                    "step": 1,
+                },
+                {
+                    "key": "profit_taking_config",
+                    "name": "分层浮动止盈",
+                    "type": "json",
+                    "default": [[10, 3.0, 2.0], [30, 5.0, 3.0], [60, 10.0, 5.0]],
+                    "description": (
+                        "按持仓周期分层止盈,每层 [窗口K线数, 回撤点数, 最小盈利点数](单位:价格点)。"
+                        "三个条件同时满足才平仓:持仓K线数≥窗口 且 浮盈从最高点回撤≥回撤点数 且 当前浮盈≥最小盈利。"
+                        "默认 [[10,3,2],[30,5,3],[60,10,5]] 表示:短线小赚保利→中线放宽回撤→长线让利润奔跑。"
+                    ),
+                },
+                {
+                    "key": "auto_trade",
+                    "name": "自动下单(谨慎)",
+                    "type": "bool",
+                    "default": False,
+                    "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号",
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         },
@@ -232,13 +635,50 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "dca_interval_candles", "name": "定投间隔(K线数)", "type": "int", "default": 24, "min": 1, "max": 168, "step": 1,
-                 "description": "1h K线时 24=每天1次, 168=每周1次"},
-                {"key": "invest_per_trade", "name": "每次定投金额(USDT)", "type": "double", "default": 100, "min": 10, "max": 10000, "step": 10},
-                {"key": "smart_dca", "name": "智能定投", "type": "bool", "default": False,
-                 "description": "RSI超卖时定投额放大50%，超买时缩减50%"},
-                {"key": "take_profit_pct", "name": "止盈比例(%)", "type": "double", "default": 20, "min": 5, "max": 100, "step": 5},
-                {"key": "stop_loss_pct", "name": "止损比例(%)", "type": "double", "default": 30, "min": 5, "max": 50, "step": 5},
+                {
+                    "key": "dca_interval_candles",
+                    "name": "定投间隔(K线数)",
+                    "type": "int",
+                    "default": 24,
+                    "min": 1,
+                    "max": 168,
+                    "step": 1,
+                    "description": "1h K线时 24=每天1次, 168=每周1次",
+                },
+                {
+                    "key": "invest_per_trade",
+                    "name": "每次定投金额(USDT)",
+                    "type": "double",
+                    "default": 100,
+                    "min": 10,
+                    "max": 10000,
+                    "step": 10,
+                },
+                {
+                    "key": "smart_dca",
+                    "name": "智能定投",
+                    "type": "bool",
+                    "default": False,
+                    "description": "RSI超卖时定投额放大50%，超买时缩减50%",
+                },
+                {
+                    "key": "take_profit_pct",
+                    "name": "止盈比例(%)",
+                    "type": "double",
+                    "default": 20,
+                    "min": 5,
+                    "max": 100,
+                    "step": 5,
+                },
+                {
+                    "key": "stop_loss_pct",
+                    "name": "止损比例(%)",
+                    "type": "double",
+                    "default": 30,
+                    "min": 5,
+                    "max": 50,
+                    "step": 5,
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
@@ -252,27 +692,63 @@ STRATEGY_TEMPLATES = [
         "params_schema": {
             "params": [
                 _KLINE_INTERVAL_PARAM,
-                {"key": "mode", "name": "策略模式", "type": "select", "default": "leader_follow",
-                 "options": [
-                     {"value": "leader_follow", "label": "Leader-Follow 联动"},
-                     {"value": "pair_trading", "label": "配对交易"},
-                 ]},
-                {"key": "leader_symbol", "name": "主交易对", "type": "select", "default": "BTCUSDT",
-                 "options": [
-                     {"value": "BTCUSDT", "label": "BTC/USDT"},
-                     {"value": "ETHUSDT", "label": "ETH/USDT"},
-                 ]},
-                {"key": "follower_symbols", "name": "跟随交易对", "type": "json", "default": ["ETHUSDT"],
-                 "description": "Leader-Follow 模式下联动交易对（JSON数组）"},
-                {"key": "pair_symbol", "name": "配对交易对", "type": "select", "default": "ETHUSDT",
-                 "options": [
-                     {"value": "ETHUSDT", "label": "ETH/USDT"},
-                     {"value": "SOLUSDT", "label": "SOL/USDT"},
-                 ]},
-                {"key": "entry_zscore", "name": "入场Z分数", "type": "double", "default": 2.0, "min": 1.0, "max": 5.0, "step": 0.5,
-                 "description": "价差Z分数超过此值开仓"},
-                {"key": "exit_zscore", "name": "出场Z分数", "type": "double", "default": 0.5, "min": 0.1, "max": 2.0, "step": 0.1,
-                 "description": "价差Z分数回归此值平仓"},
+                {
+                    "key": "mode",
+                    "name": "策略模式",
+                    "type": "select",
+                    "default": "leader_follow",
+                    "options": [
+                        {"value": "leader_follow", "label": "Leader-Follow 联动"},
+                        {"value": "pair_trading", "label": "配对交易"},
+                    ],
+                },
+                {
+                    "key": "leader_symbol",
+                    "name": "主交易对",
+                    "type": "select",
+                    "default": "BTCUSDT",
+                    "options": [
+                        {"value": "BTCUSDT", "label": "BTC/USDT"},
+                        {"value": "ETHUSDT", "label": "ETH/USDT"},
+                    ],
+                },
+                {
+                    "key": "follower_symbols",
+                    "name": "跟随交易对",
+                    "type": "json",
+                    "default": ["ETHUSDT"],
+                    "description": "Leader-Follow 模式下联动交易对（JSON数组）",
+                },
+                {
+                    "key": "pair_symbol",
+                    "name": "配对交易对",
+                    "type": "select",
+                    "default": "ETHUSDT",
+                    "options": [
+                        {"value": "ETHUSDT", "label": "ETH/USDT"},
+                        {"value": "SOLUSDT", "label": "SOL/USDT"},
+                    ],
+                },
+                {
+                    "key": "entry_zscore",
+                    "name": "入场Z分数",
+                    "type": "double",
+                    "default": 2.0,
+                    "min": 1.0,
+                    "max": 5.0,
+                    "step": 0.5,
+                    "description": "价差Z分数超过此值开仓",
+                },
+                {
+                    "key": "exit_zscore",
+                    "name": "出场Z分数",
+                    "type": "double",
+                    "default": 0.5,
+                    "min": 0.1,
+                    "max": 2.0,
+                    "step": 0.1,
+                    "description": "价差Z分数回归此值平仓",
+                },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         },
@@ -310,15 +786,17 @@ async def upsert_strategy_templates(session) -> tuple[int, int]:
         existing = existing_by_code.get(code)
 
         if existing is None:
-            session.add(StrategyTemplate(
-                code=code,
-                name=tmpl_data["name"],
-                description=tmpl_data["description"],
-                strategy_type=tmpl_data["strategy_type"],
-                risk_level=tmpl_data["risk_level"],
-                params_schema=tmpl_data["params_schema"],
-                is_active=True,
-            ))
+            session.add(
+                StrategyTemplate(
+                    code=code,
+                    name=tmpl_data["name"],
+                    description=tmpl_data["description"],
+                    strategy_type=tmpl_data["strategy_type"],
+                    risk_level=tmpl_data["risk_level"],
+                    params_schema=tmpl_data["params_schema"],
+                    is_active=True,
+                )
+            )
             inserted += 1
         else:
             changed = False
@@ -350,7 +828,9 @@ async def init_strategy_templates():
         await session.commit()
         logger.info(
             "策略模板 upsert 完成: 新增 %d, 更新 %d, 总计 %d",
-            inserted, updated, len(STRATEGY_TEMPLATES),
+            inserted,
+            updated,
+            len(STRATEGY_TEMPLATES),
         )
 
 

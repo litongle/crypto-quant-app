@@ -6,6 +6,7 @@ Alembic async migration config
 - Auto-import all models for autogenerate
 - ALEMBIC_DATABASE_URL env var can override for local dev
 """
+
 import asyncio
 import os
 from logging.config import fileConfig
@@ -26,6 +27,7 @@ if config.config_file_name is not None:
 db_url = os.environ.get("ALEMBIC_DATABASE_URL")
 if not db_url:
     from app.config import get_settings
+
     settings = get_settings()
     db_url = settings.database_url
 

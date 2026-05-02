@@ -10,9 +10,9 @@ RsiLayeredStrategy 单元测试
 - 方向过滤(direction=long/short/both)
 - 状态序列化往返(to_dict / from_dict)
 """
-import asyncio
 
-import pytest
+import asyncio
+from datetime import UTC
 
 from app.core.strategies.rsi_layered import (
     DEFAULTS,
@@ -21,8 +21,8 @@ from app.core.strategies.rsi_layered import (
 )
 from app.core.strategy_engine import Signal, StrategyConfig, get_strategy
 
-
 # ── 测试辅助 ──────────────────────────────────────────────
+
 
 def make_kline(close: float, ts: int) -> dict:
     """构造一根简化 K 线(timestamp 单位:毫秒)"""
@@ -38,9 +38,7 @@ def make_kline(close: float, ts: int) -> dict:
 
 def make_klines(closes: list[float], start_ts_ms: int = 1_700_000_000_000) -> list[dict]:
     """按 1 分钟间隔构造 K 线序列"""
-    return [
-        make_kline(c, start_ts_ms + i * 60_000) for i, c in enumerate(closes)
-    ]
+    return [make_kline(c, start_ts_ms + i * 60_000) for i, c in enumerate(closes)]
 
 
 def run(coro):
@@ -61,6 +59,7 @@ def make_strategy(**param_overrides) -> RsiLayeredStrategy:
 
 # ── 工厂注册 ──────────────────────────────────────────────
 
+
 class TestFactory:
     def test_factory_returns_rsi_layered(self):
         config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
@@ -70,6 +69,7 @@ class TestFactory:
 
 
 # ── analyze 前置条件 ──────────────────────────────────────
+
 
 class TestAnalyzePreconditions:
     def test_returns_none_when_klines_too_few(self):
@@ -99,6 +99,7 @@ class TestAnalyzePreconditions:
 
 # ── RSI 分层 ──────────────────────────────────────────────
 
+
 class TestRsiLevel:
     def test_long_level_classification(self):
         s = make_strategy(long_levels=[30, 25, 20])
@@ -119,11 +120,13 @@ class TestRsiLevel:
 
 # ── 极值追踪与回撤 ────────────────────────────────────────
 
+
 class TestExtremeTracking:
     def test_long_extreme_tracks_minimum(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         s = make_strategy()
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         s._update_extreme_values(28.0, ts, RsiLevel.LEVEL1, RsiLevel.NONE)
         assert s._long_extreme_value == 28.0
         s._update_extreme_values(25.0, ts, RsiLevel.LEVEL2, RsiLevel.NONE)
@@ -134,9 +137,10 @@ class TestExtremeTracking:
         assert s._long_level == RsiLevel.LEVEL2
 
     def test_short_extreme_tracks_maximum(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         s = make_strategy()
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         s._update_extreme_values(72.0, ts, RsiLevel.NONE, RsiLevel.LEVEL1)
         assert s._short_extreme_value == 72.0
         s._update_extreme_values(78.0, ts, RsiLevel.NONE, RsiLevel.LEVEL2)
@@ -157,19 +161,22 @@ class TestExtremeTracking:
 
 # ── 状态机:开仓 ────────────────────────────────────────────
 
+
 class TestMonitoringMode:
     def test_long_open_signal_emitted(self):
         """构造一个 RSI 先跌至超卖、再回升触发回撤的序列"""
         s = make_strategy(
             rsi_period=14,
-            long_levels=[40, 30, 20],   # 放宽阈值便于测试
+            long_levels=[40, 30, 20],  # 放宽阈值便于测试
             short_levels=[60, 70, 80],
             retracement_points=1.0,
         )
         # 先 15 根平价,再 10 根连跌(让 RSI 跌入超卖区),再 5 根连涨(触发回撤)
-        closes = [100.0] * 15 + [100.0 - i * 0.5 for i in range(1, 11)] + [
-            95.0 + i * 0.3 for i in range(1, 6)
-        ]
+        closes = (
+            [100.0] * 15
+            + [100.0 - i * 0.5 for i in range(1, 11)]
+            + [95.0 + i * 0.3 for i in range(1, 6)]
+        )
         klines = make_klines(closes)
         # 喂全部 K 线,模拟 runner 每根都调用 analyze
         signals = []
@@ -186,7 +193,9 @@ class TestMonitoringMode:
     def test_direction_filter_blocks_long_when_short_only(self):
         s = make_strategy(retracement_points=1.0)
         s.config = StrategyConfig(
-            symbol="BTCUSDT", exchange="binance", direction="short",
+            symbol="BTCUSDT",
+            exchange="binance",
+            direction="short",
             params={"retracement_points": 1.0},
         )
         # 强制进入有多头回撤信号的状态
@@ -199,6 +208,7 @@ class TestMonitoringMode:
 
 
 # ── 状态机:持仓中行为 ────────────────────────────────────
+
 
 class TestLongMode:
     def _setup_long_position(self, entry_price: float = 100.0) -> RsiLayeredStrategy:
@@ -321,6 +331,7 @@ class TestShortMode:
 
 # ── 冷却模式 ──────────────────────────────────────────────
 
+
 class TestCoolingMode:
     def test_cooling_increments_and_resets_to_monitoring(self):
         s = make_strategy(cooling_candles=3)
@@ -339,16 +350,18 @@ class TestCoolingMode:
 
 # ── 状态序列化 ────────────────────────────────────────────
 
+
 class TestStateSerialization:
     def test_to_dict_then_from_dict_roundtrip(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         s1 = make_strategy()
         # 制造一些非默认状态
         s1._mode = "long"
         s1._cooling_count = 2
         s1._long_monitoring = True
         s1._long_extreme_value = 18.5
-        s1._long_extreme_time = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        s1._long_extreme_time = datetime(2026, 4, 27, 12, 0, tzinfo=UTC)
         s1._long_level = RsiLevel.LEVEL3
         s1._position_dir = "long"
         s1._entry_price = 50000.0
@@ -393,13 +406,17 @@ class TestStateSerialization:
 
 # ── Signal 形态 ──────────────────────────────────────────
 
+
 class TestSignalShape:
     def test_signal_carries_metadata_for_runner(self):
         s = make_strategy()
         kline = make_kline(100.0, 1_700_000_000_000)
         sig = s._make_signal(
-            action="buy", kline=kline, intent="open",
-            direction="long", reason="test",
+            action="buy",
+            kline=kline,
+            intent="open",
+            direction="long",
+            reason="test",
         )
         assert isinstance(sig, Signal)
         assert sig.action == "buy"
@@ -412,6 +429,7 @@ class TestSignalShape:
 
 
 # ── 默认参数 sanity ───────────────────────────────────────
+
 
 class TestDefaults:
     def test_defaults_have_three_long_and_short_levels(self):

@@ -1,11 +1,9 @@
 """
 Repository 层测试 — 直接对接内存 SQLite，验证 CRUD 与定制查询
 """
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 
-import pytest
-import pytest_asyncio
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from app.core.security import hash_password
 from app.models.exchange import ExchangeAccount, Position
@@ -24,12 +22,10 @@ from app.repositories.trading_repo import (
 )
 from app.repositories.user_repo import UserRepository
 
-
 # ==================== 通用工厂 ====================
 
-async def _make_user(
-    session, *, email: str = "u@example.com", name: str = "u"
-) -> User:
+
+async def _make_user(session, *, email: str = "u@example.com", name: str = "u") -> User:
     user = User(
         email=email,
         name=name,
@@ -105,6 +101,7 @@ async def _make_instance(
 
 # ==================== UserRepository ====================
 
+
 class TestUserRepository:
     async def test_create_and_get_by_id(self, db_session):
         repo = UserRepository(db_session)
@@ -174,6 +171,7 @@ class TestUserRepository:
 
 # ==================== ExchangeAccountRepository ====================
 
+
 class TestExchangeAccountRepository:
     async def test_get_by_user_returns_all(self, db_session):
         repo = ExchangeAccountRepository(db_session)
@@ -207,6 +205,7 @@ class TestExchangeAccountRepository:
 
 
 # ==================== PositionRepository ====================
+
 
 async def _make_position(
     session,
@@ -265,9 +264,7 @@ class TestPositionRepository:
         account = await _make_account(db_session, user.id)
         tpl = await _make_template(db_session, code="rsi_test_strategy")
         inst = await _make_instance(db_session, user.id, tpl.id)
-        await _make_position(
-            db_session, account.id, strategy_instance_id=inst.id
-        )
+        await _make_position(db_session, account.id, strategy_instance_id=inst.id)
         await _make_position(db_session, account.id, strategy_instance_id=None)
 
         result = await repo.get_by_strategy(inst.id)
@@ -278,15 +275,14 @@ class TestPositionRepository:
         repo = PositionRepository(db_session)
         user = await _make_user(db_session, email="exposure@example.com")
         account = await _make_account(db_session, user.id)
-        await _make_position(
-            db_session, account.id, quantity="2", current_price="100"
-        )
-        await _make_position(
-            db_session, account.id, quantity="1", current_price="50"
-        )
+        await _make_position(db_session, account.id, quantity="2", current_price="100")
+        await _make_position(db_session, account.id, quantity="1", current_price="50")
         # Closed 仓位不计入
         await _make_position(
-            db_session, account.id, quantity="100", current_price="100",
+            db_session,
+            account.id,
+            quantity="100",
+            current_price="100",
             status="closed",
         )
 
@@ -298,12 +294,18 @@ class TestPositionRepository:
         user = await _make_user(db_session, email="exposure2@example.com")
         account = await _make_account(db_session, user.id)
         await _make_position(
-            db_session, account.id, symbol="BTCUSDT",
-            quantity="1", current_price="100",
+            db_session,
+            account.id,
+            symbol="BTCUSDT",
+            quantity="1",
+            current_price="100",
         )
         await _make_position(
-            db_session, account.id, symbol="ETHUSDT",
-            quantity="10", current_price="10",
+            db_session,
+            account.id,
+            symbol="ETHUSDT",
+            quantity="10",
+            current_price="10",
         )
 
         btc_exposure = await repo.get_total_exposure(account.id, "BTCUSDT")
@@ -311,6 +313,7 @@ class TestPositionRepository:
 
 
 # ==================== OrderRepository ====================
+
 
 async def _make_order(
     session,
@@ -396,9 +399,7 @@ class TestOrderRepository:
         repo = OrderRepository(db_session)
         user = await _make_user(db_session, email="ordex@example.com")
         account = await _make_account(db_session, user.id)
-        await _make_order(
-            db_session, account.id, exchange_order_id="EX-12345"
-        )
+        await _make_order(db_session, account.id, exchange_order_id="EX-12345")
 
         found = await repo.get_by_exchange_order_id("EX-12345")
         missing = await repo.get_by_exchange_order_id("EX-NOT-EXIST")
@@ -413,9 +414,7 @@ class TestOrderRepository:
         tpl = await _make_template(db_session, code="ord_strategy_tpl")
         inst = await _make_instance(db_session, user.id, tpl.id)
 
-        await _make_order(
-            db_session, account.id, strategy_instance_id=inst.id
-        )
+        await _make_order(db_session, account.id, strategy_instance_id=inst.id)
         await _make_order(db_session, account.id, strategy_instance_id=None)
 
         result = await repo.get_by_strategy(inst.id)
@@ -423,6 +422,7 @@ class TestOrderRepository:
 
 
 # ==================== SignalRepository ====================
+
 
 class TestSignalRepository:
     async def test_get_pending_by_strategy(self, db_session):
@@ -458,18 +458,28 @@ class TestSignalRepository:
         tpl = await _make_template(db_session, code="sigexp_tpl")
         inst = await _make_instance(db_session, user.id, tpl.id)
 
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
-        db_session.add_all([
-            Signal(
-                strategy_instance_id=inst.id, symbol="BTCUSDT", action="buy",
-                confidence=Decimal("0.8"), status="pending", expires_at=past,
-            ),
-            Signal(
-                strategy_instance_id=inst.id, symbol="BTCUSDT", action="buy",
-                confidence=Decimal("0.8"), status="pending", expires_at=future,
-            ),
-        ])
+        past = datetime.now(UTC) - timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
+        db_session.add_all(
+            [
+                Signal(
+                    strategy_instance_id=inst.id,
+                    symbol="BTCUSDT",
+                    action="buy",
+                    confidence=Decimal("0.8"),
+                    status="pending",
+                    expires_at=past,
+                ),
+                Signal(
+                    strategy_instance_id=inst.id,
+                    symbol="BTCUSDT",
+                    action="buy",
+                    confidence=Decimal("0.8"),
+                    status="pending",
+                    expires_at=future,
+                ),
+            ]
+        )
         await db_session.flush()
 
         expired_count = await repo.expire_old_signals(inst.id)
@@ -477,6 +487,7 @@ class TestSignalRepository:
 
 
 # ==================== StrategyTemplateRepository ====================
+
 
 class TestStrategyTemplateRepository:
     async def test_get_active_templates(self, db_session):
@@ -493,9 +504,7 @@ class TestStrategyTemplateRepository:
 
     async def test_get_by_type(self, db_session):
         repo = StrategyTemplateRepository(db_session)
-        await _make_template(
-            db_session, code="rsi_x", strategy_type="rsi_test_type"
-        )
+        await _make_template(db_session, code="rsi_x", strategy_type="rsi_test_type")
         result = await repo.get_by_type("rsi_test_type")
         assert result is not None
         assert result.strategy_type == "rsi_test_type"
@@ -521,6 +530,7 @@ class TestStrategyTemplateRepository:
 
 
 # ==================== StrategyInstanceRepository ====================
+
 
 class TestStrategyInstanceRepository:
     async def test_get_by_user(self, db_session):

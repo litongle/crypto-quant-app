@@ -6,8 +6,9 @@
 
 安全性：纯数据驱动，无 exec()/eval()，指标和算子均为白名单。
 """
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -29,7 +30,7 @@ from app.core.indicators import (
     calc_stoch_k,
     calc_volume_ma,
 )
-from app.core.strategy_engine import BaseStrategy, Signal, StrategyConfig
+from app.core.strategy_engine import BaseStrategy, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,13 @@ EVENT_INDICATORS = {
 ALL_INDICATORS = VALUE_INDICATORS | EVENT_INDICATORS
 
 VALID_OPERATORS = {
-    ">", ">=", "<", "<=", "==",
-    "cross_up", "cross_down",
+    ">",
+    ">=",
+    "<",
+    "<=",
+    "==",
+    "cross_up",
+    "cross_down",
 }
 
 VALID_LOGIC = {"AND", "OR"}
@@ -79,8 +85,10 @@ MAX_NESTING_DEPTH = 3
 
 # ── 规则校验 ──────────────────────────────────────────────
 
+
 class RuleValidationError(ValueError):
     """规则校验失败"""
+
     pass
 
 
@@ -130,7 +138,9 @@ def _validate_rule_group(group: dict, path: str, errors: list[str], depth: int):
         return
 
     if len(conditions) > MAX_CONDITIONS_PER_GROUP:
-        errors.append(f"{path}.conditions: 最多 {MAX_CONDITIONS_PER_GROUP} 个条件，当前 {len(conditions)}")
+        errors.append(
+            f"{path}.conditions: 最多 {MAX_CONDITIONS_PER_GROUP} 个条件，当前 {len(conditions)}"
+        )
 
     for i, cond in enumerate(conditions):
         cond_path = f"{path}.conditions[{i}]"
@@ -168,22 +178,26 @@ def _validate_rule_group(group: dict, path: str, errors: list[str], depth: int):
 
 # ── 规则引擎核心 ──────────────────────────────────────────
 
+
 class RuleEngine:
     """规则引擎：根据 JSON 规则评估 K 线数据"""
 
-    def __init__(self, klines: list[dict]):
+    def __init__(self, klines: list[dict], rules: dict | None = None):
         self.klines = klines
         self.closes = np.array([float(k["close"]) for k in klines], dtype=np.float64)
-        self.highs = np.array(
-            [float(k.get("high", k["close"])) for k in klines], dtype=np.float64
-        )
-        self.lows = np.array(
-            [float(k.get("low", k["close"])) for k in klines], dtype=np.float64
-        )
-        self.volumes = np.array(
-            [float(k.get("volume", 0)) for k in klines], dtype=np.float64
-        )
+        self.highs = np.array([float(k.get("high", k["close"])) for k in klines], dtype=np.float64)
+        self.lows = np.array([float(k.get("low", k["close"])) for k in klines], dtype=np.float64)
+        self.volumes = np.array([float(k.get("volume", 0)) for k in klines], dtype=np.float64)
         self._cache: dict[str, Any] = {}
+
+        if rules:
+            self._validate_rules_on_init(rules)
+
+    def _validate_rules_on_init(self, rules: dict) -> None:
+        """初始化时验证规则，防止性能炸弹"""
+        errors = validate_rules(rules)
+        if errors:
+            raise RuleValidationError(f"规则验证失败: {', '.join(errors)}")
 
     # ── 指标计算调度 ──
 
@@ -206,9 +220,7 @@ class RuleEngine:
             )[3],
             "volume": lambda: self.volumes.copy(),
             "volume_ma": lambda: calc_volume_ma(self.volumes, params.get("period", 20)),
-            "atr": lambda: calc_atr(
-                self.highs, self.lows, self.closes, params.get("period", 14)
-            ),
+            "atr": lambda: calc_atr(self.highs, self.lows, self.closes, params.get("period", 14)),
             "macd": lambda: calc_macd(
                 self.closes,
                 params.get("fast", 12),
@@ -225,9 +237,7 @@ class RuleEngine:
                 params.get("slow", 26),
                 params.get("signal", 9),
             )[:2],  # (macd_line, signal_line)
-            "price_change_pct": lambda: calc_price_change_pct(
-                self.closes, params.get("period", 1)
-            ),
+            "price_change_pct": lambda: calc_price_change_pct(self.closes, params.get("period", 1)),
             "stoch_k": lambda: calc_stoch_k(
                 self.highs, self.lows, self.closes, params.get("period", 14)
             ),
@@ -238,9 +248,7 @@ class RuleEngine:
                 params.get("k_period", 14),
                 params.get("d_period", 3),
             ),
-            "cci": lambda: calc_cci(
-                self.highs, self.lows, self.closes, params.get("period", 20)
-            ),
+            "cci": lambda: calc_cci(self.highs, self.lows, self.closes, params.get("period", 20)),
             "obv": lambda: calc_obv(self.closes, self.volumes),
         }
 
@@ -292,7 +300,9 @@ class RuleEngine:
 
         return False
 
-    def _evaluate_event(self, data: Any, operator: str, value: Any = None, params: dict = None, indicator: str = "") -> bool:
+    def _evaluate_event(
+        self, data: Any, operator: str, value: Any = None, params: dict = None, indicator: str = ""
+    ) -> bool:
         """评估交叉事件
 
         value 语义:
@@ -310,7 +320,7 @@ class RuleEngine:
             return False
 
         # 确定比较基线: diff = fast - baseline
-        if value is None or value == '0' or value == 0:
+        if value is None or value == "0" or value == 0:
             # 零线穿越: fast - slow 穿零
             baseline = slow
         elif isinstance(value, str) and value in ALL_INDICATORS:
@@ -392,6 +402,7 @@ class RuleEngine:
 
 # ── RuleStrategy 策略类 ────────────────────────────────────
 
+
 class RuleStrategy(BaseStrategy):
     """规则策略 — 根据 JSON 规则定义执行交易
 
@@ -420,7 +431,13 @@ class RuleStrategy(BaseStrategy):
         if len(klines) < 30:
             return None
 
-        engine = RuleEngine(klines)
+        # 执行时再次验证规则，防止绕过
+        try:
+            engine = RuleEngine(klines, rules)
+        except RuleValidationError as e:
+            logger.warning("规则验证失败: %s", e)
+            return None
+
         current_price = Decimal(str(klines[-1]["close"]))
 
         sl_pct = Decimal(str(risk.get("stop_loss_percent", 3.0)))
@@ -438,7 +455,7 @@ class RuleStrategy(BaseStrategy):
                         stop_loss_price=current_price * (1 - sl_pct / 100),
                         take_profit_price=current_price * (1 + tp_pct / 100),
                         reason=_build_reason(buy_rules, "买入"),
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
             except Exception as e:
                 logger.error("买入规则评估失败: %s", e)
@@ -454,7 +471,7 @@ class RuleStrategy(BaseStrategy):
                         stop_loss_price=current_price * (1 + sl_pct / 100),
                         take_profit_price=current_price * (1 - tp_pct / 100),
                         reason=_build_reason(sell_rules, "卖出"),
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
             except Exception as e:
                 logger.error("卖出规则评估失败: %s", e)
@@ -463,6 +480,7 @@ class RuleStrategy(BaseStrategy):
 
 
 # ── 辅助函数 ──────────────────────────────────────────────
+
 
 def _build_reason(rules: dict, prefix: str) -> str:
     """生成简短信号原因"""
@@ -521,6 +539,8 @@ def _describe_rule_group(group: dict) -> str:
                 op_text = "上穿" if op == "cross_up" else "下穿"
                 parts.append(f"{ind}({params_str}) {op_text}" if params_str else f"{ind} {op_text}")
             else:
-                parts.append(f"{ind}({params_str}) {op} {val}" if params_str else f"{ind} {op} {val}")
+                parts.append(
+                    f"{ind}({params_str}) {op} {val}" if params_str else f"{ind} {op} {val}"
+                )
 
     return joiner.join(parts)

@@ -1,13 +1,13 @@
 """
 FastAPI 依赖注入
 """
+
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.core.exceptions import AuthenticationError, TokenExpiredError
 from app.core.security import verify_token
 from app.database import get_db

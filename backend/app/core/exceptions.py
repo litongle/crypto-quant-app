@@ -1,6 +1,7 @@
 """
 自定义异常定义
 """
+
 from typing import Any
 
 
@@ -136,7 +137,8 @@ class RateLimitError(ExchangeAPIError):
 
     def __init__(self, exchange: str, message: str = "请求频率超限"):
         super().__init__(
-            exchange, message,
+            exchange,
+            message,
             retryable=True,
             status_code=429,
         )
@@ -148,7 +150,8 @@ class NetworkError(ExchangeAPIError):
 
     def __init__(self, exchange: str, message: str = "网络连接异常"):
         super().__init__(
-            exchange, message,
+            exchange,
+            message,
             retryable=True,
         )
         self.code = "NETWORK_ERROR"
@@ -164,7 +167,8 @@ class OrderRejectedError(ExchangeAPIError):
         detail_code: str | None = None,
     ):
         super().__init__(
-            exchange, message,
+            exchange,
+            message,
             retryable=False,
             detail_code=detail_code,
         )

@@ -1,19 +1,21 @@
 """
 策略模型
 """
+
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, func
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
+
 # 注意：strategy_type 已从 Enum 改为 String(50)，以后加策略无需改模型/做迁移
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
     from app.models.exchange import ExchangeAccount
+    from app.models.user import User
 
 
 class StrategyTemplate(Base):
@@ -22,7 +24,9 @@ class StrategyTemplate(Base):
     __tablename__ = "strategy_templates"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    code: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # 字符串ID: ma_cross, grid, rsi, bollinger
+    code: Mapped[str] = mapped_column(
+        String(50), unique=True, index=True
+    )  # 字符串ID: ma_cross, grid, rsi, bollinger
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text)
     strategy_type: Mapped[str] = mapped_column(String(50))
@@ -50,7 +54,9 @@ class StrategyInstance(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     template_id: Mapped[int] = mapped_column(ForeignKey("strategy_templates.id"))
     account_id: Mapped[int | None] = mapped_column(
-        ForeignKey("exchange_accounts.id"), nullable=True, index=True,
+        ForeignKey("exchange_accounts.id"),
+        nullable=True,
+        index=True,
         comment="绑定的交易所账户，自动下单时使用",
     )
     name: Mapped[str] = mapped_column(String(100))
@@ -89,7 +95,9 @@ class StrategyInstance(Base):
     # Step 3: 策略状态机持久化(每 tick 末由 runner 写入,启动时恢复)
     # 形如 {"mode": "long", "entry_price": 50000.0, ...},内容由具体策略 to_dict 决定
     state_json: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, default=None,
+        JSON,
+        nullable=True,
+        default=None,
         comment="策略状态机快照 — 重启不丢仓位/极值/cooling_count",
     )
 

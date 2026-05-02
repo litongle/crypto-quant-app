@@ -3,6 +3,7 @@
 
 路由排列规则：静态路径优先，参数化路径靠后，避免 FastAPI 路由冲突
 """
+
 import logging
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -12,23 +13,24 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
-from app.models.user import User
-from app.models.exchange import ExchangeAccount
 from app.api.deps import get_current_user
-from app.services.order_service import OrderService
+from app.core.schemas import APIResponse
 from app.core.trade_schemas import (
     AccountInfoSchema,
     OrderSchema,
     PositionSchema,
 )
-from app.core.schemas import APIResponse
+from app.database import get_session
+from app.models.exchange import ExchangeAccount
+from app.models.user import User
+from app.services.order_service import OrderService
 
 logger = logging.getLogger(__name__)
 
 
 class CreateExchangeAccountRequest(BaseModel):
     """创建交易所账户请求"""
+
     exchange: Literal["binance", "okx", "huobi"] = Field(description="交易所 (binance/okx/huobi)")
     account_name: str = Field(min_length=1, max_length=100, description="账户别名")
     api_key: str = Field(min_length=8, description="API Key")
@@ -48,8 +50,10 @@ router = APIRouter()
 
 # ============ 请求模型 ============
 
+
 class CreateOrderRequest(BaseModel):
     """创建订单请求"""
+
     account_id: int = Field(gt=0, description="账户ID必须为正整数")
     symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?$")
     side: Literal["buy", "sell"]
@@ -61,18 +65,21 @@ class CreateOrderRequest(BaseModel):
 
 class SetStopLossRequest(BaseModel):
     """设置止损请求"""
+
     account_id: int = Field(gt=0)
     stop_price: Decimal = Field(gt=0, description="止损价格必须大于0")
 
 
 class SetTakeProfitRequest(BaseModel):
     """设置止盈请求"""
+
     account_id: int = Field(gt=0)
     take_profit_price: Decimal = Field(gt=0, description="止盈价格必须大于0")
 
 
 class EmergencyCloseConfirm(BaseModel):
     """一键平仓确认请求"""
+
     confirm: bool = Field(..., description="必须传 confirm=true 才会执行平仓")
     account_id: int | None = Field(default=None, description="指定账户ID，不传则平所有账户")
 
@@ -80,6 +87,7 @@ class EmergencyCloseConfirm(BaseModel):
 # ============================================================
 # 交易所账户管理（静态路径优先注册，避免被 /{id} 路由拦截）
 # ============================================================
+
 
 @router.get("/accounts")
 async def get_accounts(
@@ -89,7 +97,9 @@ async def get_accounts(
     """获取用户的交易所账户"""
     service = OrderService(session)
     accounts = await service.get_user_accounts(current_user.id)
-    return APIResponse(data=[AccountInfoSchema.from_model(a).model_dump() for a in accounts])
+    return APIResponse(
+        data=[AccountInfoSchema.from_model(a).model_dump(by_alias=True) for a in accounts]
+    )
 
 
 @router.post("/accounts", status_code=status.HTTP_201_CREATED)
@@ -125,7 +135,7 @@ async def create_exchange_account(
     except Exception as exc:
         logger.warning("[create_exchange_account] 余额同步失败（账户已创建）: %s", exc)
 
-    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump(by_alias=True))
 
 
 @router.get("/accounts/{account_id}")
@@ -144,7 +154,7 @@ async def get_account(
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="账户不存在或无权操作")
-    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump(by_alias=True))
 
 
 @router.post("/accounts/{account_id}/sync")
@@ -168,7 +178,7 @@ async def sync_account_balance(
     service = OrderService(session)
     account = await service.sync_account_balance(account_id, current_user.id)
     await session.commit()
-    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump(by_alias=True))
 
 
 @router.delete("/accounts/{account_id}")
@@ -197,6 +207,7 @@ async def delete_exchange_account(
 # 交易操作（静态路径优先）
 # ============================================================
 
+
 @router.post("/emergency-close-all")
 async def emergency_close_all(
     request: EmergencyCloseConfirm,
@@ -213,10 +224,12 @@ async def emergency_close_all(
     service = OrderService(session)
     closed = await service.emergency_close_all(current_user.id, request.account_id)
     await session.commit()
-    return APIResponse(data={
-        "closed_count": len(closed),
-        "message": f"已平仓 {len(closed)} 个仓位",
-    })
+    return APIResponse(
+        data={
+            "closed_count": len(closed),
+            "message": f"已平仓 {len(closed)} 个仓位",
+        }
+    )
 
 
 @router.get("/positions")
@@ -228,12 +241,15 @@ async def get_positions(
     """获取持仓"""
     service = OrderService(session)
     positions = await service.get_open_positions(current_user.id, account_id)
-    return APIResponse(data=[PositionSchema.from_model(p).model_dump() for p in positions])
+    return APIResponse(
+        data=[PositionSchema.from_model(p).model_dump(by_alias=True) for p in positions]
+    )
 
 
 # ============================================================
 # 订单 CRUD（参数化路径放最后）
 # ============================================================
+
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_order(
@@ -280,7 +296,7 @@ async def create_order(
             pass
         raise HTTPException(status_code=502, detail="下单失败，请检查订单状态")
     await session.commit()
-    return APIResponse(data=OrderSchema.from_model(order).model_dump())
+    return APIResponse(data=OrderSchema.from_model(order).model_dump(by_alias=True))
 
 
 @router.get("")
@@ -299,7 +315,7 @@ async def get_orders(
         symbol=symbol,
         limit=limit,
     )
-    return APIResponse(data=[OrderSchema.from_model(o).model_dump() for o in orders])
+    return APIResponse(data=[OrderSchema.from_model(o).model_dump(by_alias=True) for o in orders])
 
 
 @router.post("/{order_id}/cancel")
@@ -312,7 +328,7 @@ async def cancel_order(
     service = OrderService(session)
     order = await service.cancel_order(order_id, current_user.id)
     await session.commit()
-    return APIResponse(data=OrderSchema.from_model(order).model_dump())
+    return APIResponse(data=OrderSchema.from_model(order).model_dump(by_alias=True))
 
 
 @router.post("/{position_id}/stop-loss")
@@ -330,7 +346,7 @@ async def set_stop_loss(
         stop_price=request.stop_price,
     )
     await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump())
+    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))
 
 
 @router.post("/{position_id}/take-profit")
@@ -348,12 +364,15 @@ async def set_take_profit(
         tp_price=request.take_profit_price,
     )
     await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump())
+    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))
 
 
 class ClosePositionRequest(BaseModel):
     """平仓请求"""
-    account_id: int | None = Field(default=None, description="指定账户ID（可选，后端自动从持仓获取）")
+
+    account_id: int | None = Field(
+        default=None, description="指定账户ID（可选，后端自动从持仓获取）"
+    )
 
 
 @router.post("/{position_id}/close")
@@ -367,4 +386,4 @@ async def close_position(
     service = OrderService(session)
     position = await service.close_position(position_id, current_user.id)
     await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump())
+    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))

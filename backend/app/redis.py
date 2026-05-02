@@ -3,10 +3,10 @@ Redis 连接管理
 
 改动：不再模块级缓存 settings，改为函数内取
 """
-import asyncio
-from typing import AsyncGenerator
 
-import redis.asyncio as redis
+import asyncio
+from collections.abc import AsyncGenerator
+
 from redis.asyncio import ConnectionPool, Redis
 
 from app.config import get_settings

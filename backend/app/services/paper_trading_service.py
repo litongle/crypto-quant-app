@@ -6,9 +6,10 @@
 - 模拟下单（无API调用，直接更新本地状态）
 - 模拟成交（自动 fill，模拟延迟和滑点）
 """
+
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -26,7 +27,7 @@ class PaperTradingService:
     # 默认模拟配置
     DEFAULT_INITIAL_BALANCE = Decimal("100000")
     DEFAULT_COMMISSION_RATE = Decimal("0.001")  # 0.1%
-    DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")    # 0.05% 滑点
+    DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")  # 0.05% 滑点
 
     # 余额操作锁（key=account_id，实现按账户并发控制）
     _locks: dict[int, asyncio.Lock] = {}
@@ -43,7 +44,9 @@ class PaperTradingService:
         self.session = session
 
     async def create_paper_account(
-        self, user_id: int, name: str = "模拟盘账户",
+        self,
+        user_id: int,
+        name: str = "模拟盘账户",
         initial_balance: Decimal = DEFAULT_INITIAL_BALANCE,
     ) -> ExchangeAccount:
         """创建模拟盘账户"""
@@ -60,7 +63,9 @@ class PaperTradingService:
         self.session.add(account)
         await self.session.flush()
         await self.session.refresh(account)
-        logger.info("[PaperTrading] 模拟账户创建: #%d, 初始余额 %s USDT", account.id, initial_balance)
+        logger.info(
+            "[PaperTrading] 模拟账户创建: #%d, 初始余额 %s USDT", account.id, initial_balance
+        )
         return account
 
     async def execute_paper_trade(
@@ -113,15 +118,26 @@ class PaperTradingService:
         # 计算手续费
         commission = exec_price * quantity * self.DEFAULT_COMMISSION_RATE
 
-        # 统一提取 base_asset（支持 USDT 交易对）
-        base_asset = symbol.replace("USDT", "")
-        if not base_asset or base_asset == symbol:
-            raise ValueError(f"不支持的交易对格式: {symbol}（仅支持 USDT 交易对）")
+        # 统一提取 base_asset（支持多稳定币交易对）
+        stablecoins = ("USDT", "USDC", "BUSD", "BTC", "ETH")
+        base_asset = None
+        quote_asset = None
+
+        for sc in stablecoins:
+            if symbol.endswith(sc):
+                base_asset = symbol[: -len(sc)]
+                quote_asset = sc
+                break
+
+        if not base_asset or not quote_asset:
+            raise ValueError(
+                f"不支持的交易对格式: {symbol}（仅支持 USDT/USDC/BUSD/BTC/ETH 计价交易对）"
+            )
 
         async with await self._get_lock(account_id):
             # 获取虚拟余额（在锁内读取，确保一致性）
-            balances = account.balances or {"USDT": str(self.DEFAULT_INITIAL_BALANCE)}
-            usdt_balance = Decimal(str(balances.get("USDT", "0")))
+            balances = account.balances or {quote_asset: str(self.DEFAULT_INITIAL_BALANCE)}
+            quote_balance = Decimal(str(balances.get(quote_asset, "0")))
             current_qty = Decimal(str(balances.get(base_asset, "0")))
 
             # 计算并验证
@@ -129,19 +145,21 @@ class PaperTradingService:
             total_cost = order_value + commission
 
             if side == "buy":
-                if usdt_balance < total_cost:
-                    raise ValueError(f"模拟余额不足: 需要 {total_cost} USDT, 余额 {usdt_balance} USDT")
-                new_usdt = usdt_balance - total_cost
+                if quote_balance < total_cost:
+                    raise ValueError(
+                        f"模拟余额不足: 需要 {total_cost} {quote_asset}, 余额 {quote_balance} {quote_asset}"
+                    )
+                new_quote = quote_balance - total_cost
                 new_qty = current_qty + quantity
             else:
                 if current_qty < quantity:
                     raise ValueError(f"{base_asset} 余额不足: 需要 {quantity}, 余额 {current_qty}")
                 sell_value = exec_price * quantity - commission
-                new_usdt = usdt_balance + sell_value
+                new_quote = quote_balance + sell_value
                 new_qty = current_qty - quantity
 
             # 原子更新：先算好新值，再一次性赋值
-            balances["USDT"] = str(new_usdt)
+            balances[quote_asset] = str(new_quote)
             balances[base_asset] = str(new_qty)
             account.balances = balances
 
@@ -158,7 +176,7 @@ class PaperTradingService:
             "commission": str(commission),
             "order_value": str(order_value),
             "status": "filled",
-            "filled_at": datetime.now(timezone.utc).isoformat() + "Z",
+            "filled_at": datetime.now(UTC).isoformat() + "Z",
             "strategy_instance_id": strategy_instance_id,
             "exec_price": float(exec_price),
             "slippage": float(slippage),
@@ -167,7 +185,12 @@ class PaperTradingService:
 
         logger.info(
             "[PaperTrading] 模拟成交: %s %s %s @ %s, qty=%s, commission=%s",
-            symbol, side, order_type, exec_price, quantity, commission,
+            symbol,
+            side,
+            order_type,
+            exec_price,
+            quantity,
+            commission,
         )
         return order
 
@@ -175,6 +198,7 @@ class PaperTradingService:
         """获取当前价格（从行情服务或现有持仓）"""
         try:
             from app.services.market_service import MarketService
+
             market = MarketService()
             ticker = await market.get_ticker(symbol)
             if ticker and ticker.get("last"):
@@ -184,10 +208,13 @@ class PaperTradingService:
 
         # 降级：从已有持仓获取
         result = await self.session.execute(
-            select(Position).where(
+            select(Position)
+            .where(
                 Position.symbol == symbol,
                 Position.status == "open",
-            ).order_by(Position.updated_at.desc()).limit(1)
+            )
+            .order_by(Position.updated_at.desc())
+            .limit(1)
         )
         pos = result.scalar_one_or_none()
         if pos and pos.current_price:
@@ -205,7 +232,9 @@ class PaperTradingService:
         )
         return list(result.scalars().all())
 
-    async def reset_paper_account(self, account_id: int, new_balance: Decimal | None = None) -> None:
+    async def reset_paper_account(
+        self, account_id: int, new_balance: Decimal | None = None
+    ) -> None:
         """重置模拟账户余额"""
         result = await self.session.execute(
             select(ExchangeAccount).where(

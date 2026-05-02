@@ -7,6 +7,7 @@ error_handling 单元测试
 - 重试判定: ExchangeAPIError(retryable=True) 重试; OrderRejected 不重试;
   普通 Exception 默认重试;耗尽后抛原异常
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ def run(coro):
 
 # ── trace_id ──────────────────────────────────────────────
 
+
 class TestTraceId:
     def setup_method(self):
         clear_trace_id()
@@ -54,7 +56,9 @@ class TestTraceId:
         finally:
             # 还原(其他测试不受影响)
             import contextvars  # noqa: F401
+
             from app.core.error_handling import _trace_id_var
+
             _trace_id_var.reset(token)
 
     def test_clear_resets(self):
@@ -86,6 +90,7 @@ class TestTraceId:
 
 
 # ── retry_on_retryable: 同步 ───────────────────────────────
+
 
 class TestRetrySync:
     def test_succeeds_first_try_no_retry(self):
@@ -153,6 +158,7 @@ class TestRetrySync:
 
     def test_exhausted_raises_last_original_exception(self):
         """重试耗尽后抛出最后一次的原始异常,不是 RetryError"""
+
         @retry_on_retryable(max_attempts=2, min_wait_seconds=0.01)
         def fn():
             raise NetworkError(exchange="binance", message="超时")
@@ -162,6 +168,7 @@ class TestRetrySync:
 
 
 # ── retry_on_retryable: 异步 ───────────────────────────────
+
 
 class TestRetryAsync:
     def test_async_succeeds_first_try(self):
@@ -210,6 +217,7 @@ class TestRetryAsync:
 
 
 # ── 自定义重试判定 ────────────────────────────────────────
+
 
 class TestCustomRetryPredicate:
     def test_custom_is_retryable_only_on_value_error(self):

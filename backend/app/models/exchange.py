@@ -1,6 +1,7 @@
 """
 交易所账户模型
 """
+
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -31,11 +32,9 @@ class ExchangeAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    exchange: Mapped[str] = mapped_column(
-        Enum("binance", "okx", "huobi", name="exchange_name")
-    )
+    exchange: Mapped[str] = mapped_column(Enum("binance", "okx", "huobi", name="exchange_name"))
     account_name: Mapped[str] = mapped_column(String(100), comment="账户别名")
-    
+
     # API Key 加密存储
     encrypted_api_key: Mapped[str] = mapped_column(Text, comment="AES-256加密的API Key")
     encrypted_secret_key: Mapped[str] = mapped_column(Text, comment="AES-256加密的Secret Key")
@@ -46,33 +45,39 @@ class ExchangeAccount(Base):
     def set_api_key(self, plaintext: str) -> None:
         """加密并设置 API Key"""
         from app.core.security import encrypt_api_key
+
         self.encrypted_api_key = encrypt_api_key(plaintext)
 
     def get_api_key(self) -> str:
         """解密并获取 API Key"""
         from app.core.security import decrypt_api_key
+
         return decrypt_api_key(self.encrypted_api_key)
 
     def set_secret_key(self, plaintext: str) -> None:
         """加密并设置 Secret Key"""
         from app.core.security import encrypt_api_key
+
         self.encrypted_secret_key = encrypt_api_key(plaintext)
 
     def get_secret_key(self) -> str:
         """解密并获取 Secret Key"""
         from app.core.security import decrypt_api_key
+
         return decrypt_api_key(self.encrypted_secret_key)
 
     def set_passphrase(self, plaintext: str) -> None:
         """加密并设置 Passphrase"""
         from app.core.security import encrypt_api_key
+
         self.encrypted_passphrase = encrypt_api_key(plaintext)
 
     def get_passphrase(self) -> str:
         """解密并获取 Passphrase"""
         from app.core.security import decrypt_api_key
+
         return decrypt_api_key(self.encrypted_passphrase or "")
-    
+
     # 权限控制
     permissions: Mapped[str] = mapped_column(
         String(50), default="read,trade", comment="API权限: read,trade,withdraw"
@@ -82,10 +87,8 @@ class ExchangeAccount(Base):
     is_demo: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="OKX模拟盘标记(x-simulated-trading)"
     )
-    is_testnet: Mapped[bool] = mapped_column(
-        Boolean, default=False, comment="Binance测试网标记"
-    )
-    
+    is_testnet: Mapped[bool] = mapped_column(Boolean, default=False, comment="Binance测试网标记")
+
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(
@@ -101,15 +104,11 @@ class ExchangeAccount(Base):
     frozen_balance: Mapped[Decimal] = mapped_column(
         Numeric(20, 8), default=Decimal("0"), comment="冻结余额(USDT)"
     )
-    
+
     # 同步状态
-    last_sync_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -119,9 +118,7 @@ class ExchangeAccount(Base):
     positions: Mapped[list["Position"]] = relationship(
         "Position", back_populates="account", lazy="selectin"
     )
-    orders: Mapped[list["Order"]] = relationship(
-        "Order", back_populates="account", lazy="selectin"
-    )
+    orders: Mapped[list["Order"]] = relationship("Order", back_populates="account", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<ExchangeAccount(id={self.id}, exchange={self.exchange})>"
@@ -134,21 +131,19 @@ class Position(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("exchange_accounts.id"), index=True)
-    
+
     # 交易对信息
     symbol: Mapped[str] = mapped_column(String(20), index=True, comment="交易对 BTC/USDT")
-    side: Mapped[str] = mapped_column(
-        Enum("long", "short", name="position_side")
-    )
-    
+    side: Mapped[str] = mapped_column(Enum("long", "short", name="position_side"))
+
     # 持仓信息
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), comment="持仓数量")
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), comment="开仓价格")
     current_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), comment="当前价格")
-    
+
     # 杠杆
     leverage: Mapped[int] = mapped_column(Integer, default=1)
-    
+
     # 盈亏
     unrealized_pnl: Mapped[Decimal] = mapped_column(
         Numeric(20, 8), default=Decimal("0"), comment="未实现盈亏"
@@ -156,14 +151,10 @@ class Position(Base):
     unrealized_pnl_percent: Mapped[Decimal] = mapped_column(
         Numeric(10, 4), default=Decimal("0"), comment="未实现盈亏百分比"
     )
-    
+
     # 止盈止损
-    stop_loss_price: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), nullable=True
-    )
-    take_profit_price: Mapped[Decimal | None] = mapped_column(
-        Numeric(20, 8), nullable=True
-    )
+    stop_loss_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     # P0-3: 交易所条件单ID（止损/止盈实际提交到交易所后的订单号）
     stop_loss_order_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="交易所止损条件单ID"
@@ -171,33 +162,27 @@ class Position(Base):
     take_profit_order_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="交易所止盈条件单ID"
     )
-    
+
     # 状态
     status: Mapped[str] = mapped_column(
         Enum("open", "closed", "liquidated", name="position_status"),
         default="open",
     )
-    
+
     # 来源
     strategy_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy_instances.id"), nullable=True, index=True
     )
-    
+
     # 时间
-    opened_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    closed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     # 关系
-    account: Mapped["ExchangeAccount"] = relationship(
-        "ExchangeAccount", back_populates="positions"
-    )
+    account: Mapped["ExchangeAccount"] = relationship("ExchangeAccount", back_populates="positions")
 
     def __repr__(self) -> str:
         return f"<Position(id={self.id}, symbol={self.symbol}, side={self.side})>"

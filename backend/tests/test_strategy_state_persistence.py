@@ -11,19 +11,16 @@ Step 3 测试 — 策略状态持久化
 - runner _update_last_run_and_state 实际写库
 - _start_instance 启动恢复链路
 """
+
 from __future__ import annotations
 
 import asyncio
-from decimal import Decimal
-
-import pytest
+from datetime import UTC
 
 from app.core.strategies.rsi_layered import RsiLayeredStrategy, RsiLevel
 from app.core.strategy_engine import (
-    BaseStrategy,
     MAStrategy,
     RSIStrategy,
-    Signal,
     StrategyConfig,
 )
 
@@ -34,12 +31,17 @@ def run(coro):
 
 def make_kline(close: float, ts: int) -> dict:
     return {
-        "open": close, "high": close, "low": close,
-        "close": close, "volume": 1.0, "timestamp": ts,
+        "open": close,
+        "high": close,
+        "low": close,
+        "close": close,
+        "volume": 1.0,
+        "timestamp": ts,
     }
 
 
 # ── BaseStrategy 默认实现 ────────────────────────────────
+
 
 class TestStatelessStrategyDefaults:
     """没 override to_dict/from_dict 的策略应该退化为无状态。"""
@@ -60,11 +62,13 @@ class TestStatelessStrategyDefaults:
 
     def test_rule_strategy_default_to_dict_returns_empty(self):
         from app.core.rule_engine import RuleStrategy
+
         s = RuleStrategy(StrategyConfig(symbol="BTCUSDT", exchange="binance"))
         assert s.to_dict() == {}
 
 
 # ── RsiLayered 状态机往返 ──────────────────────────────
+
 
 class TestRsiLayeredRoundTrip:
     """RsiLayered 已重写 to_dict / from_dict(Step 1),Step 3 验证它和
@@ -74,7 +78,7 @@ class TestRsiLayeredRoundTrip:
     def test_to_dict_is_json_serializable(self):
         """to_dict 必须可 json.dumps,SQLAlchemy JSON 列才能存"""
         import json
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         s = RsiLayeredStrategy(
             StrategyConfig(symbol="BTCUSDT", exchange="binance"),
@@ -83,7 +87,7 @@ class TestRsiLayeredRoundTrip:
         s._cooling_count = 2
         s._long_monitoring = True
         s._long_extreme_value = 18.5
-        s._long_extreme_time = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        s._long_extreme_time = datetime(2026, 4, 27, 12, 0, tzinfo=UTC)
         s._long_level = RsiLevel.LEVEL3
         s._position_dir = "long"
         s._entry_price = 50000.0
@@ -110,7 +114,8 @@ class TestRsiLayeredRoundTrip:
         # 阶段 1: 第一个实例处理前 30 根 K 线
         s1 = RsiLayeredStrategy(
             StrategyConfig(
-                symbol="BTCUSDT", exchange="binance",
+                symbol="BTCUSDT",
+                exchange="binance",
                 params={
                     "rsi_period": 14,
                     "long_levels": [40, 30, 20],
@@ -125,8 +130,7 @@ class TestRsiLayeredRoundTrip:
             + [100.0 - i * 0.5 for i in range(1, 11)]
             + [95.0 + i * 0.3 for i in range(1, 6)]
         )
-        klines = [make_kline(c, 1_700_000_000_000 + i * 60_000)
-                  for i, c in enumerate(closes)]
+        klines = [make_kline(c, 1_700_000_000_000 + i * 60_000) for i, c in enumerate(closes)]
 
         # 喂前 25 根
         for i in range(15, 26):
@@ -137,7 +141,8 @@ class TestRsiLayeredRoundTrip:
         # 阶段 2: 新实例从快照恢复
         s2 = RsiLayeredStrategy(
             StrategyConfig(
-                symbol="BTCUSDT", exchange="binance",
+                symbol="BTCUSDT",
+                exchange="binance",
                 params={
                     "rsi_period": 14,
                     "long_levels": [40, 30, 20],
@@ -161,8 +166,7 @@ class TestRsiLayeredRoundTrip:
         s1 = RsiLayeredStrategy(
             StrategyConfig(symbol="BTCUSDT", exchange="binance"),
         )
-        klines = [make_kline(100.0, 1_700_000_000_000 + i * 60_000)
-                  for i in range(30)]
+        klines = [make_kline(100.0, 1_700_000_000_000 + i * 60_000) for i in range(30)]
         run(s1.analyze(klines))
         last_ts = s1._last_kline_ts
         assert last_ts is not None
@@ -182,6 +186,7 @@ class TestRsiLayeredRoundTrip:
 
 # ── StrategyInstance 模型 ──────────────────────────────
 
+
 class TestStrategyInstanceColumn:
     def test_state_json_column_exists_and_nullable(self):
         from app.models.strategy import StrategyInstance
@@ -195,6 +200,7 @@ class TestStrategyInstanceColumn:
     def test_state_json_default_is_none(self):
         """新实例 state_json 不应默认填充非 None 值"""
         from app.models.strategy import StrategyInstance
+
         # 不实际写库,只检查模型默认
         # SQLAlchemy default=None 时,column.default 为 None 或 ColumnDefault(None)
         col = StrategyInstance.__table__.c.state_json

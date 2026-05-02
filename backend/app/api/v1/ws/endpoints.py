@@ -1,23 +1,28 @@
 """
 WebSocket API 端点
 """
+
 import asyncio
 import json
 import logging
-import time
+
 import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
 from app.core.trade_schemas import WSMessage
-from .manager import manager, Subscription
-from .proxies import BinanceWSProxy, OKXProxy, HuobiProxy, PollingFallback
+
+from .manager import manager
+from .proxies import BinanceWSProxy, HuobiProxy, OKXProxy, PollingFallback
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.websocket("/market")
 async def ws_market(websocket: WebSocket):
     await websocket.accept()
-    conn_id = f"conn-{id(websocket)}-{int(time.time()*1000)}"
+    conn_id = manager.generate_conn_id()
+    client_ip = websocket.client.host if websocket.client else "unknown"
 
     # 等待首条 auth 消息（Token 不再走 URL，防止泄露到日志/Referer）
     token = ""
@@ -26,7 +31,7 @@ async def ws_market(websocket: WebSocket):
         cmd = json.loads(raw)
         if cmd.get("action") == "auth":
             token = cmd.get("token", "")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await websocket.close(code=4001, reason="Authentication timeout")
         return
     except Exception:
@@ -38,6 +43,7 @@ async def ws_market(websocket: WebSocket):
 
     try:
         from app.core.security import verify_token
+
         payload = verify_token(token, token_type="access")
         user_id = payload.get("sub")
         if not user_id:
@@ -48,12 +54,30 @@ async def ws_market(websocket: WebSocket):
         await websocket.close(code=4001, reason="Authentication failed")
         return
 
-    user_conn_count = sum(1 for sub in manager._subs.values() if sub.user_id == user_id)
-    if user_conn_count >= 5:
-        await websocket.close(code=4002, reason="Too many connections (max 5)")
+    # 检查连接数限制
+    from app.api.v1.ws.manager import (
+        MAX_CONNECTIONS_PER_IP,
+        MAX_CONNECTIONS_PER_USER,
+        MAX_GLOBAL_CONNECTIONS,
+    )
+
+    if manager.get_global_connection_count() >= MAX_GLOBAL_CONNECTIONS:
+        await websocket.close(code=4003, reason="Server busy, too many connections")
         return
 
-    manager.register(conn_id, websocket, user_id)
+    if manager.get_ip_connection_count(client_ip) >= MAX_CONNECTIONS_PER_IP:
+        await websocket.close(
+            code=4002, reason=f"Too many connections from your IP (max {MAX_CONNECTIONS_PER_IP})"
+        )
+        return
+
+    if manager.get_user_connection_count(user_id) >= MAX_CONNECTIONS_PER_USER:
+        await websocket.close(
+            code=4002, reason=f"Too many connections (max {MAX_CONNECTIONS_PER_USER})"
+        )
+        return
+
+    manager.register(conn_id, websocket, user_id, client_ip)
 
     initial_symbol = websocket.query_params.get("symbol", "BTCUSDT").upper()
     initial_exchange = websocket.query_params.get("exchange", "binance").lower()
@@ -67,23 +91,34 @@ async def ws_market(websocket: WebSocket):
         await proxy.start_if_needed("ticker", initial_symbol, market_type=initial_market)
 
     try:
-        await websocket.send_text(WSMessage(
-            type="connected",
-            data={
-                "connection_id": conn_id, "subscribed": initial_symbol,
-                "exchange": initial_exchange, "market": initial_market,
-            },
-        ).model_dump_json())
+        await websocket.send_text(
+            WSMessage(
+                type="connected",
+                data={
+                    "connection_id": conn_id,
+                    "subscribed": initial_symbol,
+                    "exchange": initial_exchange,
+                    "market": initial_market,
+                },
+            ).model_dump_json()
+        )
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             ticker_data = await _fetch_initial_ticker(
-                client, initial_symbol, initial_exchange, initial_market,
+                client,
+                initial_symbol,
+                initial_exchange,
+                initial_market,
             )
             if ticker_data:
-                await websocket.send_text(WSMessage(
-                    type="ticker", exchange=initial_exchange,
-                    symbol=initial_symbol, data=ticker_data,
-                ).model_dump_json())
+                await websocket.send_text(
+                    WSMessage(
+                        type="ticker",
+                        exchange=initial_exchange,
+                        symbol=initial_symbol,
+                        data=ticker_data,
+                    ).model_dump_json()
+                )
 
         while True:
             raw = await websocket.receive_text()
@@ -105,10 +140,12 @@ async def ws_market(websocket: WebSocket):
                     for ch in channels:
                         for sym in symbols:
                             await p.start_if_needed(ch, sym, market_type=market)
-                await websocket.send_text(WSMessage(
-                    type="subscribed",
-                    data={"channels": channels, "symbols": symbols, "market": market},
-                ).model_dump_json())
+                await websocket.send_text(
+                    WSMessage(
+                        type="subscribed",
+                        data={"channels": channels, "symbols": symbols, "market": market},
+                    ).model_dump_json()
+                )
             elif action == "unsubscribe":
                 channels = cmd.get("channels", ["ticker"])
                 symbols = cmd.get("symbols", [])
@@ -120,13 +157,19 @@ async def ws_market(websocket: WebSocket):
                     for ch in channels:
                         for sym in symbols:
                             await p.stop_if_idle(ch, sym, market_type=market)
-                await websocket.send_text(WSMessage(
-                    type="unsubscribed",
-                    data={"channels": channels, "symbols": symbols, "market": market},
-                ).model_dump_json())
-    except WebSocketDisconnect: pass
-    except Exception as exc: logger.error("[WS] 异常: %s: %s", conn_id, exc)
-    finally: manager.unregister(conn_id)
+                await websocket.send_text(
+                    WSMessage(
+                        type="unsubscribed",
+                        data={"channels": channels, "symbols": symbols, "market": market},
+                    ).model_dump_json()
+                )
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.error("[WS] 异常: %s: %s", conn_id, exc)
+    finally:
+        manager.unregister(conn_id)
+
 
 async def _fetch_initial_ticker(client, symbol, exchange, market_type="spot"):
     """初始拉一次 ticker, 给 WS 客户端立即推送一条"""
@@ -167,9 +210,11 @@ async def _fetch_initial_ticker(client, symbol, exchange, market_type="spot"):
     except Exception:
         return None
 
+
 async def init_ws_proxies():
     try:
         import websockets
+
         manager.register_proxy("binance", BinanceWSProxy(manager))
         manager.register_proxy("okx", OKXProxy(manager))
         manager.register_proxy("huobi", HuobiProxy(manager))
@@ -177,8 +222,10 @@ async def init_ws_proxies():
         polling = PollingFallback(manager)
         await polling.start()
 
+
 async def cleanup_ws_proxies():
     for proxy in manager._proxies.values():
         if hasattr(proxy, "_tasks"):
-            for task in proxy._tasks.values(): task.cancel()
+            for task in proxy._tasks.values():
+                task.cancel()
     manager._subs.clear()

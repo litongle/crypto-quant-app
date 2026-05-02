@@ -1,10 +1,11 @@
 """Models package - 所有数据模型"""
-from app.models.user import User
-from app.models.strategy import StrategyTemplate, StrategyInstance
+
+from app.models.audit import AuditLog
+from app.models.backtest import BacktestResult
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
-from app.models.backtest import BacktestResult
-from app.models.audit import AuditLog
+from app.models.strategy import StrategyInstance, StrategyTemplate
+from app.models.user import User
 
 __all__ = [
     # 用户

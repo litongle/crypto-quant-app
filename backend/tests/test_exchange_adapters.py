@@ -3,6 +3,7 @@
 
 通过 mock httpx 客户端，避免真实网络请求。
 """
+
 import json
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -24,8 +25,8 @@ from app.core.exchanges.base import (
     _safe_divide,
 )
 
-
 # ==================== Helpers ====================
+
 
 def _fake_response(json_body: dict | list, status_code: int = 200) -> MagicMock:
     """构造一个仿造 httpx.Response 的 mock 对象"""
@@ -61,7 +62,8 @@ def _patch_client(
         return client
 
     monkeypatch.setattr(
-        BaseExchangeAdapter, "get_shared_client",
+        BaseExchangeAdapter,
+        "get_shared_client",
         classmethod(lambda cls: _get_shared_client()),
     )
     return client
@@ -69,17 +71,23 @@ def _patch_client(
 
 # ==================== Factory ====================
 
+
 class TestGetExchangeAdapter:
     def test_factory_returns_binance(self):
         adapter = get_exchange_adapter(
-            "binance", api_key="k", secret_key="s",
+            "binance",
+            api_key="k",
+            secret_key="s",
         )
         assert isinstance(adapter, BinanceAdapter)
         assert adapter.testnet is False
 
     def test_factory_returns_binance_testnet(self):
         adapter = get_exchange_adapter(
-            "binance", api_key="k", secret_key="s", testnet=True,
+            "binance",
+            api_key="k",
+            secret_key="s",
+            testnet=True,
         )
         assert isinstance(adapter, BinanceAdapter)
         assert adapter.testnet is True
@@ -87,25 +95,34 @@ class TestGetExchangeAdapter:
 
     def test_factory_returns_okx(self):
         adapter = get_exchange_adapter(
-            "okx", api_key="k", secret_key="s", passphrase="p",
+            "okx",
+            api_key="k",
+            secret_key="s",
+            passphrase="p",
         )
         assert isinstance(adapter, OKXAdapter)
 
     def test_factory_returns_huobi(self):
         adapter = get_exchange_adapter(
-            "huobi", api_key="k", secret_key="s",
+            "huobi",
+            api_key="k",
+            secret_key="s",
         )
         assert isinstance(adapter, HuobiAdapter)
 
     def test_factory_accepts_htx_alias(self):
         adapter = get_exchange_adapter(
-            "htx", api_key="k", secret_key="s",
+            "htx",
+            api_key="k",
+            secret_key="s",
         )
         assert isinstance(adapter, HuobiAdapter)
 
     def test_factory_case_insensitive(self):
         adapter = get_exchange_adapter(
-            "BINANCE", api_key="k", secret_key="s",
+            "BINANCE",
+            api_key="k",
+            secret_key="s",
         )
         assert isinstance(adapter, BinanceAdapter)
 
@@ -115,6 +132,7 @@ class TestGetExchangeAdapter:
 
 
 # ==================== Safe helpers ====================
+
 
 class TestSafeHelpers:
     def test_safe_decimal_handles_none(self):
@@ -138,9 +156,7 @@ class TestSafeHelpers:
         assert _safe_divide(Decimal("10"), Decimal("0")) is None
 
     def test_safe_divide_with_default(self):
-        assert _safe_divide(
-            Decimal("10"), Decimal("0"), default=Decimal("0")
-        ) == Decimal("0")
+        assert _safe_divide(Decimal("10"), Decimal("0"), default=Decimal("0")) == Decimal("0")
 
     def test_safe_divide_normal(self):
         assert _safe_divide(Decimal("10"), Decimal("2")) == Decimal("5")
@@ -148,11 +164,10 @@ class TestSafeHelpers:
 
 # ==================== Error classification ====================
 
+
 class TestErrorClassification:
     def test_timeout_classified_as_network_error(self):
-        err = BaseExchangeAdapter._classify_error(
-            httpx.TimeoutException("read timeout"), "Binance"
-        )
+        err = BaseExchangeAdapter._classify_error(httpx.TimeoutException("read timeout"), "Binance")
         assert isinstance(err, NetworkError)
         assert err.retryable is True
 
@@ -174,7 +189,8 @@ class TestErrorClassification:
     def test_400_classified_as_order_rejected(self):
         request = httpx.Request("POST", "http://test")
         response = httpx.Response(
-            400, request=request,
+            400,
+            request=request,
             content=json.dumps({"code": -1013, "msg": "Filter failure"}),
         )
         exc = httpx.HTTPStatusError("400", request=request, response=response)
@@ -186,7 +202,8 @@ class TestErrorClassification:
     def test_401_classified_as_order_rejected(self):
         request = httpx.Request("POST", "http://test")
         response = httpx.Response(
-            401, request=request,
+            401,
+            request=request,
             content=json.dumps({"msg": "Invalid signature"}),
         )
         exc = httpx.HTTPStatusError("401", request=request, response=response)
@@ -207,14 +224,13 @@ class TestErrorClassification:
         assert err is original
 
     def test_unknown_exception_classified_as_generic(self):
-        err = BaseExchangeAdapter._classify_error(
-            RuntimeError("oops"), "Binance"
-        )
+        err = BaseExchangeAdapter._classify_error(RuntimeError("oops"), "Binance")
         assert isinstance(err, ExchangeAPIError)
         assert err.retryable is False
 
 
 # ==================== Binance: response parsing ====================
+
 
 class TestBinanceAdapter:
     def setup_method(self):
@@ -230,22 +246,16 @@ class TestBinanceAdapter:
     def test_check_response_raises_order_rejected_for_2010(self):
         # -2010 是 Binance 的 INSUFFICIENT_BALANCE 类错误
         with pytest.raises(OrderRejectedError) as exc_info:
-            self.adapter._check_response(
-                {"code": -2010, "msg": "Account has insufficient balance"}
-            )
+            self.adapter._check_response({"code": -2010, "msg": "Account has insufficient balance"})
         assert exc_info.value.detail_code == "-2010"
 
     def test_check_response_raises_order_rejected_for_1013(self):
         with pytest.raises(OrderRejectedError):
-            self.adapter._check_response(
-                {"code": -1013, "msg": "Filter failure"}
-            )
+            self.adapter._check_response({"code": -1013, "msg": "Filter failure"})
 
     def test_check_response_raises_generic_for_other_codes(self):
         with pytest.raises(ExchangeAPIError) as exc_info:
-            self.adapter._check_response(
-                {"code": -1000, "msg": "Unknown error"}
-            )
+            self.adapter._check_response({"code": -1000, "msg": "Unknown error"})
         # 不应当是 OrderRejected
         assert not isinstance(exc_info.value, OrderRejectedError)
 
@@ -282,10 +292,34 @@ class TestBinanceAdapter:
 
     async def test_get_klines_parses_array(self, monkeypatch):
         klines_payload = [
-            [1700000000000, "50000", "51000", "49500", "50500", "100",
-             1700003600000, "5050000", 100, "60", "3030000", "0"],
-            [1700003600000, "50500", "51500", "50000", "51000", "120",
-             1700007200000, "6120000", 120, "70", "3570000", "0"],
+            [
+                1700000000000,
+                "50000",
+                "51000",
+                "49500",
+                "50500",
+                "100",
+                1700003600000,
+                "5050000",
+                100,
+                "60",
+                "3030000",
+                "0",
+            ],
+            [
+                1700003600000,
+                "50500",
+                "51500",
+                "50000",
+                "51000",
+                "120",
+                1700007200000,
+                "6120000",
+                120,
+                "70",
+                "3570000",
+                "0",
+            ],
         ]
         _patch_client(monkeypatch, get_response=_fake_response(klines_payload))
 
@@ -349,8 +383,11 @@ class TestBinanceAdapter:
         _patch_client(monkeypatch, post_response=_fake_response(order_payload))
 
         result = await self.adapter.create_order(
-            symbol="BTCUSDT", side="buy", order_type="limit",
-            quantity=Decimal("1"), price=Decimal("50000"),
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="limit",
+            quantity=Decimal("1"),
+            price=Decimal("50000"),
         )
         assert result.status == "partial"
         assert result.filled_quantity == Decimal("0.5")
@@ -359,23 +396,21 @@ class TestBinanceAdapter:
         # 没 mock client 也能拦截，因为参数校验在 _do 内
         with pytest.raises(OrderRejectedError):
             await self.adapter.create_order(
-                symbol="BTCUSDT", side="buy", order_type="limit",
+                symbol="BTCUSDT",
+                side="buy",
+                order_type="limit",
                 quantity=Decimal("1"),
             )
 
     async def test_cancel_order_returns_true_on_canceled(self, monkeypatch):
         cancel_payload = {"orderId": 1, "status": "CANCELED"}
-        _patch_client(
-            monkeypatch, delete_response=_fake_response(cancel_payload)
-        )
+        _patch_client(monkeypatch, delete_response=_fake_response(cancel_payload))
         result = await self.adapter.cancel_order("1", "BTCUSDT")
         assert result is True
 
     async def test_cancel_order_returns_false_on_other_status(self, monkeypatch):
         cancel_payload = {"orderId": 1, "status": "FILLED"}
-        _patch_client(
-            monkeypatch, delete_response=_fake_response(cancel_payload)
-        )
+        _patch_client(monkeypatch, delete_response=_fake_response(cancel_payload))
         result = await self.adapter.cancel_order("1", "BTCUSDT")
         assert result is False
 
@@ -398,11 +433,13 @@ class TestBinanceAdapter:
 
 # ==================== Binance status mapping ====================
 
+
 class TestBinanceStatusMapping:
     """确保所有 Binance 订单状态都映射到内部状态"""
 
     def setup_method(self):
         from app.core.exchanges.binance import _BINANCE_STATUS_MAP
+
         self.mapping = _BINANCE_STATUS_MAP
 
     def test_new_to_pending(self):
