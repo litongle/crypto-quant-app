@@ -40,7 +40,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.core.exceptions import AppException, ExchangeAPIError
+from app.core.exceptions import AppError, ExchangeAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +90,7 @@ def _is_retryable(exc: BaseException) -> bool:
     """
     if isinstance(exc, ExchangeAPIError):
         return bool(getattr(exc, "retryable", False))
-    if isinstance(exc, AppException):
-        return False
-    return True
+    return not isinstance(exc, AppError)
 
 
 def retry_on_retryable(
@@ -135,7 +133,7 @@ def retry_on_retryable(
                         with attempt:
                             return await cast(Callable[..., Awaitable[T]], func)(*args, **kwargs)
                 except RetryError as e:  # 兜底(reraise=True 通常不会到这)
-                    raise e.last_attempt.exception() or e
+                    raise e.last_attempt.exception() or e from e
                 raise RuntimeError("unreachable")  # type: ignore[unreachable]
 
             return cast(Callable[P, T], async_wrapper)
@@ -153,7 +151,7 @@ def retry_on_retryable(
                     with attempt:
                         return func(*args, **kwargs)
             except RetryError as e:
-                raise e.last_attempt.exception() or e
+                raise e.last_attempt.exception() or e from e
             raise RuntimeError("unreachable")  # type: ignore[unreachable]
 
         return sync_wrapper

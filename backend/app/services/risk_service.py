@@ -39,7 +39,7 @@ class RiskService:
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.user_id == user_id,
-                ExchangeAccount.is_active == True,
+                ExchangeAccount.is_active,
             )
         )
         accounts = result.scalars().all()

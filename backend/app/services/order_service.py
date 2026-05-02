@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,9 @@ from app.repositories.trading_repo import (
     OrderRepository,
     PositionRepository,
 )
+
+if TYPE_CHECKING:
+    from app.core.exchanges import OrderResult
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +131,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"余额同步失败: {str(exc)}",
-            )
+            ) from exc
 
     async def create_order(
         self,
@@ -306,7 +309,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"订单被交易所拒绝: {exc.message}",
-            )
+            ) from exc
 
         except RateLimitError as exc:
             # 限流 → 不改状态，让前端可重试
@@ -318,7 +321,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="交易所请求频率超限，请稍后重试",
-            )
+            ) from exc
 
         except NetworkError as exc:
             # 网络异常 → 标记 pending（可能已提交但未确认）
@@ -334,7 +337,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"交易所网络异常，请检查订单状态: {exc.message}",
-            )
+            ) from exc
 
         except ExchangeAPIError as exc:
             # 其他交易所错误 → 标记 rejected
@@ -352,7 +355,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"交易所下单失败: {exc.message}",
-            )
+            ) from exc
 
         except AppException:
             raise
@@ -368,7 +371,7 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"交易所下单失败: {str(e)}",
-            )
+            ) from e
 
     async def cancel_order(self, order_id: int, user_id: int) -> Order:
         """取消订单（真实撤单）"""
@@ -419,12 +422,12 @@ class OrderService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"撤单被拒: {exc.message}",
-                )
-            except RateLimitError:
+                ) from exc
+            except RateLimitError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail="交易所请求频率超限，请稍后重试",
-                )
+                ) from exc
             except NetworkError as exc:
                 logger.error(
                     "[OrderService] 撤单网络异常: order_id=%d, msg=%s",
@@ -434,19 +437,19 @@ class OrderService:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"交易所网络异常: {exc.message}",
-                )
+                ) from exc
             except ExchangeAPIError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"交易所撤单失败: {exc.message}",
-                )
+                ) from exc
             except AppException:
                 raise
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"交易所撤单失败: {str(e)}",
-                )
+                ) from e
 
         order.status = "cancelled"
         order.cancelled_at = datetime.now(UTC)
@@ -770,7 +773,7 @@ class OrderService:
         self,
         order: Order,
         account,
-        result: "OrderResult",
+        result: OrderResult,
     ) -> None:
         """评审问题4：订单完全成交后自动创建 Position 记录
 
@@ -844,11 +847,13 @@ class OrderService:
                 )
                 close_target = None
                 for p in existing:
-                    if p.status == "open" and p.strategy_instance_id == order.strategy_instance_id:
-                        # 平 long 持仓 或完全平 short
-                        if p.side in ("long", "short"):
-                            close_target = p
-                            break
+                    if (
+                        p.status == "open"
+                        and p.strategy_instance_id == order.strategy_instance_id
+                        and p.side in ("long", "short")
+                    ):
+                        close_target = p
+                        break
 
                 if close_target:
                     close_target.status = "closed"

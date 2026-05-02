@@ -287,14 +287,14 @@ async def create_order(
         except Exception:
             pass
         raise
-    except Exception:
+    except Exception as err:
         # 非 HTTPException（如 AppException 等）→ 同样清理，避免幽灵订单
         try:
             await service.order_repo.delete(order.id)
             await session.commit()
         except Exception:
             pass
-        raise HTTPException(status_code=502, detail="下单失败，请检查订单状态")
+        raise HTTPException(status_code=502, detail="下单失败，请检查订单状态") from err
     await session.commit()
     return APIResponse(data=OrderSchema.from_model(order).model_dump(by_alias=True))
 

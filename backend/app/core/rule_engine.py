@@ -171,9 +171,12 @@ def _validate_rule_group(group: dict, path: str, errors: list[str], depth: int):
             continue
 
         # 单值型必须有 value（0 是合法值，只拒绝 None 或字段缺失）
-        if indicator in VALUE_INDICATORS and operator not in ("cross_up", "cross_down"):
-            if cond.get("value") is None:
-                errors.append(f"{cond_path}: 单值指标需要 value 字段")
+        if (
+            indicator in VALUE_INDICATORS
+            and operator not in ("cross_up", "cross_down")
+            and cond.get("value") is None
+        ):
+            errors.append(f"{cond_path}: 单值指标需要 value 字段")
 
 
 # ── 规则引擎核心 ──────────────────────────────────────────
@@ -337,7 +340,7 @@ class RuleEngine:
                     baseline = slow
             except Exception:
                 baseline = slow
-        elif isinstance(value, (int, float)):
+        elif isinstance(value, int | float):
             # 穿越固定数值
             baseline = np.full_like(fast, float(value))
         else:

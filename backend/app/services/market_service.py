@@ -133,7 +133,7 @@ class MarketService:
             raise AppException(
                 code="EXTERNAL_API_ERROR",
                 message=f"获取行情失败: {str(e)}",
-            )
+            ) from e
 
     async def get_kline(
         self,
@@ -188,7 +188,7 @@ class MarketService:
             raise AppException(
                 code="EXTERNAL_API_ERROR",
                 message=f"获取K线失败: {str(e)}",
-            )
+            ) from e
 
     async def get_orderbook(
         self,
@@ -221,7 +221,7 @@ class MarketService:
             raise AppException(
                 code="EXTERNAL_API_ERROR",
                 message=f"获取订单簿失败: {str(e)}",
-            )
+            ) from e
 
     def _format_ticker(self, data: dict, exchange: str, symbol: str) -> dict:
         """格式化行情数据"""

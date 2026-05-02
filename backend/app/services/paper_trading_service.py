@@ -96,7 +96,7 @@ class PaperTradingService:
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.id == account_id,
-                ExchangeAccount.is_demo == True,
+                ExchangeAccount.is_demo,
             )
         )
         account = result.scalar_one_or_none()
@@ -227,7 +227,7 @@ class PaperTradingService:
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.user_id == user_id,
-                ExchangeAccount.is_demo == True,
+                ExchangeAccount.is_demo,
             )
         )
         return list(result.scalars().all())
@@ -239,7 +239,7 @@ class PaperTradingService:
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.id == account_id,
-                ExchangeAccount.is_demo == True,
+                ExchangeAccount.is_demo,
             )
         )
         account = result.scalar_one_or_none()

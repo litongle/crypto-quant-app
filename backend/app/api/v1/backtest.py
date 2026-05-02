@@ -31,12 +31,21 @@ router = APIRouter()
 class BacktestRequest(BaseModel):
     """回测请求"""
 
-    templateId: str = Field(..., description="策略模板ID (ma_cross/rsi/bollinger/grid/martingale)")
+    template_id: str = Field(
+        ...,
+        alias="templateId",
+        description="策略模板ID (ma_cross/rsi/bollinger/grid/martingale)",
+    )
     symbol: str = Field(..., description="交易对 (BTCUSDT)")
     exchange: str = Field(default="binance", description="交易所")
-    startDate: str = Field(..., description="开始日期 YYYY-MM-DD")
-    endDate: str = Field(default="", description="结束日期 YYYY-MM-DD，默认今天")
-    initialCapital: float = Field(default=100000.0, gt=0, description="初始资金 USDT，必须大于0")
+    start_date: str = Field(..., alias="startDate", description="开始日期 YYYY-MM-DD")
+    end_date: str = Field(default="", alias="endDate", description="结束日期 YYYY-MM-DD，默认今天")
+    initial_capital: float = Field(
+        default=100000.0,
+        alias="initialCapital",
+        gt=0,
+        description="初始资金 USDT，必须大于0",
+    )
     params: dict = Field(default_factory=dict, description="策略参数")
 
 
@@ -56,26 +65,26 @@ async def run_backtest(
     使用真实策略引擎（StrategyFactory）+ Binance 公开 API K线数据。
     """
     # 解析日期
-    end_date = request.endDate or datetime.now().strftime("%Y-%m-%d")
+    end_date = request.end_date or datetime.now().strftime("%Y-%m-%d")
 
     # 日期校验 — 返回正确的 HTTP 4xx 状态码
     today = datetime.now().strftime("%Y-%m-%d")
-    if request.startDate > today:
+    if request.start_date > today:
         raise HTTPException(status_code=422, detail="开始日期不能是未来日期")
     if end_date > today:
         raise HTTPException(status_code=422, detail="结束日期不能是未来日期")
-    if request.startDate > end_date:
+    if request.start_date > end_date:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
 
     # 执行回测
     service = BacktestService()
     result = await service.execute_backtest(
-        template_id=request.templateId,
+        template_id=request.template_id,
         symbol=request.symbol,
         exchange=request.exchange,
-        start_date=request.startDate,
+        start_date=request.start_date,
         end_date=end_date,
-        initial_capital=request.initialCapital,
+        initial_capital=request.initial_capital,
         params=request.params,
     )
 
@@ -91,12 +100,12 @@ async def run_backtest(
         await _save_backtest_history(
             session=session,
             user_id=current_user.id,
-            template_id=request.templateId,
+            template_id=request.template_id,
             symbol=request.symbol,
             exchange=request.exchange,
-            start_date=request.startDate,
+            start_date=request.start_date,
             end_date=end_date,
-            initial_capital=request.initialCapital,
+            initial_capital=request.initial_capital,
             params=request.params,
             result=result,
         )
@@ -168,15 +177,15 @@ async def _save_backtest_history(
     from app.models.backtest import BacktestResult
 
     # 数据校验：防超限（TEXT 字段上限约 65535）
-    MAX_FIELD_LEN = 65535
+    max_field_len = 65535
     equity_curve_str = json.dumps(result.get("equityCurve", []))
     trades_str = json.dumps(result.get("trades", []))
-    if len(equity_curve_str) > MAX_FIELD_LEN:
-        equity_curve_str = equity_curve_str[:MAX_FIELD_LEN]
-        logger.warning("equityCurve 截断至 %d 字符", MAX_FIELD_LEN)
-    if len(trades_str) > MAX_FIELD_LEN:
-        trades_str = trades_str[:MAX_FIELD_LEN]
-        logger.warning("trades 截断至 %d 字符", MAX_FIELD_LEN)
+    if len(equity_curve_str) > max_field_len:
+        equity_curve_str = equity_curve_str[:max_field_len]
+        logger.warning("equityCurve 截断至 %d 字符", max_field_len)
+    if len(trades_str) > max_field_len:
+        trades_str = trades_str[:max_field_len]
+        logger.warning("trades 截断至 %d 字符", max_field_len)
 
     record = BacktestResult(
         user_id=user_id,
@@ -216,12 +225,12 @@ async def _save_backtest_history(
     session.add(record)
 
     # 自动清理：每用户最多保留50条回测记录，超出删最老的（在同一事务内）
-    _MAX_BACKTEST_PER_USER = 50
+    max_backtest_per_user = 50
     count_result = await session.execute(
         select(BacktestResult.id)
         .where(BacktestResult.user_id == user_id)
         .order_by(desc(BacktestResult.created_at))
-        .offset(_MAX_BACKTEST_PER_USER)
+        .offset(max_backtest_per_user)
     )
     old_ids = [row[0] for row in count_result.all()]
     if old_ids:

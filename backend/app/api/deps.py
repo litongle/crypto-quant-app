@@ -30,12 +30,12 @@ async def get_current_user(
             raise AuthenticationError()
         try:
             user_id = int(sub)
-        except (ValueError, TypeError):
-            raise AuthenticationError()
-    except ValueError as e:
-        if "expired" in str(e).lower():
-            raise TokenExpiredError()
-        raise AuthenticationError()
+        except (ValueError, TypeError) as err:
+            raise AuthenticationError() from err
+    except ValueError as err:
+        if "expired" in str(err).lower():
+            raise TokenExpiredError() from err
+        raise AuthenticationError() from err
 
     user_repo = UserRepository(db)
     user = await user_repo.get_by_id(user_id)

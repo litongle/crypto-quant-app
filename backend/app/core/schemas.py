@@ -4,7 +4,7 @@
 
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
@@ -28,7 +28,7 @@ class PageResponse(BaseModel, Generic[T]):
     data: list[T] | None = None
     total: int = 0
     page: int = 1
-    pageSize: int = 20
+    page_size: int = Field(default=20, alias="pageSize")
 
     class Config:
         json_schema_extra = {

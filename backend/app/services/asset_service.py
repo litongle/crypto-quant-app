@@ -209,8 +209,6 @@ class AssetService:
 
         # P0-1: 修复权益曲线 - 使用真实订单数据计算
         all_trades = []
-        start_date = datetime.now(UTC) - timedelta(days=days)
-
         for account in accounts:
             # 获取账户的所有历史成交订单
             orders = await self.order_repo.get_by_account(account.id, status="filled", limit=2000)

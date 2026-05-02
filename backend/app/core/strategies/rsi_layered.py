@@ -201,12 +201,18 @@ class RsiLayeredStrategy(BaseStrategy):
     def _check_retracement(self, rsi: float) -> tuple[bool, bool]:
         long_signal = False
         short_signal = False
-        if self._long_monitoring and self._long_extreme_value is not None:
-            if rsi - self._long_extreme_value >= self.retracement_points:
-                long_signal = True
-        if self._short_monitoring and self._short_extreme_value is not None:
-            if self._short_extreme_value - rsi >= self.retracement_points:
-                short_signal = True
+        if (
+            self._long_monitoring
+            and self._long_extreme_value is not None
+            and rsi - self._long_extreme_value >= self.retracement_points
+        ):
+            long_signal = True
+        if (
+            self._short_monitoring
+            and self._short_extreme_value is not None
+            and self._short_extreme_value - rsi >= self.retracement_points
+        ):
+            short_signal = True
         return long_signal, short_signal
 
     def _reset_long_tracking(self) -> None:

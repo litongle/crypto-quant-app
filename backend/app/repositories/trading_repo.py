@@ -31,7 +31,7 @@ class ExchangeAccountRepository(BaseRepository[ExchangeAccount]):
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.user_id == user_id,
-                ExchangeAccount.is_active == True,
+                ExchangeAccount.is_active,
             )
         )
         return list(result.scalars().all())
