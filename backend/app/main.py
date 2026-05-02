@@ -33,6 +33,16 @@ async def lifespan(app: FastAPI):
     if settings.setup_required:
         logger.info("⚠️ 首次运行，请访问 /web/setup 完成安装向导")
 
+    # setup 完成后先确保数据库 schema 存在，再启动依赖这些表的服务。
+    if not settings.setup_required:
+        try:
+            from app.database import init_db
+
+            await init_db()
+            logger.info("数据库表结构已就绪")
+        except Exception as exc:
+            logger.warning("数据库初始化失败: %s", exc)
+
     # 启动 WebSocket 行情代理
     try:
         from app.api.v1.ws_market import init_ws_proxies
@@ -152,8 +162,8 @@ def create_app() -> FastAPI:
 
     # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
     # 改为使用 Redis 存储，支持多进程/多实例且有过期时间
-    MARKET_RATE_LIMIT = 60  # 每分钟请求上限
-    MARKET_RATE_WINDOW = 60  # 窗口大小（秒）
+    market_rate_limit = 60  # 每分钟请求上限
+    market_rate_window = 60  # 窗口大小（秒）
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
@@ -175,9 +185,9 @@ def create_app() -> FastAPI:
             # 使用 Redis INCR + EXPIRE 实现固定窗口限流
             count = await r.incr(key)
             if count == 1:
-                await r.expire(key, MARKET_RATE_WINDOW)
+                await r.expire(key, market_rate_window)
 
-            if count > MARKET_RATE_LIMIT:
+            if count > market_rate_limit:
                 return JSONResponse(
                     status_code=429,
                     content={
