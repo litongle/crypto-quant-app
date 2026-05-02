@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -54,6 +54,29 @@ def _safe_divide(
         return numerator / denominator
     except (InvalidOperation, ZeroDivisionError):
         return default
+
+
+def _precision_to_step(value: Any) -> Decimal:
+    """将精度位数或步进值统一转换为 Decimal 步进"""
+    step = _safe_decimal(value)
+    if step <= 0:
+        return Decimal("0")
+    if step == step.to_integral_value() and step >= 1:
+        return Decimal("1").scaleb(-int(step))
+    return step
+
+
+def _quantize_to_step(value: Decimal, step: Decimal) -> Decimal:
+    """按交易所步进向下截断，避免超出精度被拒单"""
+    if step <= 0:
+        return value
+    units = (value / step).to_integral_value(rounding=ROUND_DOWN)
+    return units * step
+
+
+def _format_decimal(value: Decimal) -> str:
+    """将 Decimal 格式化为普通字符串，避免科学计数法"""
+    return format(value.normalize(), "f")
 
 
 # ==================== 统一数据模型 ====================
@@ -137,11 +160,11 @@ class SymbolInfo:
 class BaseExchangeAdapter(ABC):
     """交易所适配器基类"""
 
-    _shared_client: httpx.AsyncClient | None = None
-
     RETRY_MAX_ATTEMPTS: int = DEFAULT_RETRY_MAX_ATTEMPTS
     RETRY_BASE_DELAY: float = DEFAULT_RETRY_BASE_DELAY
     RETRY_MAX_DELAY: float = DEFAULT_RETRY_MAX_DELAY
+    CLIENT_TIMEOUT: float = 30.0
+    CLIENT_TTL: float = 300.0
 
     RATE_LIMIT_INTERVAL: float = 0.1
     _last_request_time: float = 0.0
@@ -150,12 +173,24 @@ class BaseExchangeAdapter(ABC):
         self.api_key = api_key
         self.secret_key = secret_key
         self.passphrase = passphrase
+        self._client: httpx.AsyncClient | None = None
+        self._client_created_at: float = 0.0
 
-    @classmethod
-    async def get_shared_client(cls) -> httpx.AsyncClient:
-        if cls._shared_client is None or cls._shared_client.is_closed:
-            cls._shared_client = httpx.AsyncClient(timeout=30.0)
-        return cls._shared_client
+    async def get_shared_client(self) -> httpx.AsyncClient:
+        now = time.monotonic()
+        client_expired = (now - self._client_created_at) >= self.CLIENT_TTL
+        if self._client is None or self._client.is_closed or client_expired:
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+            self._client = httpx.AsyncClient(timeout=self.CLIENT_TIMEOUT)
+            self._client_created_at = now
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+        self._client_created_at = 0.0
 
     @staticmethod
     def _classify_error(exc: Exception, exchange: str) -> ExchangeAPIError:
@@ -169,7 +204,7 @@ class BaseExchangeAdapter(ABC):
             status_code = exc.response.status_code
             if status_code == 429:
                 return RateLimitError(exchange, f"请求频率超限: {exc}")
-            if status_code in (400, 401, 403):
+            if status_code == 400:
                 try:
                     body = exc.response.json()
                     detail_code = body.get("code") or body.get("err-code")
@@ -178,6 +213,21 @@ class BaseExchangeAdapter(ABC):
                     detail_code = None
                     msg = str(exc)
                 return OrderRejectedError(exchange, msg, detail_code=detail_code)
+            if status_code in (401, 403):
+                try:
+                    body = exc.response.json()
+                    detail_code = body.get("code") or body.get("err-code")
+                    msg = body.get("msg") or body.get("err-msg") or str(exc)
+                except Exception:
+                    detail_code = None
+                    msg = str(exc)
+                return ExchangeAPIError(
+                    exchange,
+                    msg,
+                    retryable=False,
+                    status_code=status_code,
+                    detail_code=str(detail_code) if detail_code is not None else None,
+                )
             if status_code >= 500:
                 return NetworkError(exchange, f"交易所服务异常: {exc}")
             return ExchangeAPIError(exchange, f"HTTP {status_code}: {exc}")

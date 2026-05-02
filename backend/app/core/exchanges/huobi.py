@@ -2,6 +2,7 @@
 Huobi (HTX) 交易所适配器实现
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -9,6 +10,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 from urllib.parse import urlencode
 
 from app.core.exceptions import (
@@ -24,6 +26,9 @@ from app.core.exchanges.base import (
     PositionInfo,
     SymbolInfo,
     Ticker,
+    _format_decimal,
+    _precision_to_step,
+    _quantize_to_step,
     _safe_decimal,
     _safe_divide,
 )
@@ -43,6 +48,7 @@ class HuobiAdapter(BaseExchangeAdapter):
     """Huobi (HTX) 交易所适配器"""
 
     BASE_URL = "https://api.huobi.pro"
+    FUTURES_URL = "https://api.hbdm.com"
 
     RATE_LIMIT_INTERVAL = 0.1
 
@@ -55,7 +61,8 @@ class HuobiAdapter(BaseExchangeAdapter):
         super().__init__(api_key, secret_key, passphrase)
         self._account_id: str | None = None
         self._account_id_fetched_at: float = 0.0
-        self._ACCOUNT_ID_TTL = 300.0
+        self._ACCOUNT_ID_TTL = 60.0
+        self._account_id_lock = asyncio.Lock()
 
     def _invalidate_account_id_cache(self) -> None:
         self._account_id = None
@@ -64,7 +71,26 @@ class HuobiAdapter(BaseExchangeAdapter):
     def _to_huobi_symbol(self, symbol: str) -> str:
         return symbol.lower()
 
-    def _sign_params(self, method: str, path: str, params: dict | None = None) -> dict:
+    @staticmethod
+    def _to_perp_contract_code(symbol: str) -> str:
+        upper_symbol = symbol.upper()
+        for stablecoin in ("USDT", "USDC"):
+            if upper_symbol.endswith(stablecoin):
+                return f"{upper_symbol[: -len(stablecoin)]}-{stablecoin}"
+        return upper_symbol
+
+    @staticmethod
+    def _symbol_from_contract_code(contract_code: str) -> str:
+        return contract_code.replace("-", "").upper()
+
+    def _sign_params(
+        self,
+        method: str,
+        path: str,
+        params: dict | None = None,
+        *,
+        base_url: str | None = None,
+    ) -> dict:
         params = params or {}
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
         sign_params = {
@@ -76,7 +102,7 @@ class HuobiAdapter(BaseExchangeAdapter):
         }
         sorted_params = sorted(sign_params.items())
         query_string = urlencode(sorted_params)
-        host = self.BASE_URL.replace("https://", "").replace("http://", "")
+        host = (base_url or self.BASE_URL).replace("https://", "").replace("http://", "")
         payload = f"{method.upper()}\n{host}\n{path}\n{query_string}"
         signature = base64.b64encode(
             hmac.new(self.secret_key.encode(), payload.encode(), hashlib.sha256).digest()
@@ -84,37 +110,53 @@ class HuobiAdapter(BaseExchangeAdapter):
         sign_params["Signature"] = signature
         return sign_params
 
+    def _prepare_quantity(self, quantity: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(quantity, info.step_size)
+        if normalized <= 0 or (info.min_qty > 0 and normalized < info.min_qty):
+            raise OrderRejectedError("Huobi", f"下单数量 {quantity} 小于交易所最小要求")
+        return normalized
+
+    def _prepare_price(self, price: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(price, info.tick_size)
+        if normalized <= 0:
+            raise OrderRejectedError("Huobi", f"价格 {price} 无效")
+        return normalized
+
     async def _get_account_id(self) -> str:
         now = time.monotonic()
         if self._account_id and (now - self._account_id_fetched_at < self._ACCOUNT_ID_TTL):
             return self._account_id
+        async with self._account_id_lock:
+            now = time.monotonic()
+            if self._account_id and (now - self._account_id_fetched_at < self._ACCOUNT_ID_TTL):
+                return self._account_id
 
-        async def _do():
-            path = "/v1/account/accounts"
-            params = self._sign_params("GET", path)
-            client = await self.get_shared_client()
-            resp = await client.get(f"{self.BASE_URL}{path}", params=params)
-            resp.raise_for_status()
-            return resp.json()
+            async def _do():
+                path = "/v1/account/accounts"
+                params = self._sign_params("GET", path)
+                client = await self.get_shared_client()
+                resp = await client.get(f"{self.BASE_URL}{path}", params=params)
+                resp.raise_for_status()
+                return resp.json()
 
-        data = await self._request_with_retry(_do, context="get_account_id")
-        if data.get("status") != "ok":
-            err_code = data.get("err-code", "unknown")
-            raise ExchangeAPIError(
-                "Huobi", data.get("err-msg", "获取账户ID失败"), detail_code=err_code
-            )
+            data = await self._request_with_retry(_do, context="get_account_id")
+            if data.get("status") != "ok":
+                err_code = data.get("err-code", "unknown")
+                raise ExchangeAPIError(
+                    "Huobi", data.get("err-msg", "获取账户ID失败"), detail_code=err_code
+                )
 
-        for account in data.get("data", []):
-            if account.get("type") == "spot":
-                self._account_id = str(account["id"])
+            for account in data.get("data", []):
+                if account.get("type") == "spot":
+                    self._account_id = str(account["id"])
+                    self._account_id_fetched_at = time.monotonic()
+                    return self._account_id
+            if data.get("data"):
+                first = data["data"][0]
+                self._account_id = str(first["id"])
                 self._account_id_fetched_at = time.monotonic()
                 return self._account_id
-        if data.get("data"):
-            first = data["data"][0]
-            self._account_id = str(first["id"])
-            self._account_id_fetched_at = time.monotonic()
-            return self._account_id
-        raise ExchangeAPIError("Huobi", "未找到任何账户")
+            raise ExchangeAPIError("Huobi", "未找到任何账户")
 
     def _check_huobi_response(self, data: dict) -> None:
         if data.get("status") != "ok":
@@ -159,9 +201,7 @@ class HuobiAdapter(BaseExchangeAdapter):
             low_24h=_safe_decimal(tick.get("low")),
             volume_24h=_safe_decimal(tick.get("vol")),
             quote_volume_24h=_safe_decimal(tick.get("amount")),
-            timestamp=datetime.fromtimestamp(
-                float(_safe_decimal(tick.get("version")) / 1000), tz=UTC
-            ),
+            timestamp=datetime.fromtimestamp(float(_safe_decimal(data.get("ts")) / 1000), tz=UTC),
         )
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
@@ -257,7 +297,54 @@ class HuobiAdapter(BaseExchangeAdapter):
         return [b for b in balances if b.free > 0 or b.locked > 0]
 
     async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
-        return []
+        contract_code = self._to_perp_contract_code(symbol) if symbol else None
+
+        async def _fetch_positions(path: str) -> list[dict[str, Any]]:
+            payload: dict[str, Any] = {}
+            if contract_code:
+                payload["contract_code"] = contract_code
+
+            async def _do():
+                params = self._sign_params(
+                    "POST",
+                    path,
+                    base_url=self.FUTURES_URL,
+                )
+                client = await self.get_shared_client()
+                resp = await client.post(
+                    f"{self.FUTURES_URL}{path}",
+                    params=params,
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp.json()
+
+            data = await self._request_with_retry(_do, context=f"get_positions({path})")
+            self._check_huobi_response(data)
+            return data.get("data", [])
+
+        position_rows = await _fetch_positions("/linear-swap-api/v1/swap_position_info")
+        position_rows.extend(await _fetch_positions("/linear-swap-api/v1/swap_cross_position_info"))
+
+        positions = []
+        for item in position_rows:
+            volume = _safe_decimal(item.get("volume"))
+            if volume <= 0:
+                continue
+            direction = item.get("direction", "buy").lower()
+            side = "long" if direction == "buy" else "short"
+            positions.append(
+                PositionInfo(
+                    symbol=self._symbol_from_contract_code(item.get("contract_code", "")),
+                    side=side,
+                    quantity=volume,
+                    entry_price=_safe_decimal(item.get("cost_open")),
+                    current_price=_safe_decimal(item.get("last_price")),
+                    unrealized_pnl=_safe_decimal(item.get("profit_unreal")),
+                    leverage=int(_safe_decimal(item.get("lever_rate"), Decimal("1"))),
+                )
+            )
+        return positions
 
     async def create_order(
         self,
@@ -267,6 +354,8 @@ class HuobiAdapter(BaseExchangeAdapter):
         quantity: Decimal,
         price: Decimal | None = None,
     ) -> OrderResult:
+        info = await self.get_exchange_info(symbol)
+        normalized_quantity = self._prepare_quantity(quantity, info)
         try:
             account_id = await self._get_account_id()
         except ExchangeAPIError:
@@ -280,11 +369,11 @@ class HuobiAdapter(BaseExchangeAdapter):
             "account-id": account_id,
             "symbol": huobi_symbol,
             "type": huobi_type,
-            "amount": str(quantity),
+            "amount": _format_decimal(normalized_quantity),
             "source": "spot-api",
         }
         if price and order_type.lower() == "limit":
-            body["price"] = str(price)
+            body["price"] = _format_decimal(self._prepare_price(price, info))
 
         async def _do():
             params = self._sign_params("POST", path)
@@ -307,7 +396,7 @@ class HuobiAdapter(BaseExchangeAdapter):
             symbol=symbol,
             side=side.lower(),
             order_type=order_type.lower(),
-            quantity=quantity,
+            quantity=normalized_quantity,
             price=price,
             status="pending",
             filled_quantity=Decimal("0"),
@@ -366,32 +455,36 @@ class HuobiAdapter(BaseExchangeAdapter):
         stop_price: Decimal,
         order_type: str = "stop_loss",
     ) -> OrderResult:
-        account_id = await self._get_account_id()
-        otype = "sell-stop" if side == "sell" else "buy-stop"
+        contract_code = self._to_perp_contract_code(symbol)
+        trigger_price = _format_decimal(stop_price)
+        trigger_direction = "le" if side.lower() == "sell" else "ge"
+        if order_type == "take_profit":
+            trigger_direction = "ge" if side.lower() == "sell" else "le"
         body = {
-            "accountId": account_id,
-            "symbol": symbol.lower(),
-            "orderType": "market",
-            "type": otype,
-            "amount": str(quantity),
-            "stopPrice": str(stop_price),
-            "source": "api",
+            "contract_code": contract_code,
+            "direction": side.lower(),
+            "offset": "close",
+            "volume": _format_decimal(quantity),
+            "trigger_type": "ge" if trigger_direction == "ge" else "le",
+            "trigger_price": trigger_price,
+            "order_price_type": "optimal_20",
         }
 
         async def _do():
-            params = self._sign_params("POST", "/v2/order/algo")
+            path = "/linear-swap-api/v1/swap_trigger_order"
+            params = self._sign_params("POST", path, base_url=self.FUTURES_URL)
             client = await self.get_shared_client()
-            resp = await client.post(f"{self.BASE_URL}/v2/order/algo", params=params, json=body)
+            resp = await client.post(f"{self.FUTURES_URL}{path}", params=params, json=body)
             resp.raise_for_status()
             return resp.json()
 
         data = await self._request_with_retry(
             _do, max_attempts=1, context=f"create_stop_order({symbol})"
         )
-        if data.get("status") != "ok":
-            raise OrderRejectedError("huobi", data.get("err-msg", "unknown"))
+        self._check_huobi_response(data)
+        order_data = data.get("data", {})
         return OrderResult(
-            exchange_order_id=str(data.get("data", "")),
+            exchange_order_id=str(order_data.get("order_id", order_data.get("order-id", ""))),
             symbol=symbol.upper(),
             side=side,
             order_type=order_type,
@@ -418,11 +511,23 @@ class HuobiAdapter(BaseExchangeAdapter):
 
         for s in data.get("data", []):
             if s.get("sc").lower() == symbol_lower:
+                amount_step = _precision_to_step(
+                    s.get("ap")
+                    or s.get("amount-precision")
+                    or s.get("tap")
+                    or s.get("toa")
+                )
+                price_step = _precision_to_step(
+                    s.get("pp")
+                    or s.get("price-precision")
+                    or s.get("tpp")
+                    or s.get("tp")
+                )
                 return SymbolInfo(
                     symbol=symbol.upper(),
                     min_qty=_safe_decimal(s.get("minoa")),
-                    step_size=_safe_decimal(s.get("toa")),
+                    step_size=amount_step,
                     min_notional=_safe_decimal(s.get("minov")),
-                    tick_size=_safe_decimal(s.get("tp")),
+                    tick_size=price_step,
                 )
         raise ExchangeAPIError("Huobi", f"交易对 {symbol} 不存在")

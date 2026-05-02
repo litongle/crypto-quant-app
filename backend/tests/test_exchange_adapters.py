@@ -21,6 +21,7 @@ from app.core.exchange_adapter import get_exchange_adapter
 from app.core.exchanges import BinanceAdapter, HuobiAdapter, OKXAdapter
 from app.core.exchanges.base import (
     BaseExchangeAdapter,
+    SymbolInfo,
     _safe_decimal,
     _safe_divide,
 )
@@ -56,16 +57,13 @@ def _patch_client(
     client.get = AsyncMock(return_value=get_response)
     client.post = AsyncMock(return_value=post_response)
     client.delete = AsyncMock(return_value=delete_response)
+    client.aclose = AsyncMock(return_value=None)
     client.is_closed = False
 
-    async def _get_shared_client():
+    async def _get_shared_client(self):
         return client
 
-    monkeypatch.setattr(
-        BaseExchangeAdapter,
-        "get_shared_client",
-        classmethod(lambda cls: _get_shared_client()),
-    )
+    monkeypatch.setattr(BaseExchangeAdapter, "get_shared_client", _get_shared_client)
     return client
 
 
@@ -199,7 +197,7 @@ class TestErrorClassification:
         assert err.retryable is False
         assert err.detail_code == -1013
 
-    def test_401_classified_as_order_rejected(self):
+    def test_401_classified_as_non_retryable_exchange_error(self):
         request = httpx.Request("POST", "http://test")
         response = httpx.Response(
             401,
@@ -208,7 +206,10 @@ class TestErrorClassification:
         )
         exc = httpx.HTTPStatusError("401", request=request, response=response)
         err = BaseExchangeAdapter._classify_error(exc, "Binance")
-        assert isinstance(err, OrderRejectedError)
+        assert isinstance(err, ExchangeAPIError)
+        assert not isinstance(err, OrderRejectedError)
+        assert err.retryable is False
+        assert err.status_code == 401
 
     def test_500_classified_as_network_retryable(self):
         request = httpx.Request("POST", "http://test")
@@ -342,6 +343,16 @@ class TestBinanceAdapter:
         assert ob.bids[0] == (Decimal("50000"), Decimal("0.5"))
         assert ob.asks[0] == (Decimal("50001"), Decimal("0.3"))
 
+    async def test_get_orderbook_uppercases_symbol(self, monkeypatch):
+        client = _patch_client(
+            monkeypatch,
+            get_response=_fake_response({"bids": [], "asks": []}),
+        )
+
+        await self.adapter.get_orderbook("btcusdt")
+
+        assert client.get.await_args.kwargs["params"]["symbol"] == "BTCUSDT"
+
     async def test_create_order_parses_filled_response(self, monkeypatch):
         order_payload = {
             "orderId": 123456,
@@ -355,6 +366,15 @@ class TestBinanceAdapter:
             "price": "0.00",
         }
         _patch_client(monkeypatch, post_response=_fake_response(order_payload))
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTCUSDT",
+                min_qty=Decimal("0.001"),
+                step_size=Decimal("0.001"),
+                min_notional=Decimal("10"),
+                tick_size=Decimal("0.01"),
+            )
+        )
 
         result = await self.adapter.create_order(
             symbol="BTCUSDT",
@@ -381,6 +401,15 @@ class TestBinanceAdapter:
             "price": "50000",
         }
         _patch_client(monkeypatch, post_response=_fake_response(order_payload))
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTCUSDT",
+                min_qty=Decimal("0.001"),
+                step_size=Decimal("0.001"),
+                min_notional=Decimal("10"),
+                tick_size=Decimal("0.01"),
+            )
+        )
 
         result = await self.adapter.create_order(
             symbol="BTCUSDT",
@@ -430,6 +459,74 @@ class TestBinanceAdapter:
         assert "USDT" in assets
         assert "ETH" not in assets
 
+    async def test_get_positions_parses_futures_payload(self, monkeypatch):
+        adapter = BinanceAdapter(
+            api_key="test_key",
+            secret_key="test_secret_xxxxxxxxxxxx",
+            is_futures=True,
+        )
+        payload = [
+            {
+                "symbol": "BTCUSDT",
+                "positionAmt": "-0.25",
+                "entryPrice": "50000",
+                "markPrice": "49000",
+                "unRealizedProfit": "-250",
+                "leverage": "10",
+            },
+            {
+                "symbol": "ETHUSDT",
+                "positionAmt": "0",
+                "entryPrice": "0",
+                "markPrice": "0",
+                "unRealizedProfit": "0",
+                "leverage": "5",
+            },
+        ]
+        _patch_client(monkeypatch, get_response=_fake_response(payload))
+
+        positions = await adapter.get_positions()
+
+        assert len(positions) == 1
+        assert positions[0].symbol == "BTCUSDT"
+        assert positions[0].side == "short"
+        assert positions[0].quantity == Decimal("0.25")
+
+    async def test_create_order_quantizes_quantity_and_price(self, monkeypatch):
+        order_payload = {
+            "orderId": 1,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "origQty": "1.23",
+            "executedQty": "0",
+            "cummulativeQuoteQty": "0",
+            "status": "NEW",
+            "price": "50000.1",
+        }
+        client = _patch_client(monkeypatch, post_response=_fake_response(order_payload))
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTCUSDT",
+                min_qty=Decimal("0.01"),
+                step_size=Decimal("0.01"),
+                min_notional=Decimal("10"),
+                tick_size=Decimal("0.1"),
+            )
+        )
+
+        await self.adapter.create_order(
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="limit",
+            quantity=Decimal("1.239"),
+            price=Decimal("50000.19"),
+        )
+
+        params = client.post.await_args.kwargs["params"]
+        assert params["quantity"] == "1.23"
+        assert params["price"] == "50000.1"
+
 
 # ==================== Binance status mapping ====================
 
@@ -460,3 +557,222 @@ class TestBinanceStatusMapping:
 
     def test_rejected_stays_rejected(self):
         assert self.mapping["REJECTED"] == "rejected"
+
+
+class TestOKXAdapter:
+    def setup_method(self):
+        self.adapter = OKXAdapter(
+            api_key="test_key",
+            secret_key="test_secret_xxxxxxxxxxxx",
+            passphrase="passphrase",
+        )
+
+    def test_trade_mode_for_perpetual_inst(self):
+        assert self.adapter._trade_mode_for_inst("BTC-USDT-SWAP") == "cross"
+        assert self.adapter._trade_mode_for_inst("BTC-USDT") == "cash"
+
+    def test_normalize_position_side_handles_net_long_and_short(self):
+        long_side, long_qty = self.adapter._normalize_position_side("net", Decimal("2"))
+        short_side, short_qty = self.adapter._normalize_position_side("net", Decimal("-3"))
+
+        assert (long_side, long_qty) == ("long", Decimal("2"))
+        assert (short_side, short_qty) == ("short", Decimal("3"))
+
+    def test_time_sync_state_is_instance_scoped(self):
+        other = OKXAdapter(
+            api_key="another",
+            secret_key="secret",
+            passphrase="passphrase",
+        )
+        self.adapter._time_offset_ms = 123
+        self.adapter._time_synced = True
+
+        assert other._time_offset_ms == 0
+        assert other._time_synced is False
+
+    async def test_get_positions_normalizes_net_side(self, monkeypatch):
+        payload = {
+            "code": "0",
+            "data": [
+                {
+                    "instId": "BTC-USDT-SWAP",
+                    "posSide": "net",
+                    "pos": "-2",
+                    "avgPx": "50000",
+                    "markPx": "49000",
+                    "upl": "-2000",
+                    "lever": "5",
+                }
+            ],
+        }
+        _patch_client(monkeypatch, get_response=_fake_response(payload))
+        self.adapter._time_synced = True
+
+        positions = await self.adapter.get_positions()
+
+        assert len(positions) == 1
+        assert positions[0].side == "short"
+        assert positions[0].quantity == Decimal("2")
+
+    async def test_create_order_uses_cross_for_perpetual(self, monkeypatch):
+        payload = {"code": "0", "data": [{"ordId": "123"}]}
+        client = _patch_client(monkeypatch, post_response=_fake_response(payload))
+        self.adapter._time_synced = True
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTC-USDT-SWAP",
+                min_qty=Decimal("0.1"),
+                step_size=Decimal("0.1"),
+                min_notional=Decimal("0"),
+                tick_size=Decimal("0.1"),
+            )
+        )
+
+        await self.adapter.create_order(
+            symbol="BTC-USDT-SWAP",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("1.29"),
+        )
+
+        body = json.loads(client.post.await_args.kwargs["content"])
+        assert body["tdMode"] == "cross"
+        assert body["sz"] == "1.2"
+
+    async def test_create_stop_order_uses_cross_for_perpetual(self, monkeypatch):
+        payload = {"code": "0", "data": [{"ordId": "123"}]}
+        client = _patch_client(monkeypatch, post_response=_fake_response(payload))
+        self.adapter._time_synced = True
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTC-USDT-SWAP",
+                min_qty=Decimal("0.1"),
+                step_size=Decimal("0.1"),
+                min_notional=Decimal("0"),
+                tick_size=Decimal("0.1"),
+            )
+        )
+
+        await self.adapter.create_stop_order(
+            symbol="BTC-USDT-SWAP",
+            side="sell",
+            quantity=Decimal("1.27"),
+            stop_price=Decimal("45000.18"),
+        )
+
+        body = json.loads(client.post.await_args.kwargs["content"])
+        assert body["tdMode"] == "cross"
+        assert body["sz"] == "1.2"
+        assert body["slTriggerPx"] == "45000.1"
+
+
+class TestHuobiAdapter:
+    def setup_method(self):
+        self.adapter = HuobiAdapter(
+            api_key="test_key",
+            secret_key="test_secret_xxxxxxxxxxxx",
+        )
+
+    async def test_get_ticker_uses_top_level_timestamp(self, monkeypatch):
+        payload = {
+            "status": "ok",
+            "ts": 1700000000000,
+            "tick": {
+                "close": "50000",
+                "open": "49000",
+                "high": "51000",
+                "low": "48000",
+                "vol": "1000",
+                "amount": "20",
+                "version": 42,
+            },
+        }
+        _patch_client(monkeypatch, get_response=_fake_response(payload))
+
+        ticker = await self.adapter.get_ticker("BTCUSDT")
+
+        assert int(ticker.timestamp.timestamp()) == 1700000000
+
+    async def test_get_positions_reads_swap_and_cross_endpoints(self, monkeypatch):
+        client = MagicMock()
+        client.get = AsyncMock()
+        client.delete = AsyncMock()
+        client.aclose = AsyncMock(return_value=None)
+        client.is_closed = False
+        client.post = AsyncMock(
+            side_effect=[
+                _fake_response(
+                    {
+                        "status": "ok",
+                        "data": [
+                            {
+                                "contract_code": "BTC-USDT",
+                                "direction": "buy",
+                                "volume": "2",
+                                "cost_open": "50000",
+                                "last_price": "51000",
+                                "profit_unreal": "2000",
+                                "lever_rate": "5",
+                            }
+                        ],
+                    }
+                ),
+                _fake_response({"status": "ok", "data": []}),
+            ]
+        )
+
+        async def _get_shared_client(self):
+            return client
+
+        monkeypatch.setattr(BaseExchangeAdapter, "get_shared_client", _get_shared_client)
+
+        positions = await self.adapter.get_positions("BTCUSDT")
+
+        assert len(positions) == 1
+        assert positions[0].symbol == "BTCUSDT"
+        assert positions[0].side == "long"
+        first_path = client.post.await_args_list[0].args[0]
+        second_path = client.post.await_args_list[1].args[0]
+        assert first_path.endswith("/linear-swap-api/v1/swap_position_info")
+        assert second_path.endswith("/linear-swap-api/v1/swap_cross_position_info")
+
+    async def test_create_order_quantizes_amount_and_price(self, monkeypatch):
+        client = _patch_client(monkeypatch, post_response=_fake_response({"status": "ok", "data": "1"}))
+        self.adapter.get_exchange_info = AsyncMock(
+            return_value=SymbolInfo(
+                symbol="BTCUSDT",
+                min_qty=Decimal("0.001"),
+                step_size=Decimal("0.001"),
+                min_notional=Decimal("10"),
+                tick_size=Decimal("0.01"),
+            )
+        )
+        self.adapter._get_account_id = AsyncMock(return_value="123")
+
+        await self.adapter.create_order(
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="limit",
+            quantity=Decimal("0.1234"),
+            price=Decimal("50000.129"),
+        )
+
+        body = client.post.await_args.kwargs["json"]
+        assert body["amount"] == "0.123"
+        assert body["price"] == "50000.12"
+
+    async def test_create_stop_order_uses_swap_trigger_api(self, monkeypatch):
+        client = _patch_client(
+            monkeypatch,
+            post_response=_fake_response({"status": "ok", "data": {"order_id": 123}}),
+        )
+
+        result = await self.adapter.create_stop_order(
+            symbol="BTCUSDT",
+            side="sell",
+            quantity=Decimal("1"),
+            stop_price=Decimal("45000"),
+        )
+
+        assert result.exchange_order_id == "123"
+        assert client.post.await_args.args[0].endswith("/linear-swap-api/v1/swap_trigger_order")

@@ -26,6 +26,8 @@ from app.core.exchanges.base import (
     PositionInfo,
     SymbolInfo,
     Ticker,
+    _format_decimal,
+    _quantize_to_step,
     _safe_decimal,
     _safe_divide,
 )
@@ -47,9 +49,6 @@ class OKXAdapter(BaseExchangeAdapter):
 
     RATE_LIMIT_INTERVAL = 0.1
 
-    _time_offset_ms: int = 0
-    _time_synced: bool = False
-
     def __init__(
         self,
         api_key: str,
@@ -58,15 +57,52 @@ class OKXAdapter(BaseExchangeAdapter):
         is_demo: bool = False,
     ):
         super().__init__(api_key, secret_key, passphrase)
+        self.base_url = self.BASE_URL
         self.is_demo = is_demo
+        self._time_offset_ms = 0
+        self._time_synced = False
 
     def _to_inst_id(self, symbol: str) -> str:
+        if "-SWAP" in symbol.upper():
+            return symbol.upper()
         stablecoins = ("USDT", "USDC", "BUSD")
         for sc in stablecoins:
             if symbol.endswith(sc):
                 base = symbol[: -len(sc)]
                 return f"{base}-{sc}"
         return symbol
+
+    @staticmethod
+    def _is_perpetual_inst(inst_id: str) -> bool:
+        return inst_id.upper().endswith("-SWAP")
+
+    @classmethod
+    def _trade_mode_for_inst(cls, inst_id: str) -> str:
+        return "cross" if cls._is_perpetual_inst(inst_id) else "cash"
+
+    @staticmethod
+    def _normalize_position_side(pos_side: str, position_size: Decimal) -> tuple[str, Decimal]:
+        normalized = pos_side.lower() if pos_side else "net"
+        quantity = abs(position_size)
+        if normalized == "net":
+            if position_size < 0:
+                return "short", quantity
+            return "long", quantity
+        if normalized in ("long", "short"):
+            return normalized, quantity
+        return "long", quantity
+
+    def _prepare_quantity(self, quantity: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(quantity, info.step_size)
+        if normalized <= 0 or (info.min_qty > 0 and normalized < info.min_qty):
+            raise OrderRejectedError("OKX", f"下单数量 {quantity} 小于交易所最小要求")
+        return normalized
+
+    def _prepare_price(self, price: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(price, info.tick_size)
+        if normalized <= 0:
+            raise OrderRejectedError("OKX", f"价格 {price} 无效")
+        return normalized
 
     def _okx_timestamp(self) -> str:
         adjusted = datetime.now(UTC) + timedelta(milliseconds=self._time_offset_ms)
@@ -254,11 +290,18 @@ class OKXAdapter(BaseExchangeAdapter):
         self._check_okx_response(data)
         positions = []
         for p in data.get("data", []):
+            quantity = _safe_decimal(p.get("pos"))
+            if quantity == 0:
+                continue
+            side, normalized_qty = self._normalize_position_side(
+                p.get("posSide", "net"),
+                quantity,
+            )
             positions.append(
                 PositionInfo(
                     symbol=p.get("instId", ""),
-                    side=p.get("posSide", "net"),
-                    quantity=_safe_decimal(p.get("pos")),
+                    side=side,
+                    quantity=normalized_qty,
                     entry_price=_safe_decimal(p.get("avgPx")),
                     current_price=_safe_decimal(p.get("markPx")),
                     unrealized_pnl=_safe_decimal(p.get("upl")),
@@ -276,19 +319,22 @@ class OKXAdapter(BaseExchangeAdapter):
         price: Decimal | None = None,
     ) -> OrderResult:
         inst_id = self._to_inst_id(symbol)
+        info = await self.get_exchange_info(symbol)
+        normalized_quantity = self._prepare_quantity(quantity, info)
         await self._ensure_time_synced()
         path = "/api/v5/trade/order"
+        trade_mode = self._trade_mode_for_inst(inst_id)
         body_dict: dict[str, Any] = {
             "instId": inst_id,
-            "tdMode": "cash",
+            "tdMode": trade_mode,
             "side": side.lower(),
             "ordType": order_type.lower()
             if order_type.lower() in ("market", "limit", "post_only", "fok", "ioc")
             else "limit",
-            "sz": str(quantity),
+            "sz": _format_decimal(normalized_quantity),
         }
         if price and order_type.lower() == "limit":
-            body_dict["px"] = str(price)
+            body_dict["px"] = _format_decimal(self._prepare_price(price, info))
         body_json = json.dumps(body_dict)
 
         async def _do():
@@ -308,7 +354,7 @@ class OKXAdapter(BaseExchangeAdapter):
             symbol=symbol,
             side=side.lower(),
             order_type=order_type.lower(),
-            quantity=quantity,
+            quantity=normalized_quantity,
             price=price,
             status="pending",
             filled_quantity=Decimal("0"),
@@ -372,26 +418,30 @@ class OKXAdapter(BaseExchangeAdapter):
         order_type: str = "stop_loss",
     ) -> OrderResult:
         inst_id = self._to_inst_id(symbol)
+        info = await self.get_exchange_info(symbol)
+        normalized_quantity = self._prepare_quantity(quantity, info)
+        normalized_stop_price = self._prepare_price(stop_price, info)
         await self._ensure_time_synced()
         path = "/api/v5/trade/order"
+        trade_mode = self._trade_mode_for_inst(inst_id)
         if order_type == "stop_loss":
             body_dict = {
                 "instId": inst_id,
-                "tdMode": "cash",
+                "tdMode": trade_mode,
                 "side": side.lower(),
                 "ordType": "conditional",
-                "sz": str(quantity),
-                "slTriggerPx": str(stop_price),
+                "sz": _format_decimal(normalized_quantity),
+                "slTriggerPx": _format_decimal(normalized_stop_price),
                 "slOrdPx": "-1",
             }
         else:
             body_dict = {
                 "instId": inst_id,
-                "tdMode": "cash",
+                "tdMode": trade_mode,
                 "side": side.lower(),
                 "ordType": "conditional",
-                "sz": str(quantity),
-                "tpTriggerPx": str(stop_price),
+                "sz": _format_decimal(normalized_quantity),
+                "tpTriggerPx": _format_decimal(normalized_stop_price),
                 "tpOrdPx": "-1",
             }
         body_json = json.dumps(body_dict)
@@ -413,8 +463,8 @@ class OKXAdapter(BaseExchangeAdapter):
             symbol=symbol,
             side=side.lower(),
             order_type=order_type,
-            quantity=quantity,
-            price=stop_price,
+            quantity=normalized_quantity,
+            price=normalized_stop_price,
             status="pending",
             filled_quantity=Decimal("0"),
             avg_fill_price=None,
@@ -422,13 +472,14 @@ class OKXAdapter(BaseExchangeAdapter):
 
     async def get_exchange_info(self, symbol: str) -> "SymbolInfo":
         """获取交易对精度信息（评审问题2：OKX API）"""
-        inst_id = symbol.upper().replace("/", "-")
+        inst_id = self._to_inst_id(symbol)
+        inst_type = "SWAP" if self._is_perpetual_inst(inst_id) else "SPOT"
 
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
-                f"{self.base_url}/api/v5/public/instruments",
-                params={"instType": "SPOT", "instId": inst_id},
+                f"{self.BASE_URL}/api/v5/public/instruments",
+                params={"instType": inst_type, "instId": inst_id},
             )
             resp.raise_for_status()
             return resp.json()

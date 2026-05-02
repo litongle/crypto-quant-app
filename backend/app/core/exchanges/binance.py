@@ -24,6 +24,8 @@ from app.core.exchanges.base import (
     PositionInfo,
     SymbolInfo,
     Ticker,
+    _format_decimal,
+    _quantize_to_step,
     _safe_decimal,
     _safe_divide,
 )
@@ -82,6 +84,21 @@ class BinanceAdapter(BaseExchangeAdapter):
     def _auth_headers(self) -> dict[str, str]:
         return {"X-MBX-APIKEY": self.api_key}
 
+    def _prepare_quantity(self, quantity: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(quantity, info.step_size)
+        if normalized <= 0 or (info.min_qty > 0 and normalized < info.min_qty):
+            raise OrderRejectedError(
+                "Binance",
+                f"下单数量 {quantity} 小于最小步进/最小数量要求",
+            )
+        return normalized
+
+    def _prepare_price(self, price: Decimal, info: SymbolInfo) -> Decimal:
+        normalized = _quantize_to_step(price, info.tick_size)
+        if normalized <= 0:
+            raise OrderRejectedError("Binance", f"价格 {price} 无效")
+        return normalized
+
     def _check_response(self, data: dict, exchange: str = "Binance") -> None:
         if "code" in data and data["code"] != 200:
             msg = data.get("msg", "Unknown error")
@@ -92,16 +109,18 @@ class BinanceAdapter(BaseExchangeAdapter):
             raise ExchangeAPIError(exchange=exchange, message=f"[{code}] {msg}", detail_code=code)
 
     async def get_ticker(self, symbol: str) -> Ticker:
+        normalized_symbol = symbol.upper()
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
                 f"{self.base_url}/api/v3/ticker/24hr",
-                params={"symbol": symbol},
+                params={"symbol": normalized_symbol},
             )
             resp.raise_for_status()
             return resp.json()
 
-        data = await self._request_with_retry(_do, context=f"get_ticker({symbol})")
+        data = await self._request_with_retry(_do, context=f"get_ticker({normalized_symbol})")
         return Ticker(
             symbol=data["symbol"],
             price=_safe_decimal(data.get("lastPrice")),
@@ -118,16 +137,18 @@ class BinanceAdapter(BaseExchangeAdapter):
         )
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
+        normalized_symbol = symbol.upper()
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
                 f"{self.base_url}/api/v3/klines",
-                params={"symbol": symbol, "interval": interval, "limit": limit},
+                params={"symbol": normalized_symbol, "interval": interval, "limit": limit},
             )
             resp.raise_for_status()
             return resp.json()
 
-        raw = await self._request_with_retry(_do, context=f"get_klines({symbol})")
+        raw = await self._request_with_retry(_do, context=f"get_klines({normalized_symbol})")
         klines = []
         for k in raw:
             klines.append(
@@ -144,16 +165,18 @@ class BinanceAdapter(BaseExchangeAdapter):
         return klines
 
     async def get_orderbook(self, symbol: str, limit: int = 20) -> OrderBook:
+        normalized_symbol = symbol.upper()
+
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
                 f"{self.base_url}/api/v3/depth",
-                params={"symbol": symbol, "limit": limit},
+                params={"symbol": normalized_symbol, "limit": limit},
             )
             resp.raise_for_status()
             return resp.json()
 
-        data = await self._request_with_retry(_do, context=f"get_orderbook({symbol})")
+        data = await self._request_with_retry(_do, context=f"get_orderbook({normalized_symbol})")
         return OrderBook(
             bids=[(_safe_decimal(p), _safe_decimal(q)) for p, q in data.get("bids", [])],
             asks=[(_safe_decimal(p), _safe_decimal(q)) for p, q in data.get("asks", [])],
@@ -188,7 +211,43 @@ class BinanceAdapter(BaseExchangeAdapter):
         return balances
 
     async def get_positions(self, symbol: str | None = None) -> list[PositionInfo]:
-        return []
+        if not self.is_futures:
+            return []
+
+        normalized_symbol = symbol.upper() if symbol else None
+
+        async def _do():
+            client = await self.get_shared_client()
+            params: dict[str, Any] = {}
+            if normalized_symbol:
+                params["symbol"] = normalized_symbol
+            resp = await client.get(
+                f"{self.base_url}/fapi/v2/positionRisk",
+                params=self._sign_params(params),
+                headers=self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(_do, context=f"get_positions({normalized_symbol})")
+        positions = []
+        for item in data:
+            quantity = _safe_decimal(item.get("positionAmt"))
+            if quantity == 0:
+                continue
+            side = "long" if quantity > 0 else "short"
+            positions.append(
+                PositionInfo(
+                    symbol=item.get("symbol", ""),
+                    side=side,
+                    quantity=abs(quantity),
+                    entry_price=_safe_decimal(item.get("entryPrice")),
+                    current_price=_safe_decimal(item.get("markPrice")),
+                    unrealized_pnl=_safe_decimal(item.get("unRealizedProfit")),
+                    leverage=int(_safe_decimal(item.get("leverage"), Decimal("1"))),
+                )
+            )
+        return positions
 
     async def create_order(
         self,
@@ -198,18 +257,22 @@ class BinanceAdapter(BaseExchangeAdapter):
         quantity: Decimal,
         price: Decimal | None = None,
     ) -> OrderResult:
+        info = await self.get_exchange_info(symbol)
+        normalized_quantity = self._prepare_quantity(quantity, info)
+
         async def _do():
             client = await self.get_shared_client()
             params: dict[str, Any] = {
                 "symbol": symbol.upper(),
                 "side": side.upper(),
                 "type": order_type.upper(),
-                "quantity": f"{quantity:.8f}".rstrip("0").rstrip("."),
+                "quantity": _format_decimal(normalized_quantity),
             }
             if order_type.lower() == "limit":
                 if price is None:
                     raise OrderRejectedError("Binance", "限价单必须指定价格")
-                params["price"] = f"{price:.8f}".rstrip("0").rstrip(".")
+                normalized_price = self._prepare_price(price, info)
+                params["price"] = _format_decimal(normalized_price)
                 params["timeInForce"] = "GTC"
 
             params = self._sign_params(params)
@@ -236,7 +299,7 @@ class BinanceAdapter(BaseExchangeAdapter):
             symbol=data.get("symbol", symbol),
             side=data.get("side", side).lower(),
             order_type=data.get("type", order_type).lower(),
-            quantity=_safe_decimal(data.get("origQty"), quantity),
+            quantity=_safe_decimal(data.get("origQty"), normalized_quantity),
             price=_safe_decimal(data.get("price"))
             if _safe_decimal(data.get("price")) > 0
             else None,
@@ -316,6 +379,9 @@ class BinanceAdapter(BaseExchangeAdapter):
         order_type: str = "stop_loss",
     ) -> OrderResult:
         binance_type = "STOP_LOSS" if order_type == "stop_loss" else "TAKE_PROFIT"
+        info = await self.get_exchange_info(symbol)
+        normalized_quantity = self._prepare_quantity(quantity, info)
+        normalized_stop_price = self._prepare_price(stop_price, info)
 
         async def _do():
             client = await self.get_shared_client()
@@ -323,8 +389,8 @@ class BinanceAdapter(BaseExchangeAdapter):
                 "symbol": symbol.upper(),
                 "side": side.upper(),
                 "type": binance_type,
-                "quantity": f"{quantity:.8f}".rstrip("0").rstrip("."),
-                "stopPrice": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+                "quantity": _format_decimal(normalized_quantity),
+                "stopPrice": _format_decimal(normalized_stop_price),
             }
             params = self._sign_params(params)
             resp = await client.post(
@@ -350,8 +416,8 @@ class BinanceAdapter(BaseExchangeAdapter):
             symbol=data.get("symbol", symbol),
             side=data.get("side", side).lower(),
             order_type=order_type,
-            quantity=_safe_decimal(data.get("origQty"), quantity),
-            price=_safe_decimal(data.get("stopPrice", stop_price)),
+            quantity=_safe_decimal(data.get("origQty"), normalized_quantity),
+            price=_safe_decimal(data.get("stopPrice", normalized_stop_price)),
             status=_BINANCE_STATUS_MAP.get(data.get("status", ""), "pending"),
             filled_quantity=executed_qty,
             avg_fill_price=_safe_divide(cumm_quote, executed_qty),
@@ -359,11 +425,12 @@ class BinanceAdapter(BaseExchangeAdapter):
 
     async def get_exchange_info(self, symbol: str) -> SymbolInfo:
         """获取交易对精度信息（评审问题2：从交易所 API 动态获取 min_qty/step_size）"""
+        endpoint = "/fapi/v1/exchangeInfo" if self.is_futures else "/api/v3/exchangeInfo"
 
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
-                f"{self.base_url}/api/v3/exchangeInfo",
+                f"{self.base_url}{endpoint}",
                 params={"symbol": symbol.upper()},
             )
             resp.raise_for_status()

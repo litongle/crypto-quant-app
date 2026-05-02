@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.constants import STR_ID_MAP, TEMPLATE_ID_TO_CODE
 from app.core.performance import PerformanceCalculator
 from app.core.rule_engine import describe_rules, validate_rules
 from app.core.schemas import APIResponse
@@ -22,6 +23,7 @@ from app.database import get_session
 from app.models.order import Order
 from app.models.strategy import StrategyInstance
 from app.models.user import User
+from app.seed_data import STRATEGY_TEMPLATES as _SEED_TEMPLATES
 from app.services.strategy_service import StrategyService
 
 router = APIRouter()
@@ -39,11 +41,17 @@ MAX_INSTANCES_PER_USER = 20
 class CreateStrategyRequest(BaseModel):
     """创建策略请求"""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = Field(..., description="实例名称", min_length=1, max_length=100)
-    templateId: str = Field(..., description="策略模板ID")
+    template_id: str = Field(..., alias="templateId", description="策略模板ID")
     exchange: str = Field(..., description="交易所 (binance/okx/htx)")
     symbol: str = Field(..., description="交易对 (如 BTCUSDT)")
-    accountId: int | None = Field(None, description="绑定的交易所账户ID，自动下单时使用")
+    account_id: int | None = Field(
+        None,
+        alias="accountId",
+        description="绑定的交易所账户ID，自动下单时使用",
+    )
     params: dict = Field(default_factory=dict, description="策略参数")
 
 
@@ -94,17 +102,19 @@ class ParamSchema(BaseModel):
 class StrategyTemplateResponse(BaseModel):
     """策略模板响应"""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     name: str
     description: str
     icon: str
-    isActive: bool = True
+    is_active: bool = Field(default=True, alias="isActive")
     # 策略类型(对应工厂里的 strategy_type 注册键),前端据此分发渲染:
     #   "rule" → 规则构建器(rule_custom 专用)
     #   其他   → 通用参数表单
     # 缺失会让 backtest.js / strategy.js 都把 rules 类型 param 当 slider 渲染。
-    strategyType: str = ""
-    params: list[ParamSchema] = []
+    strategy_type: str = Field(default="", alias="strategyType")
+    params: list[ParamSchema] = Field(default_factory=list)
 
 
 class StrategyInstanceResponse(BaseModel):
@@ -114,20 +124,20 @@ class StrategyInstanceResponse(BaseModel):
 
     id: int
     name: str
-    templateId: str
-    templateName: str
+    template_id: str = Field(alias="templateId")
+    template_name: str = Field(alias="templateName")
     status: Literal["running", "stopped", "paused"]
     exchange: str = ""
     symbol: str = ""
-    accountId: int | None = None
-    isLive: bool = False
-    params: dict = {}
-    totalPnl: float = Field(default=0, alias="totalPnl")
-    totalPnlPercent: float = 0
-    winRate: float = 0
-    totalTrades: int = 0
-    createdAt: str
-    updatedAt: str
+    account_id: int | None = Field(default=None, alias="accountId")
+    is_live: bool = Field(default=False, alias="isLive")
+    params: dict = Field(default_factory=dict)
+    total_pnl: float = Field(default=0, alias="totalPnl")
+    total_pnl_percent: float = Field(default=0, alias="totalPnlPercent")
+    win_rate: float = Field(default=0, alias="winRate")
+    total_trades: int = Field(default=0, alias="totalTrades")
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
 
 
 class CreateInstanceResponse(BaseModel):
@@ -139,15 +149,10 @@ class CreateInstanceResponse(BaseModel):
 
 # ============ 策略模板定义 ============
 
-# 从 seed_data 统一加载模板定义，避免硬编码重复
-from app.seed_data import STRATEGY_TEMPLATES as _SEED_TEMPLATES
-
 # 策略模板展示顺序：突出平台的“自定义运行”定位，其次展示用户自研策略，再给基础模板示例。
 TEMPLATE_DISPLAY_ORDER = [
     "rule_custom",
     "rsi_layered",
-    "dca",
-    "multi_symbol",
     "ma_cross",
     "rsi",
     "bollinger",
@@ -156,6 +161,7 @@ TEMPLATE_DISPLAY_ORDER = [
 ]
 
 _TEMPLATE_DISPLAY_RANK = {code: index for index, code in enumerate(TEMPLATE_DISPLAY_ORDER)}
+PUBLIC_TEMPLATE_CODES = set(TEMPLATE_DISPLAY_ORDER)
 
 
 def _build_predefined_templates() -> list[dict]:
@@ -209,10 +215,11 @@ def _build_predefined_templates() -> list[dict]:
         )
     return templates
 
-
-from app.constants import STR_ID_MAP, TEMPLATE_ID_TO_CODE
-
-PREDEFINED_TEMPLATES = _build_predefined_templates()
+ALL_PREDEFINED_TEMPLATES = _build_predefined_templates()
+PREDEFINED_TEMPLATES = [
+    template for template in ALL_PREDEFINED_TEMPLATES if template["id"] in PUBLIC_TEMPLATE_CODES
+]
+_TEMPLATE_NAME_BY_ID = {template["id"]: template["name"] for template in ALL_PREDEFINED_TEMPLATES}
 
 
 # ============ 辅助函数 ============
@@ -229,17 +236,13 @@ def _parse_instance_id(instance_id: str | int) -> int:
     try:
         return int(s)
     except ValueError:
-        raise HTTPException(status_code=422, detail="策略实例ID格式无效")
+        raise HTTPException(status_code=422, detail="策略实例ID格式无效") from None
 
 
 def _format_instance(inst: StrategyInstance) -> dict:
     """统一格式化策略实例响应 — P1-5: id 直接用整数，不再加 inst_ 前缀"""
     template_code = TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
-    template_name = "未知策略"
-    for t in PREDEFINED_TEMPLATES:
-        if t["id"] == template_code:
-            template_name = t["name"]
-            break
+    template_name = _TEMPLATE_NAME_BY_ID.get(template_code, "未知策略")
 
     return {
         "id": inst.id,  # 直接用整数 ID
@@ -268,7 +271,9 @@ def _format_instance(inst: StrategyInstance) -> dict:
 async def get_strategy_templates() -> APIResponse[list[StrategyTemplateResponse]]:
     """获取策略模板列表 (P2-13: 类型化响应)"""
     # 通过 Schema 校验确保格式一致
-    validated = [StrategyTemplateResponse(**t).model_dump() for t in PREDEFINED_TEMPLATES]
+    validated = [
+        StrategyTemplateResponse(**t).model_dump(by_alias=True) for t in PREDEFINED_TEMPLATES
+    ]
     return APIResponse(data=validated)
 
 
@@ -308,12 +313,12 @@ async def create_strategy(
         )
 
     # 验证模板存在
-    template_exists = any(t["id"] == request.templateId for t in PREDEFINED_TEMPLATES)
+    template_exists = any(t["id"] == request.template_id for t in ALL_PREDEFINED_TEMPLATES)
     if not template_exists:
         raise HTTPException(status_code=404, detail="策略模板不存在")
 
     # 映射 string templateId -> int template_id
-    template_id = STR_ID_MAP.get(request.templateId, 1)
+    template_id = STR_ID_MAP.get(request.template_id, 1)
 
     # 创建实例
     service = StrategyService(session)
@@ -326,7 +331,7 @@ async def create_strategy(
         params=request.params,
         risk_params={},
         direction="both",
-        account_id=request.accountId,
+        account_id=request.account_id,
     )
     await session.commit()
 
