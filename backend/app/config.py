@@ -71,7 +71,10 @@ class Settings(BaseSettings):
 
     @property
     def setup_required(self) -> bool:
-        return (not self.env_path.exists()) or (not self.setup_complete)
+        # Cloud platforms like Render inject settings as environment variables
+        # without creating a local .env file, so installation state must depend
+        # on the explicit setup flag rather than file presence.
+        return not self.setup_complete
 
     @property
     def is_production(self) -> bool:

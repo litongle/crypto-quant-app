@@ -104,3 +104,15 @@ class TestProductionSecurity:
             debug=False,
         )
         assert settings.debug is False
+
+    def test_setup_complete_true_without_env_file_is_not_setup_required(self):
+        """云部署仅靠环境变量也能视为已完成安装"""
+        from app.config import Settings
+
+        settings = Settings(
+            setup_complete=True,
+            secret_key="real-secret-key-here-at-least-32-chars",
+            jwt_secret_key="real-jwt-key-here-at-least-32-chars",
+        )
+
+        assert settings.setup_required is False

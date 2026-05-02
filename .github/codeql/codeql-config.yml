@@ -1,0 +1,9 @@
+name: "Repo CodeQL Config"
+
+paths-ignore:
+  - .claude/**
+  - .codex/**
+  - .codebuddy/**
+  - .workbuddy/**
+  - docs/**
+  - test_data/**
