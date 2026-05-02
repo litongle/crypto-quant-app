@@ -97,8 +97,15 @@ async def run_backtest(
             params=request.params,
             result=result,
         )
+    except (ConnectionError, TimeoutError, OSError) as e:
+        # 可恢复的临时性错误（网络抖动、数据库连接），记录但不惊慌
+        logger.warning("保存回测历史临时失败（网络/数据库连接）: %s", e)
+    except ValueError as e:
+        # 数据校验错误（如 equityCurve 过长），需要告警
+        logger.error("保存回测历史失败（数据格式错误）: %s", e)
     except Exception as e:
-        logger.warning("保存回测历史失败（不影响回测结果）: %s", e)
+        # 未预期错误，保留完整堆栈
+        logger.exception("保存回测历史失败（未预期错误）: %s", e)
 
     return APIResponse(data=result)
 
@@ -151,8 +158,19 @@ async def _save_backtest_history(
     params: dict,
     result: dict,
 ) -> None:
-    """保存回测结果到数据库"""
+    """保存回测结果到数据库（单事务，失败自动回滚）"""
     from app.models.backtest import BacktestResult
+
+    # 数据校验：防超限（TEXT 字段上限约 65535）
+    MAX_FIELD_LEN = 65535
+    equity_curve_str = json.dumps(result.get("equityCurve", []))
+    trades_str = json.dumps(result.get("trades", []))
+    if len(equity_curve_str) > MAX_FIELD_LEN:
+        equity_curve_str = equity_curve_str[:MAX_FIELD_LEN]
+        logger.warning("equityCurve 截断至 %d 字符", MAX_FIELD_LEN)
+    if len(trades_str) > MAX_FIELD_LEN:
+        trades_str = trades_str[:MAX_FIELD_LEN]
+        logger.warning("trades 截断至 %d 字符", MAX_FIELD_LEN)
 
     record = BacktestResult(
         user_id=user_id,
@@ -177,18 +195,17 @@ async def _save_backtest_history(
         loss_trades=result.get("lossTrades", 0),
         avg_profit=result.get("avgProfit", 0),
         avg_loss=result.get("avgLoss", 0),
-        # 详细数据
-        equity_curve=json.dumps(result.get("equityCurve", [])),
-        trades=json.dumps(result.get("trades", [])),
+        # 详细数据（已截断校验）
+        equity_curve=equity_curve_str,
+        trades=trades_str,
         # 时间
         start_time=datetime.fromisoformat(result["startTime"].rstrip("Z")) if result.get("startTime") else None,
         end_time=datetime.fromisoformat(result["endTime"].rstrip("Z")) if result.get("endTime") else None,
     )
 
     session.add(record)
-    await session.commit()
 
-    # 自动清理：每用户最多保留50条回测记录，超出删最老的
+    # 自动清理：每用户最多保留50条回测记录，超出删最老的（在同一事务内）
     _MAX_BACKTEST_PER_USER = 50
     count_result = await session.execute(
         select(BacktestResult.id)
@@ -201,4 +218,6 @@ async def _save_backtest_history(
         await session.execute(
             BacktestResult.__table__.delete().where(BacktestResult.id.in_(old_ids))
         )
-        await session.commit()
+
+    # 单次 commit：record + 清理要么同时成功，要么同时回滚
+    await session.commit()

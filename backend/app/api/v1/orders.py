@@ -128,6 +128,25 @@ async def create_exchange_account(
     return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
 
 
+@router.get("/accounts/{account_id}")
+async def get_account(
+    account_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """获取指定交易所账户详情"""
+    result = await session.execute(
+        select(ExchangeAccount).where(
+            ExchangeAccount.id == account_id,
+            ExchangeAccount.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="账户不存在或无权操作")
+    return APIResponse(data=AccountInfoSchema.from_model(account).model_dump())
+
+
 @router.post("/accounts/{account_id}/sync")
 async def sync_account_balance(
     account_id: int,
@@ -245,13 +264,21 @@ async def create_order(
     try:
         order = await service.submit_order(order.id, current_user.id)
     except HTTPException:
-        # 提交失败，清理残留订单
+        # HTTPException（交易所拒绝/限流/网络错误）→ 清理残留订单
         try:
             await service.order_repo.delete(order.id)
             await session.commit()
         except Exception:
             pass
         raise
+    except Exception:
+        # 非 HTTPException（如 AppException 等）→ 同样清理，避免幽灵订单
+        try:
+            await service.order_repo.delete(order.id)
+            await session.commit()
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail="下单失败，请检查订单状态")
     await session.commit()
     return APIResponse(data=OrderSchema.from_model(order).model_dump())
 

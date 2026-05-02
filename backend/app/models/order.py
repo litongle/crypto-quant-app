@@ -15,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,7 +31,8 @@ class Order(Base):
 
     __tablename__ = "orders"
     __table_args__ = (
-        # P2-6: 联合唯一约束，不同交易所订单ID可能重复
+        # P2-6: 联合唯一约束，不同交易所订单ID可能重复，但同一账户内唯一
+        UniqueConstraint('exchange_order_id', 'account_id', name='uq_order_exchange_account'),
         {"sqlite_autoincrement": True},
     )
 

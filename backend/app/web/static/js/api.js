@@ -4,6 +4,12 @@
  */
 const API_BASE = '/api/v1';
 
+/** HTML转义，防止XSS（全局工具函数，所有JS模块共享） */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 class ApiClient {
   constructor() {
     this.accessToken = localStorage.getItem('access_token') || '';
@@ -44,6 +50,17 @@ class ApiClient {
   }
 
   async _refreshAccessToken() {
+    // 并发竞态保护：多个请求同时 401 时共享同一个 refresh Promise
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = this._doRefresh();
+    try {
+      return await this._refreshPromise;
+    } finally {
+      this._refreshPromise = null;
+    }
+  }
+
+  async _doRefresh() {
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',

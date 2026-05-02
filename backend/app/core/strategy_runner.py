@@ -444,7 +444,7 @@ class StrategyRunner:
                     select(ExchangeAccount).where(ExchangeAccount.id == inst.account_id)
                 )
                 account = acct_result.scalar_one_or_none()
-                if not account or not account.is_active:
+                if not account or not account.is_active or account.user_id != inst.user_id:
                     logger.warning(
                         "[StrategyRunner] 策略 #%d 绑定的账户 #%d 不可用",
                         instance_id, inst.account_id,

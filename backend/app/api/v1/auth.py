@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 
@@ -78,10 +78,22 @@ async def register(
 
 @router.post("/login")
 async def login(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> APIResponse:
-    """用户登录"""
+    """用户登录（生产环境必须 HTTPS）"""
+    # HTTPS 强制检查：反向代理必须传 X-Forwarded-Proto
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    if forwarded_proto not in ("", "https"):
+        # 本地开发环境（无反向代理）跳过检查
+        host = request.headers.get("host", "")
+        if not any(dev in host for dev in ("localhost", "127.0.0.1", ":8000", ":5173")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="登录接口必须通过 HTTPS 传输，请确保反向代理已配置 SSL",
+            )
+
     auth_service = AuthService(session)
     user, access_token, refresh_token, requires_2fa = await auth_service.login(
         email=form_data.username,

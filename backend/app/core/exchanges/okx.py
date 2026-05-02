@@ -69,18 +69,29 @@ class OKXAdapter(BaseExchangeAdapter):
         adjusted = datetime.now(timezone.utc) + timedelta(milliseconds=self._time_offset_ms)
         return adjusted.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
-    async def _sync_server_time(self) -> None:
-        try:
-            client = await self.get_shared_client()
-            resp = await client.get(f"{self.BASE_URL}/api/v5/public/time")
-            resp.raise_for_status()
-            data = resp.json()
-            server_ts = int(data["data"][0]["ts"])
-            local_ts = int(time.time() * 1000)
-            self._time_offset_ms = server_ts - local_ts
-            self._time_synced = True
-        except Exception as exc:
-            logger.warning("[OKXAdapter] 服务器时间同步失败: %s", exc)
+    async def _sync_server_time(self, retries: int = 3) -> bool:
+        """同步服务器时间，返回是否成功"""
+        last_error = None
+        for attempt in range(retries):
+            try:
+                client = await self.get_shared_client()
+                resp = await client.get(f"{self.BASE_URL}/api/v5/public/time")
+                resp.raise_for_status()
+                data = resp.json()
+                server_ts = int(data["data"][0]["ts"])
+                local_ts = int(time.time() * 1000)
+                self._time_offset_ms = server_ts - local_ts
+                self._time_synced = True
+                logger.info("[OKXAdapter] 服务器时间同步成功，偏移量: %d ms", self._time_offset_ms)
+                return True
+            except Exception as exc:
+                last_error = exc
+                logger.warning("[OKXAdapter] 时间同步失败 (尝试 %d/%d): %s", attempt + 1, retries, exc)
+
+        # 所有重试都失败后，明确标记为未同步
+        self._time_synced = False
+        logger.error("[OKXAdapter] 时间同步全部失败，最后错误: %s", last_error)
+        return False
 
     def _sign(self, method: str, path: str, body: str = "") -> dict[str, str]:
         timestamp = self._okx_timestamp()

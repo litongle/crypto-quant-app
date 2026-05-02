@@ -160,9 +160,9 @@ def _validate_rule_group(group: dict, path: str, errors: list[str], depth: int):
             errors.append(f"{cond_path}: 单值指标 '{indicator}' 不支持 {operator}")
             continue
 
-        # 单值型必须有 value
+        # 单值型必须有 value（0 是合法值，只拒绝 None 或字段缺失）
         if indicator in VALUE_INDICATORS and operator not in ("cross_up", "cross_down"):
-            if "value" not in cond and cond.get("value") != 0:
+            if cond.get("value") is None:
                 errors.append(f"{cond_path}: 单值指标需要 value 字段")
 
 

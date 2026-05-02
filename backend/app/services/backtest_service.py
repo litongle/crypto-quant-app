@@ -166,7 +166,7 @@ class BacktestService:
     async def _get_client(cls) -> httpx.AsyncClient:
         if cls._shared_client is None or cls._shared_client.is_closed:
             cls._shared_client = httpx.AsyncClient(
-                timeout=30.0,
+                timeout=10.0,  # 单次请求最多10秒（原30s），配合整体45s超时
                 headers={"User-Agent": "CryptoQuant-Backtest/1.0"},
             )
         return cls._shared_client
@@ -220,7 +220,7 @@ class BacktestService:
         else:
             interval, interval_label = self._select_interval(start_date, end_date)
 
-        # 1. 获取K线数据
+        # 1. 获取K线数据（_fetch_klines 内部自带45秒超时保护）
         klines, is_mock = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
         if len(klines) < 50:
             return {
@@ -553,7 +553,28 @@ class BacktestService:
         end_date: str,
         interval: str = "1h",
     ) -> tuple[list[dict], bool]:
-        """获取历史K线数据（Binance 公开 API）
+        """获取历史K线数据（Binance 公开 API），超时由调用方控制。
+
+        内置最大数量限制 _MAX_KLINES，超过自动截断。
+        返回 (klines, is_mock)
+        """
+        try:
+            return await asyncio.wait_for(
+                self._fetch_klines_impl(symbol, start_date, end_date, interval),
+                timeout=45.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("获取K线超时（45秒），切换为模拟数据")
+            return self._generate_mock_klines(symbol, start_date, end_date, interval), True
+
+    async def _fetch_klines_impl(
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        interval: str = "1h",
+    ) -> tuple[list[dict], bool]:
+        """获取历史K线数据内部实现（Binance 公开 API）
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
         返回 (klines, is_mock)

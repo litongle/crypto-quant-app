@@ -6,6 +6,7 @@
 - 模拟下单（无API调用，直接更新本地状态）
 - 模拟成交（自动 fill，模拟延迟和滑点）
 """
+import asyncio
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -26,6 +27,17 @@ class PaperTradingService:
     DEFAULT_INITIAL_BALANCE = Decimal("100000")
     DEFAULT_COMMISSION_RATE = Decimal("0.001")  # 0.1%
     DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")    # 0.05% 滑点
+
+    # 余额操作锁（key=account_id，实现按账户并发控制）
+    _locks: dict[int, asyncio.Lock] = {}
+    _locks_lock = asyncio.Lock()
+
+    async def _get_lock(self, account_id: int) -> asyncio.Lock:
+        """获取账户级别的锁（同一账户串行，不同账户并行）"""
+        async with self._locks_lock:
+            if account_id not in self._locks:
+                self._locks[account_id] = asyncio.Lock()
+            return self._locks[account_id]
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -101,35 +113,37 @@ class PaperTradingService:
         # 计算手续费
         commission = exec_price * quantity * self.DEFAULT_COMMISSION_RATE
 
-        # 获取虚拟余额
-        balances = account.balances or {"USDT": str(self.DEFAULT_INITIAL_BALANCE)}
-        usdt_balance = Decimal(str(balances.get("USDT", "0")))
+        # 统一提取 base_asset（支持 USDT 交易对）
+        base_asset = symbol.replace("USDT", "")
+        if not base_asset or base_asset == symbol:
+            raise ValueError(f"不支持的交易对格式: {symbol}（仅支持 USDT 交易对）")
 
-        # 检查余额
-        order_value = exec_price * quantity
-        total_cost = order_value + commission
-
-        if side == "buy" and usdt_balance < total_cost:
-            raise ValueError(f"模拟余额不足: 需要 {total_cost} USDT, 余额 {usdt_balance} USDT")
-
-        # 更新余额
-        if side == "buy":
-            balances["USDT"] = str(usdt_balance - total_cost)
-            # 更新持仓
-            base_asset = symbol.replace("USDT", "")
+        async with await self._get_lock(account_id):
+            # 获取虚拟余额（在锁内读取，确保一致性）
+            balances = account.balances or {"USDT": str(self.DEFAULT_INITIAL_BALANCE)}
+            usdt_balance = Decimal(str(balances.get("USDT", "0")))
             current_qty = Decimal(str(balances.get(base_asset, "0")))
-            balances[base_asset] = str(current_qty + quantity)
-        else:
-            # 卖出检查
-            base_asset = symbol.replace("USDT", "")
-            current_qty = Decimal(str(balances.get(base_asset, "0")))
-            if current_qty < quantity:
-                raise ValueError(f"{base_asset} 余额不足: 需要 {quantity}, 余额 {current_qty}")
-            sell_value = exec_price * quantity - commission
-            balances["USDT"] = str(usdt_balance + sell_value)
-            balances[base_asset] = str(current_qty - quantity)
 
-        account.balances = balances
+            # 计算并验证
+            order_value = exec_price * quantity
+            total_cost = order_value + commission
+
+            if side == "buy":
+                if usdt_balance < total_cost:
+                    raise ValueError(f"模拟余额不足: 需要 {total_cost} USDT, 余额 {usdt_balance} USDT")
+                new_usdt = usdt_balance - total_cost
+                new_qty = current_qty + quantity
+            else:
+                if current_qty < quantity:
+                    raise ValueError(f"{base_asset} 余额不足: 需要 {quantity}, 余额 {current_qty}")
+                sell_value = exec_price * quantity - commission
+                new_usdt = usdt_balance + sell_value
+                new_qty = current_qty - quantity
+
+            # 原子更新：先算好新值，再一次性赋值
+            balances["USDT"] = str(new_usdt)
+            balances[base_asset] = str(new_qty)
+            account.balances = balances
 
         # 创建订单记录
         order = {

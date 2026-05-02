@@ -386,12 +386,6 @@ function formatAxisValue(v) {
   return '$' + v.toFixed(0);
 }
 
-/** HTML转义，防止XSS */
-function escapeHtml(str) {
-  if (str == null) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
 /** 获取本地日期 YYYY-MM-DD（避免 toISOString 的 UTC 时区偏差） */
 function localDate(d = new Date()) {
   const y = d.getFullYear();

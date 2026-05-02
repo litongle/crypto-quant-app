@@ -75,6 +75,24 @@ class RiskService:
             else Decimal("0")
         )
 
+        # 异常状态检测：balance=0 但有持仓（穿仓/冻结/杠杆爆仓后剩余债务）
+        if total_balance == 0 and total_position_value > 0:
+            logger.warning(
+                "[RiskService] 异常状态检测: user_id=%s, total_balance=0 但存在持仓 total_position_value=%s",
+                user_id, total_position_value,
+            )
+            return self._empty_dashboard() | {
+                "totalPositionValue": float(total_position_value),
+                "alerts": [{
+                    "type": "data_anomaly",
+                    "level": "danger",
+                    "message": "账户余额为0但存在持仓，请检查账户状态（可能已穿仓或余额被冻结）",
+                    "threshold": "N/A",
+                    "current": "余额异常",
+                }],
+                "positionCount": len(positions),
+            }
+
         # 已实现盈亏百分比
         if total_balance > 0:
             unrealized_pnl_pct = unrealized_pnl / total_balance * 100

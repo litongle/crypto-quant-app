@@ -176,8 +176,8 @@ class StrategyService:
                 detail="无权操作此策略",
             )
 
-        # 更新字段
-        allowed_fields = ["name", "symbol", "params", "risk_params", "direction", "account_id"]
+        # 更新字段（account_id 不允许通过 update 修改，需走专门的 change_account 方法）
+        allowed_fields = ["name", "symbol", "params", "risk_params", "direction"]
         update_dict = {k: v for k, v in updates.items() if k in allowed_fields}
 
         return await self.instance_repo.update(instance_id, **update_dict)

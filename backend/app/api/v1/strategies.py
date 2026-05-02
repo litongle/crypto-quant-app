@@ -187,7 +187,7 @@ def _build_predefined_templates() -> list[dict]:
             "description": t["description"],
             "icon": icon_map.get(t["code"], "info"),
             "isActive": True,
-            "strategyType": t.get("strategy_type", ""),
+            "strategyType": t.get("strategy_type") or t.get("code", ""),
             "params": params,
         })
     return templates
@@ -248,7 +248,9 @@ def _format_instance(inst: StrategyInstance) -> dict:
 @router.get("/templates")
 async def get_strategy_templates() -> APIResponse[list[StrategyTemplateResponse]]:
     """获取策略模板列表 (P2-13: 类型化响应)"""
-    return APIResponse(data=PREDEFINED_TEMPLATES)
+    # 通过 Schema 校验确保格式一致
+    validated = [StrategyTemplateResponse(**t).model_dump() for t in PREDEFINED_TEMPLATES]
+    return APIResponse(data=validated)
 
 
 @router.get("/instances")
