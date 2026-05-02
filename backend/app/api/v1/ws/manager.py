@@ -66,7 +66,7 @@ class WSConnectionManager:
             len(self._subs),
         )
 
-    def unregister(self, conn_id: str) -> None:
+    async def unregister(self, conn_id: str) -> Subscription | None:
         sub = self._subs.pop(conn_id, None)
         if sub:
             for channel in sub.channels:
@@ -76,6 +76,13 @@ class WSConnectionManager:
                         self._routing[key].discard(conn_id)
                         if not self._routing[key]:
                             del self._routing[key]
+            # 通知所有 proxy 停止空闲 stream（issue #9）
+            for proxy in self._proxies.values():
+                if hasattr(proxy, "stop_if_idle"):
+                    for channel in sub.channels:
+                        for symbol in sub.symbols:
+                            for market_type in sub.market_types:
+                                await proxy.stop_if_idle(channel, symbol, market_type)
             logger.info("[WSManager] 连接注销: %s, 剩余连接数: %d", conn_id, len(self._subs))
             return sub
         return None
@@ -139,7 +146,5 @@ class WSConnectionManager:
     def register_proxy(self, exchange: str, proxy: Any) -> None:
         self._proxies[exchange] = proxy
 
-
-from typing import Any
 
 manager = WSConnectionManager()

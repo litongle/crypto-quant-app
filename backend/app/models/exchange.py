@@ -11,17 +11,20 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.order import Order
     from app.models.user import User
 
 
@@ -128,6 +131,17 @@ class Position(Base):
     """持仓"""
 
     __tablename__ = "positions"
+    __table_args__ = (
+        Index(
+            "uq_open_position_account_symbol_side",
+            "account_id",
+            "symbol",
+            "side",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+            sqlite_where=text("status = 'open'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("exchange_accounts.id"), index=True)

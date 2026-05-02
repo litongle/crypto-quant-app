@@ -495,6 +495,32 @@
   </main>
 </div>
 
+<!-- 危险操作确认弹窗（防误触） -->
+<div class="cq-dialog-overlay" id="danger-confirm-dialog">
+  <div class="cq-dialog" style="max-width:420px;">
+    <div class="cq-dialog__header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span id="danger-confirm-title" style="font-weight:600;">确认操作</span>
+      </div>
+      <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="closeDangerConfirm(false)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cq-dialog__body">
+      <div id="danger-confirm-body"></div>
+      <div style="margin-top:var(--cq-space-3);">
+        <label class="cq-label">输入 <code style="background:var(--cq-bg-l2);padding:2px 6px;border-radius:3px;font-weight:700;color:var(--cq-color-loss);">DELETE</code> 确认</label>
+        <input type="text" class="cq-input" id="danger-confirm-input" placeholder="输入 DELETE 确认" autocomplete="off">
+      </div>
+    </div>
+    <div class="cq-dialog__footer">
+      <button class="cq-btn cq-btn--secondary" onclick="closeDangerConfirm(false)">取消</button>
+      <button class="cq-btn cq-btn--danger" id="danger-confirm-btn" disabled onclick="closeDangerConfirm(true)">确认删除</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="cq-toast" id="toast"></div>
 
@@ -664,6 +690,47 @@ async function enterApp() {
   const savedPage = location.hash.replace('#', '') || 'dashboard';
   navigate(savedPage, false);
 }
+
+// ===== 危险操作确认弹窗 =====
+let _dangerResolve = null;
+
+function confirmDangerous(title, bodyHtml) {
+  return new Promise(resolve => {
+    _dangerResolve = resolve;
+    const dialog = document.getElementById('danger-confirm-dialog');
+    document.getElementById('danger-confirm-title').textContent = title;
+    document.getElementById('danger-confirm-body').innerHTML = bodyHtml;
+    const input = document.getElementById('danger-confirm-input');
+    const btn = document.getElementById('danger-confirm-btn');
+    input.value = '';
+    btn.disabled = true;
+    dialog.classList.add('is-visible');
+    input.focus();
+  });
+}
+
+function closeDangerConfirm(confirmed) {
+  document.getElementById('danger-confirm-dialog').classList.remove('is-visible');
+  if (_dangerResolve) {
+    _dangerResolve(confirmed);
+    _dangerResolve = null;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('danger-confirm-input');
+  if (input) {
+    input.addEventListener('input', () => {
+      const btn = document.getElementById('danger-confirm-btn');
+      btn.disabled = input.value.trim() !== 'DELETE';
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim() === 'DELETE') {
+        closeDangerConfirm(true);
+      }
+    });
+  }
+});
 
 // ===== Toast (v2 — 支持类型图标) =====
 function showToast(msg, type = 'info') {

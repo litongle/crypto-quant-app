@@ -2,7 +2,11 @@
 安全模块测试 — 密码哈希/JWT/加密
 """
 
+import base64
+import hashlib
+
 import pytest
+from cryptography.fernet import Fernet
 
 from app.core.security import (
     create_access_token,
@@ -84,7 +88,7 @@ class TestJWTTokens:
 
     def test_invalid_token(self):
         """无效令牌"""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid token"):
             verify_token("invalid.token.here", token_type="access")
 
 
@@ -116,3 +120,14 @@ class TestAPIKeyEncryption:
         ct2 = encrypt_api_key("same-key")
         assert ct1 != ct2  # Fernet 随机 IV
         assert decrypt_api_key(ct1) == decrypt_api_key(ct2)
+
+    def test_encrypt_uses_versioned_ciphertext_prefix(self):
+        ciphertext = encrypt_api_key("same-key")
+        assert ciphertext.startswith("v2:")
+
+    def test_decrypt_supports_legacy_unsalted_ciphertext(self, test_settings):
+        key_material = hashlib.sha256(test_settings.secret_key.encode()).digest()
+        legacy_key = base64.urlsafe_b64encode(key_material)
+        legacy_ciphertext = Fernet(legacy_key).encrypt(b"legacy-secret").decode()
+
+        assert decrypt_api_key(legacy_ciphertext) == "legacy-secret"

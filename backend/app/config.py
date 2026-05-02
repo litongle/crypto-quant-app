@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # 环境 & 安装状态
     environment: str = "development"
     setup_complete: bool = False
+    allow_insecure_default_secrets: bool = False
 
     # 安全密钥（开发占位值，生产环境必须通过 .env 或安装向导设置）
     secret_key: str = _DEFAULT_SECRET_KEY
@@ -78,16 +79,21 @@ class Settings(BaseSettings):
         return self.environment.lower() in ("production", "prod", "staging")
 
     def validate_production_secrets(self) -> None:
-        """P0-1: 生产环境安全校验 — 拒绝默认密钥启动"""
-        if not self.is_production:
+        """安全校验 — 默认密钥仅允许显式 opt-in 的非生产场景使用。"""
+        if self.environment.lower() == "test":
             return
-
         errors = []
-        if self.secret_key == _DEFAULT_SECRET_KEY:
+        if (
+            not self.allow_insecure_default_secrets
+            and self.secret_key == _DEFAULT_SECRET_KEY
+        ):
             errors.append("secret_key 仍为默认开发值，必须通过 .env 或安装向导设置")
-        if self.jwt_secret_key == _DEFAULT_JWT_SECRET_KEY:
+        if (
+            not self.allow_insecure_default_secrets
+            and self.jwt_secret_key == _DEFAULT_JWT_SECRET_KEY
+        ):
             errors.append("jwt_secret_key 仍为默认开发值，必须通过 .env 或安装向导设置")
-        if self.debug:
+        if self.is_production and self.debug:
             errors.append("生产环境不允许 debug=True，请设置 DEBUG=false")
 
         if errors:
@@ -104,6 +110,9 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """获取配置单例（含生产安全校验）"""
+    cached = getattr(get_settings, "_cache", None)
+    if cached is not None:
+        return cached
     settings = Settings()
     settings.validate_production_secrets()
     return settings
@@ -111,5 +120,7 @@ def get_settings() -> Settings:
 
 def reload_settings() -> Settings:
     """重载配置（安装向导写入 .env 后调用）"""
+    if hasattr(get_settings, "_cache"):
+        delattr(get_settings, "_cache")
     get_settings.cache_clear()
     return get_settings()

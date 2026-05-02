@@ -5,6 +5,7 @@
 """
 
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 
 import pytest
 import pytest_asyncio
@@ -23,7 +24,7 @@ class TestSettings(Settings):
     environment: str = "test"
     secret_key: str = "test-secret-key-for-testing-only-min-32-chars"
     jwt_secret_key: str = "test-jwt-secret-key-for-testing-only-min-32"
-    database_url: str = "sqlite+aiosqlite:///./test_data/test.db"
+    database_url: str = "sqlite+aiosqlite:////tmp/crypto_quant_test.db"
     redis_url: str = "redis://localhost:6379/15"
     cors_origins: str = "http://localhost:8000"
 
@@ -41,6 +42,8 @@ def override_settings(test_settings):
     # 注入测试配置到缓存
     get_settings._cache = test_settings
     yield test_settings
+    if hasattr(get_settings, "_cache"):
+        delattr(get_settings, "_cache")
     get_settings.cache_clear()
 
 
@@ -54,10 +57,8 @@ async def engine():
 
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    os.makedirs("./test_data", exist_ok=True)
-
     eng = create_async_engine(
-        "sqlite+aiosqlite:///./test_data/test.db",
+        "sqlite+aiosqlite:////tmp/crypto_quant_test.db",
         echo=False,
         connect_args={"check_same_thread": False},
     )
@@ -77,10 +78,8 @@ async def engine():
     await eng.dispose()
 
     # 删除测试数据库文件
-    try:
-        os.remove("./test_data/test.db")
-    except Exception:
-        pass
+    with suppress(Exception):
+        os.remove("/tmp/crypto_quant_test.db")
 
 
 @pytest_asyncio.fixture

@@ -4,9 +4,13 @@
 改动：不再模块级缓存 settings，改为函数内取 get_settings()
 """
 
+import base64
+import hashlib
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from cryptography.fernet import Fernet
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -95,7 +99,7 @@ def decode_token(token: str) -> dict[str, Any]:
         )
         return payload
     except JWTError as e:
-        raise ValueError(f"Invalid token: {e}")
+        raise ValueError(f"Invalid token: {e}") from e
 
 
 def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
@@ -107,18 +111,27 @@ def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
 
     return payload
 
-
 # ============ API Key 加密存储 (AES-256) ============
 
-import base64
-import hashlib
-from contextlib import contextmanager
-
-from cryptography.fernet import Fernet
+_FERNET_V2_PREFIX = "v2:"
 
 
 def _get_encryption_key() -> bytes:
-    """从 SECRET_KEY 派生 Fernet 加密密钥"""
+    """从 SECRET_KEY + JWT_SECRET_KEY 派生带盐 Fernet 密钥。"""
+    settings = get_settings()
+    salt = hashlib.sha256(settings.jwt_secret_key.encode()).digest()
+    key_material = hashlib.pbkdf2_hmac(
+        "sha256",
+        settings.secret_key.encode(),
+        salt,
+        200_000,
+        dklen=32,
+    )
+    return base64.urlsafe_b64encode(key_material)
+
+
+def _get_legacy_encryption_key() -> bytes:
+    """兼容历史无盐密钥派生。"""
     settings = get_settings()
     key_material = hashlib.sha256(settings.secret_key.encode()).digest()
     return base64.urlsafe_b64encode(key_material)
@@ -132,7 +145,8 @@ def encrypt_api_key(plaintext: str) -> str:
     if not plaintext:
         return ""
     f = Fernet(_get_encryption_key())
-    return f.encrypt(plaintext.encode()).decode()
+    ciphertext = f.encrypt(plaintext.encode()).decode()
+    return f"{_FERNET_V2_PREFIX}{ciphertext}"
 
 
 def decrypt_api_key(ciphertext: str) -> str:
@@ -142,8 +156,12 @@ def decrypt_api_key(ciphertext: str) -> str:
     """
     if not ciphertext:
         return ""
-    f = Fernet(_get_encryption_key())
-    return f.decrypt(ciphertext.encode()).decode()
+    if ciphertext.startswith(_FERNET_V2_PREFIX):
+        f = Fernet(_get_encryption_key())
+        payload = ciphertext.removeprefix(_FERNET_V2_PREFIX)
+        return f.decrypt(payload.encode()).decode()
+    legacy = Fernet(_get_legacy_encryption_key())
+    return legacy.decrypt(ciphertext.encode()).decode()
 
 
 @contextmanager

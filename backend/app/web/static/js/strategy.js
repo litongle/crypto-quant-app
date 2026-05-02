@@ -775,10 +775,21 @@ async function deleteStrategyInst(instanceId) {
   const inst = window._strategyInstances?.find(i => i.id === instanceId);
   const isRunning = inst && inst.status === 'running';
 
-  const msg = isRunning
-    ? '该策略正在运行,将先停止再删除。确认删除?'
-    : '确认删除此策略?此操作不可撤销。';
-  if (!confirm(msg)) return;
+  const bodyHtml = isRunning
+    ? `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">该策略<strong style="color:var(--cq-color-loss);">正在运行</strong>，将先停止再删除。</p>
+       <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
+         <span style="font-weight:600;">⚠️ 不可逆操作</span>：删除后所有交易记录和绩效数据将永久丢失。
+       </div>`
+    : `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">确认删除此策略？</p>
+       <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
+         <span style="font-weight:600;">⚠️ 不可逆操作</span>：删除后所有交易记录和绩效数据将永久丢失。
+       </div>`;
+
+  const confirmed = await confirmDangerous(
+    `删除策略：${escapeHtml(inst?.name || '未知')}`,
+    bodyHtml
+  );
+  if (!confirmed) return;
 
   try {
     if (isRunning) {

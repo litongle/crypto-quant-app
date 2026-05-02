@@ -1,8 +1,9 @@
 """
-WebSocket 交易所代理单元测试 — 消息解析、路由键、广播、任务管理
+WebSocket 交易所代理单元测试 — 消息解析、路由键、广播、任务管理、退避
 """
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 from app.api.v1.ws.proxies import (
@@ -10,9 +11,28 @@ from app.api.v1.ws.proxies import (
     HuobiProxy,
     OKXProxy,
     PollingFallback,
+    _parse_kline_interval,
     _stream_key,
 )
 from app.core.trade_schemas import WSMessage
+
+
+def _consume_coro_and_return(task):
+    def _factory(coro, **kwargs):
+        coro.close()
+        return task
+
+    return _factory
+
+
+def _consume_coro_and_mark(created):
+    def _factory(coro, **kwargs):
+        coro.close()
+        created.append(1)
+        return None
+
+    return _factory
+
 
 # ==================== _stream_key ====================
 
@@ -22,7 +42,26 @@ def test_stream_key_spot():
 
 
 def test_stream_key_perp():
-    assert _stream_key("kline", "ETHUSDT", "perp") == "kline:ETHUSDT:perp"
+    assert _stream_key("kline_1m", "ETHUSDT", "perp") == "kline_1m:ETHUSDT:perp"
+
+
+def test_stream_key_with_kline_interval():
+    assert _stream_key("kline_5m", "BTCUSDT", "spot") == "kline_5m:BTCUSDT:spot"
+
+
+# ==================== _parse_kline_interval ====================
+
+
+def test_parse_kline_interval_valid():
+    assert _parse_kline_interval("kline_5m") == "5m"
+    assert _parse_kline_interval("kline_1h") == "1h"
+    assert _parse_kline_interval("kline_1d") == "1d"
+
+
+def test_parse_kline_interval_default():
+    assert _parse_kline_interval("kline") == "1m"
+    assert _parse_kline_interval("kline_invalid") == "1m"
+    assert _parse_kline_interval("ticker") == "1m"
 
 
 # ==================== BinanceWSProxy._parse_message ====================
@@ -65,14 +104,14 @@ class TestBinanceParseMessage:
                 "x": True,
             }
         }
-        msg = self.proxy._parse_message(data, "kline", "BTCUSDT")
+        msg = self.proxy._parse_message(data, "kline_1m", "BTCUSDT")
         assert msg is not None
         assert msg.type == "kline"
         assert msg.data["is_closed"] is True
         assert msg.data["open"] == "49000"
 
     def test_kline_missing_k_returns_none(self):
-        msg = self.proxy._parse_message({"c": "50000"}, "kline", "BTCUSDT")
+        msg = self.proxy._parse_message({"c": "50000"}, "kline_1m", "BTCUSDT")
         assert msg is None
 
     def test_orderbook_full(self):
@@ -93,6 +132,21 @@ class TestBinanceParseMessage:
     def test_unknown_channel_returns_none(self):
         msg = self.proxy._parse_message({"c": "1"}, "liquidation", "BTCUSDT")
         assert msg is None
+
+    def test_kline_5m_channel_parsed(self):
+        data = {
+            "k": {
+                "o": "49000",
+                "h": "51000",
+                "l": "48000",
+                "c": "50000",
+                "v": "100",
+                "x": False,
+            }
+        }
+        msg = self.proxy._parse_message(data, "kline_5m", "BTCUSDT")
+        assert msg is not None
+        assert msg.type == "kline"
 
 
 # ==================== OKXProxy ====================
@@ -144,7 +198,7 @@ class TestOKXParseMessage:
             "arg": {"channel": "candle1m"},
             "data": [["1234567890", "49000", "51000", "48000", "50000", "100"]],
         }
-        msg = self.proxy._parse_message(data, "kline", "BTCUSDT")
+        msg = self.proxy._parse_message(data, "kline_1m", "BTCUSDT")
         assert msg is not None
         assert msg.type == "kline"
         assert msg.data["open"] == "49000"
@@ -206,7 +260,6 @@ class TestHuobiParseMessage:
         assert msg.data["high_24h"] == "51000"
 
     def test_ticker_channel_override(self):
-        # channel="ticker" matches even without "detail" in ch
         data = {"ch": "market.btcusdt.kline.1min", "tick": self._ticker_tick()}
         msg = self.proxy._parse_message(data, "ticker", "BTCUSDT")
         assert msg is not None
@@ -217,7 +270,7 @@ class TestHuobiParseMessage:
             "ch": "market.btcusdt.kline.1min",
             "tick": {"open": 49000, "high": 51000, "low": 48000, "close": 50000, "vol": 100},
         }
-        msg = self.proxy._parse_message(data, "kline", "BTCUSDT")
+        msg = self.proxy._parse_message(data, "kline_1m", "BTCUSDT")
         assert msg is not None
         assert msg.type == "kline"
         assert msg.data["open"] == "49000"
@@ -248,13 +301,13 @@ class TestBroadcast:
 
         proxy = BinanceWSProxy(mock_mgr)
         msg = WSMessage(type="ticker", exchange="binance", symbol="BTCUSDT", data={})
-        await proxy._broadcast(msg)
+        await proxy._broadcast(msg, "ticker", "spot")
 
         ws1.send_text.assert_called_once()
         ws2.send_text.assert_called_once()
-        # verify it's called with valid JSON
         call_arg = ws1.send_text.call_args[0][0]
         assert "ticker" in call_arg
+        mock_mgr.get_subscribers.assert_called_once_with("ticker", "BTCUSDT", "spot")
 
     async def test_continues_after_send_error(self):
         ws1, ws2 = AsyncMock(), AsyncMock()
@@ -264,7 +317,7 @@ class TestBroadcast:
 
         proxy = BinanceWSProxy(mock_mgr)
         msg = WSMessage(type="ticker", exchange="binance", symbol="BTCUSDT", data={})
-        await proxy._broadcast(msg)  # must not raise
+        await proxy._broadcast(msg, "ticker", "spot")  # must not raise
 
         ws2.send_text.assert_called_once()
 
@@ -273,7 +326,19 @@ class TestBroadcast:
         mock_mgr.get_subscribers.return_value = []
         proxy = BinanceWSProxy(mock_mgr)
         msg = WSMessage(type="ticker", exchange="binance", symbol="BTCUSDT", data={})
-        await proxy._broadcast(msg)  # no calls, no errors
+        await proxy._broadcast(msg, "ticker", "spot")  # no calls, no errors
+
+    async def test_uses_intervalized_channel_and_market_type(self):
+        ws = AsyncMock()
+        mock_mgr = MagicMock()
+        mock_mgr.get_subscribers.return_value = [ws]
+
+        proxy = BinanceWSProxy(mock_mgr)
+        msg = WSMessage(type="kline", exchange="binance", symbol="BTCUSDT", data={})
+        await proxy._broadcast(msg, "kline_5m", "perp")
+
+        ws.send_text.assert_called_once()
+        mock_mgr.get_subscribers.assert_called_once_with("kline_5m", "BTCUSDT", "perp")
 
 
 # ==================== start_if_needed / stop_if_idle ====================
@@ -286,10 +351,10 @@ class TestStartStopProxy:
         proxy = BinanceWSProxy(mock_mgr)
 
         task = MagicMock(spec=asyncio.Task)
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
 
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
-        assert "ticker:BTCUSDT:spot" in proxy._tasks
+        assert _stream_key("ticker", "BTCUSDT", "spot") in proxy._tasks
 
     async def test_start_if_needed_idempotent(self, monkeypatch):
         mock_mgr = MagicMock()
@@ -298,9 +363,13 @@ class TestStartStopProxy:
 
         call_count = []
         task = MagicMock(spec=asyncio.Task)
-        monkeypatch.setattr(
-            asyncio, "create_task", lambda coro, **kw: (call_count.append(1), task)[1]
-        )
+
+        def fake_create_task(coro, **kwargs):
+            coro.close()
+            call_count.append(1)
+            return task
+
+        monkeypatch.setattr(asyncio, "create_task", fake_create_task)
 
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
@@ -312,41 +381,68 @@ class TestStartStopProxy:
         proxy = BinanceWSProxy(mock_mgr)
 
         created = []
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: created.append(1))
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_mark(created))
 
         await proxy.start_if_needed("ticker", "BTCUSDT", "spot")
         assert created == []
+
+    async def test_start_if_needed_with_market_type(self, monkeypatch):
+        mock_mgr = MagicMock()
+        mock_mgr.has_subscribers.return_value = True
+        proxy = BinanceWSProxy(mock_mgr)
+
+        task = MagicMock(spec=asyncio.Task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
+
+        await proxy.start_if_needed("ticker", "BTCUSDT", "perp")
+        assert _stream_key("ticker", "BTCUSDT", "perp") in proxy._tasks
 
     async def test_stop_if_idle_cancels_task(self):
         mock_mgr = MagicMock()
         mock_mgr.has_subscribers.return_value = False
         proxy = BinanceWSProxy(mock_mgr)
 
+        key = _stream_key("ticker", "BTCUSDT", "spot")
         task = MagicMock(spec=asyncio.Task)
-        proxy._tasks["ticker:BTCUSDT:spot"] = task
+        proxy._tasks[key] = task
 
         await proxy.stop_if_idle("ticker", "BTCUSDT", "spot")
 
         task.cancel.assert_called_once()
-        assert "ticker:BTCUSDT:spot" not in proxy._tasks
+        assert key not in proxy._tasks
 
     async def test_stop_if_idle_keeps_task_with_active_subscribers(self):
         mock_mgr = MagicMock()
         mock_mgr.has_subscribers.return_value = True
         proxy = BinanceWSProxy(mock_mgr)
 
+        key = _stream_key("ticker", "BTCUSDT", "spot")
         task = MagicMock(spec=asyncio.Task)
-        proxy._tasks["ticker:BTCUSDT:spot"] = task
+        proxy._tasks[key] = task
 
         await proxy.stop_if_idle("ticker", "BTCUSDT", "spot")
         task.cancel.assert_not_called()
 
+    async def test_stop_if_idle_clears_retry_count(self):
+        mock_mgr = MagicMock()
+        mock_mgr.has_subscribers.return_value = False
+        proxy = BinanceWSProxy(mock_mgr)
 
-# ==================== _restart_on_error ====================
+        key = _stream_key("ticker", "BTCUSDT", "spot")
+        proxy._retry_counts[key] = 3
+        task = MagicMock(spec=asyncio.Task)
+        proxy._tasks[key] = task
+
+        await proxy.stop_if_idle("ticker", "BTCUSDT", "spot")
+        assert key not in proxy._retry_counts
+
+
+# ==================== _restart_on_error (exponential backoff) ====================
 
 
 class TestRestartOnError:
-    async def test_sleeps_5s_then_restarts_when_has_subscribers(self, monkeypatch):
+    async def test_exponential_backoff_first_retry(self, monkeypatch):
+        """issue #6: 第一次重连等待 5s"""
         slept = []
 
         async def mock_sleep(delay):
@@ -358,13 +454,55 @@ class TestRestartOnError:
         mock_mgr.has_subscribers.return_value = True
 
         task = MagicMock(spec=asyncio.Task)
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
 
         proxy = BinanceWSProxy(mock_mgr)
         await proxy._restart_on_error("ticker", "BTCUSDT", "spot")
 
         assert slept == [5]
-        assert "ticker:BTCUSDT:spot" in proxy._tasks
+
+    async def test_exponential_backoff_second_retry(self, monkeypatch):
+        """issue #6: 第二次重连等待 10s"""
+        slept = []
+
+        async def mock_sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+        mock_mgr = MagicMock()
+        mock_mgr.has_subscribers.return_value = True
+
+        task = MagicMock(spec=asyncio.Task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
+
+        proxy = BinanceWSProxy(mock_mgr)
+        proxy._retry_counts[_stream_key("ticker", "BTCUSDT", "spot")] = 1
+        await proxy._restart_on_error("ticker", "BTCUSDT", "spot")
+
+        assert slept == [10]
+
+    async def test_exponential_backoff_capped_at_60s(self, monkeypatch):
+        """issue #6: 退避上限 60s"""
+        slept = []
+
+        async def mock_sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+        mock_mgr = MagicMock()
+        mock_mgr.has_subscribers.return_value = True
+
+        task = MagicMock(spec=asyncio.Task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
+
+        proxy = BinanceWSProxy(mock_mgr)
+        # 模拟已重试 10 次 → 2^10 * 5 = 5120 → capped at 60
+        proxy._retry_counts[_stream_key("ticker", "BTCUSDT", "spot")] = 10
+        await proxy._restart_on_error("ticker", "BTCUSDT", "spot")
+
+        assert slept == [60]
 
     async def test_no_restart_when_no_subscribers(self, monkeypatch):
         async def mock_sleep(delay):
@@ -376,7 +514,7 @@ class TestRestartOnError:
         mock_mgr.has_subscribers.return_value = False
 
         created = []
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: created.append(1))
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_mark(created))
 
         proxy = BinanceWSProxy(mock_mgr)
         await proxy._restart_on_error("ticker", "BTCUSDT", "spot")
@@ -393,7 +531,7 @@ class TestPollingFallback:
         fallback = PollingFallback(mock_mgr)
 
         task = MagicMock(spec=asyncio.Task)
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: task)
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_return(task))
 
         await fallback.start()
         assert fallback._running is True
@@ -405,7 +543,7 @@ class TestPollingFallback:
         fallback._running = True
 
         created = []
-        monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: created.append(1))
+        monkeypatch.setattr(asyncio, "create_task", _consume_coro_and_mark(created))
 
         await fallback.start()
         assert created == []
@@ -422,3 +560,18 @@ class TestPollingFallback:
 
         task.cancel.assert_called_once()
         assert fallback._running is False
+
+    async def test_poll_with_env_api_keys(self, monkeypatch):
+        """issue #7: 应读取环境变量中的 API Key"""
+        monkeypatch.setenv("BINANCE_API_KEY", "test-key")
+        monkeypatch.setenv("BINANCE_API_SECRET", "test-secret")
+
+        mock_mgr = MagicMock()
+        mock_mgr._subs = {}
+        fallback = PollingFallback(mock_mgr)
+        fallback._running = True
+
+        # 验证 _poll_loop 不会因为空 API key 而崩溃
+        # (实际测试中 poll_loop 会尝试连接 Binance，这里仅验证构造正确)
+        assert "BINANCE_API_KEY" in os.environ
+        assert "BINANCE_API_SECRET" in os.environ

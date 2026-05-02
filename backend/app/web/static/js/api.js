@@ -12,8 +12,9 @@ function escapeHtml(str) {
 
 class ApiClient {
   constructor() {
-    this.accessToken = localStorage.getItem('access_token') || '';
-    this.refreshToken = localStorage.getItem('refresh_token') || '';
+    // 使用 sessionStorage 替代 localStorage，降低 XSS 风险（页面关闭时自动清除）
+    this.accessToken = sessionStorage.getItem('access_token') || '';
+    this.refreshToken = sessionStorage.getItem('refresh_token') || '';
   }
 
   // ===== 认证 =====
@@ -72,8 +73,8 @@ class ApiClient {
       const data = json.data || json;
       this.accessToken = data.access_token;
       if (data.refresh_token) this.refreshToken = data.refresh_token;
-      localStorage.setItem('access_token', this.accessToken);
-      localStorage.setItem('refresh_token', this.refreshToken);
+      sessionStorage.setItem('access_token', this.accessToken);
+      sessionStorage.setItem('refresh_token', this.refreshToken);
       return true;
     } catch {
       return false;
@@ -94,8 +95,8 @@ class ApiClient {
     const data = json.data || json;  // APIResponse 包裹兼容
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
-    localStorage.setItem('access_token', this.accessToken);
-    localStorage.setItem('refresh_token', this.refreshToken);
+    sessionStorage.setItem('access_token', this.accessToken);
+    sessionStorage.setItem('refresh_token', this.refreshToken);
     return data;
   }
 
@@ -113,16 +114,16 @@ class ApiClient {
     const data = json.data || json;  // APIResponse 包裹兼容
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
-    localStorage.setItem('access_token', this.accessToken);
-    localStorage.setItem('refresh_token', this.refreshToken);
+    sessionStorage.setItem('access_token', this.accessToken);
+    sessionStorage.setItem('refresh_token', this.refreshToken);
     return data;
   }
 
   logout() {
     this.accessToken = '';
     this.refreshToken = '';
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('refresh_token');
   }
 
   get isLoggedIn() {

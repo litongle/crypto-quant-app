@@ -8,8 +8,8 @@ import pytest
 class TestProductionSecurity:
     """P0-1: 生产环境安全校验测试"""
 
-    def test_dev_env_allows_default_keys(self):
-        """开发环境允许默认密钥"""
+    def test_dev_env_rejects_default_keys_by_default(self):
+        """开发环境默认也拒绝占位密钥"""
         from app.config import Settings
 
         settings = Settings(
@@ -17,7 +17,19 @@ class TestProductionSecurity:
             secret_key="dev-secret-key-change-me",
             jwt_secret_key="dev-jwt-secret-key-change-me",
         )
-        # 不应抛异常
+        with pytest.raises(SystemExit):
+            settings.validate_production_secrets()
+
+    def test_dev_env_can_opt_in_insecure_defaults(self):
+        """开发环境仅在显式 opt-in 时允许默认密钥"""
+        from app.config import Settings
+
+        settings = Settings(
+            environment="development",
+            secret_key="dev-secret-key-change-me",
+            jwt_secret_key="dev-jwt-secret-key-change-me",
+            allow_insecure_default_secrets=True,
+        )
         settings.validate_production_secrets()
         assert settings.is_production is False
 

@@ -160,8 +160,8 @@ function renderAccounts() {
           <div style="display:flex;align-items:center;gap:var(--cq-space-3);">
             <div style="text-align:right;">
               <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:2px;">余额</div>
-              <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${Number(acc.balance || 0).toFixed(4)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
-              ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);">冻结: ${Number(acc.frozen_balance).toFixed(4)}</div>` : ''}
+              <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${formatBalance(acc.balance || 0)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
+              ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);">冻结: ${formatBalance(acc.frozen_balance)}</div>` : ''}
             </div>
             <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="syncAccount(${acc.id})" title="同步余额" id="sync-btn-${acc.id}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -183,6 +183,16 @@ function renderAccounts() {
 }
 
 /* ── 工具函数 ── */
+/** 根据余额大小动态调整小数位，避免 BTC/ETH 等精度丢失 */
+function formatBalance(n) {
+  const v = Number(n);
+  if (isNaN(v)) return '0';
+  if (v >= 1000) return v.toFixed(2);
+  if (v >= 1) return v.toFixed(4);
+  if (v >= 0.01) return v.toFixed(6);
+  return v.toFixed(8);
+}
+
 function timeAgo(date) {
   const now = new Date();
   const diff = Math.floor((now - date) / 1000);
@@ -265,9 +275,7 @@ async function submitAddAccount() {
       showToast(msg, 'error');
     }
   } finally {
-    // 先恢复按钮再重渲染
-    btn.disabled = false;
-    btn.innerHTML = origText;
+    // renderAccounts() 会全量重建 DOM
     accounts = await api.getExchangeAccounts();
     renderAccounts();
   }
@@ -278,7 +286,6 @@ async function syncAccount(accountId) {
   if (!btn) return;
 
   btn.disabled = true;
-  const origHtml = btn.innerHTML;
   btn.innerHTML = '<span class="cq-spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(99,102,241,0.3);border-top-color:var(--cq-color-primary);border-radius:50%;"></span>';
 
   try {
@@ -287,16 +294,22 @@ async function syncAccount(accountId) {
   } catch (err) {
     showToast(err.message || '同步失败，请检查 API Key 和网络', 'error');
   } finally {
-    // 先恢复按钮，再重渲染（重渲染会销毁当前DOM节点）
-    btn.disabled = false;
-    btn.innerHTML = origHtml;
+    // renderAccounts() 会全量重建 DOM，无需手动恢复按钮状态
     accounts = await api.getExchangeAccounts();
     renderAccounts();
   }
 }
 
 async function deleteAccount(id) {
-  if (!confirm('确定要删除这个交易所账户吗？')) return;
+  const acc = accounts.find(a => a.id === id);
+  const confirmed = await confirmDangerous(
+    `删除账户：${escapeHtml(acc?.account_name || '未知')}`,
+    `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">确认删除此交易所账户？</p>
+     <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
+       <span style="font-weight:600;">⚠️ 高危操作</span>：删除后该账户关联的所有策略将停止运行，订单历史保留但不可再关联。
+     </div>`
+  );
+  if (!confirmed) return;
   try {
     await api.deleteExchangeAccount(id);
     showToast('账户已删除', 'success');

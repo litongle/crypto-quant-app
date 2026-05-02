@@ -303,7 +303,17 @@ async function runBacktest() {
   if (endDate > today) { showToast('结束日期不能是未来日期', 'warn'); return; }
   if (startDate > today) { showToast('开始日期不能是未来日期', 'warn'); return; }
 
-  const initialCapital = parseFloat(document.getElementById('backtest-capital').value) || 100000;
+  // 交易对校验
+  if (!symbol || !/^[A-Z0-9]{2,20}$/.test(symbol)) { showToast('请输入有效的交易对', 'warn'); return; }
+
+  // 初始资金校验
+  const initialCapital = parseFloat(document.getElementById('backtest-capital').value);
+  if (isNaN(initialCapital) || initialCapital <= 0) { showToast('初始资金必须大于 0', 'warn'); return; }
+  if (initialCapital > 1000000000) { showToast('初始资金不能超过 10 亿', 'warn'); return; }
+
+  // 日期跨度校验
+  const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
+  if (daysDiff > 3650) { showToast('回测跨度不能超过 10 年', 'warn'); return; }
 
   const selectedTemplate = (window._backtestTemplates || []).find(t => t.id === templateId);
   const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
@@ -376,21 +386,22 @@ function renderBacktestResults(result) {
   const el = document.getElementById('backtest-results');
 
   const metrics = result.metrics || result;
-  const totalReturn = metrics.totalReturn ?? metrics.total_return ?? 0;
-  const maxDrawdown = metrics.maxDrawdown ?? metrics.max_drawdown ?? 0;
-  const sharpeRatio = metrics.sharpeRatio ?? metrics.sharpe_ratio ?? 0;
-  const winRate = metrics.winRate ?? metrics.win_rate ?? 0;
-  const totalTrades = metrics.totalTrades ?? metrics.total_trades ?? 0;
-  const profitFactor = metrics.profitFactor ?? metrics.profit_factor ?? 0;
+  // 后端统一返回 camelCase
+  const totalReturn = metrics.totalReturn ?? 0;
+  const maxDrawdown = metrics.maxDrawdown ?? 0;
+  const sharpeRatio = metrics.sharpeRatio ?? 0;
+  const winRate = metrics.winRate ?? 0;
+  const totalTrades = metrics.totalTrades ?? 0;
+  const profitFactor = metrics.profitFactor ?? 0;
   // 扩展指标
-  const annualReturn = metrics.annualReturn ?? metrics.annual_return ?? 0;
-  const calmarRatio = metrics.calmarRatio ?? metrics.calmar_ratio ?? 0;
-  const profitTrades = metrics.profitTrades ?? metrics.profit_trades ?? 0;
-  const lossTrades = metrics.lossTrades ?? metrics.loss_trades ?? 0;
-  const avgProfit = metrics.avgProfit ?? metrics.avg_profit ?? 0;
-  const avgLoss = metrics.avgLoss ?? metrics.avg_loss ?? 0;
-  const maxConWins = metrics.maxConsecutiveWins ?? metrics.max_consecutive_wins ?? 0;
-  const maxConLosses = metrics.maxConsecutiveLosses ?? metrics.max_consecutive_losses ?? 0;
+  const annualReturn = metrics.annualReturn ?? 0;
+  const calmarRatio = metrics.calmarRatio ?? 0;
+  const profitTrades = metrics.profitTrades ?? 0;
+  const lossTrades = metrics.lossTrades ?? 0;
+  const avgProfit = metrics.avgProfit ?? 0;
+  const avgLoss = metrics.avgLoss ?? 0;
+  const maxConWins = metrics.maxConsecutiveWins ?? 0;
+  const maxConLosses = metrics.maxConsecutiveLosses ?? 0;
   const duration = metrics.duration ?? 0;
   const initialCapital = metrics.initialCapital ?? result.initialCapital ?? 100000;
   const finalCapital = metrics.finalCapital ?? result.finalCapital ?? 100000;

@@ -4,25 +4,42 @@ WebSocket 交易所代理实现
 支持 spot / perp 双市场:
   binance perp → wss://fstream.binance.com (USDT-M perpetual)
   okx     perp → 同 WS host,instId 改 BTC-USDT-SWAP
-  huobi   perp → wss://api.hbdm.com/linear-swap-ws,topic 用 contract_code(BTC-USDT)
+  huobi   perp → wss://futures.htx.com/linear-swap-ws,topic 用 contract_code(BTC-USDT)
 
 key 维度: (channel, symbol, market_type) — 同 symbol 的 spot 与 perp 是
 两条独立的 WS 连接,价格不互串。
 """
 
 import asyncio
+import contextlib
+import gzip
 import json
 import logging
+import os
 from typing import Any
 
 from app.core.trade_schemas import WSMessage
 
 logger = logging.getLogger(__name__)
 
+_VALID_KLINE_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"}
+_DEFAULT_KLINE_INTERVAL = "1m"
+_MAX_BACKOFF_S = 60
+_BASE_BACKOFF_S = 5
+
 
 def _stream_key(channel: str, symbol: str, market_type: str) -> str:
     """统一的 task / 订阅 key"""
     return f"{channel}:{symbol}:{market_type}"
+
+
+def _parse_kline_interval(channel: str) -> str:
+    """从 kline 频道名提取周期（kline_5m → 5m），未指定返回默认 1m"""
+    if channel.startswith("kline_"):
+        candidate = channel[6:]
+        if candidate in _VALID_KLINE_INTERVALS:
+            return candidate
+    return _DEFAULT_KLINE_INTERVAL
 
 
 class ExchangeWSProxy:
@@ -33,6 +50,7 @@ class ExchangeWSProxy:
     def __init__(self, conn_manager: Any):
         self._manager = conn_manager
         self._tasks: dict[str, asyncio.Task] = {}
+        self._retry_counts: dict[str, int] = {}
 
     async def start_if_needed(
         self,
@@ -43,7 +61,7 @@ class ExchangeWSProxy:
         key = _stream_key(channel, symbol, market_type)
         if key in self._tasks:
             return
-        if self._manager.has_subscribers(channel, symbol):
+        if self._manager.has_subscribers(channel, symbol, market_type):
             self._tasks[key] = asyncio.create_task(
                 self._run_stream(channel, symbol, market_type),
                 name=f"ws-proxy-{self.EXCHANGE}-{key}",
@@ -56,10 +74,11 @@ class ExchangeWSProxy:
         market_type: str = "spot",
     ) -> None:
         key = _stream_key(channel, symbol, market_type)
-        if not self._manager.has_subscribers(channel, symbol):
+        if not self._manager.has_subscribers(channel, symbol, market_type):
             task = self._tasks.pop(key, None)
             if task:
                 task.cancel()
+            self._retry_counts.pop(key, None)
 
     async def _run_stream(
         self,
@@ -69,13 +88,16 @@ class ExchangeWSProxy:
     ) -> None:
         raise NotImplementedError
 
-    async def _broadcast(self, msg: WSMessage) -> None:
-        subscribers = self._manager.get_subscribers(msg.type, msg.symbol or "")
+    async def _broadcast(
+        self,
+        msg: WSMessage,
+        channel: str,
+        market_type: str,
+    ) -> None:
+        subscribers = self._manager.get_subscribers(channel, msg.symbol or "", market_type)
         for ws in subscribers:
-            try:
+            with contextlib.suppress(Exception):
                 await ws.send_text(msg.model_dump_json())
-            except Exception:
-                pass
 
     async def _restart_on_error(
         self,
@@ -83,10 +105,23 @@ class ExchangeWSProxy:
         symbol: str,
         market_type: str,
     ) -> None:
-        """连接异常后等待 5s 自动重连"""
-        await asyncio.sleep(5)
-        if self._manager.has_subscribers(channel, symbol):
-            self._tasks.pop(_stream_key(channel, symbol, market_type), None)
+        """指数退避重连：5s → 10s → 20s → ... → 上限 60s（issue #6）"""
+        key = _stream_key(channel, symbol, market_type)
+        retry = self._retry_counts.get(key, 0) + 1
+        self._retry_counts[key] = retry
+        delay = min(_BASE_BACKOFF_S * (2 ** (retry - 1)), _MAX_BACKOFF_S)
+        logger.info(
+            "[%sWS] 第 %d 次重连 %s/%s/%s, 等待 %.0fs",
+            self.EXCHANGE.capitalize(),
+            retry,
+            channel,
+            symbol,
+            market_type,
+            delay,
+        )
+        await asyncio.sleep(delay)
+        if self._manager.has_subscribers(channel, symbol, market_type):
+            self._tasks.pop(key, None)
             await self.start_if_needed(channel, symbol, market_type)
 
 
@@ -104,24 +139,28 @@ class BinanceWSProxy(ExchangeWSProxy):
         market_type: str = "spot",
     ) -> None:
         symbol_lower = symbol.lower()
-        stream = (
-            f"{symbol_lower}@ticker"
-            if channel == "ticker"
-            else f"{symbol_lower}@kline_1m"
-            if channel == "kline"
-            else f"{symbol_lower}@depth20@100ms"
-        )
+        key = _stream_key(channel, symbol, market_type)
+        if channel == "ticker":
+            stream = f"{symbol_lower}@ticker"
+        elif channel.startswith("kline"):
+            interval = _parse_kline_interval(channel)
+            stream = f"{symbol_lower}@kline_{interval}"
+        elif channel == "orderbook":
+            stream = f"{symbol_lower}@depth20@100ms"
+        else:
+            stream = f"{symbol_lower}@ticker"
         base = self.PERP_BASE if market_type == "perp" else self.SPOT_BASE
         url = f"{base}/{stream}"
         try:
             import websockets
 
             async with websockets.connect(url, ping_interval=20) as ws:
+                self._retry_counts.pop(key, None)
                 async for raw in ws:
                     data = json.loads(raw)
                     msg = self._parse_message(data, channel, symbol)
                     if msg:
-                        await self._broadcast(msg)
+                        await self._broadcast(msg, channel, market_type)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -129,7 +168,7 @@ class BinanceWSProxy(ExchangeWSProxy):
             await self._restart_on_error(channel, symbol, market_type)
 
     def _parse_message(self, data: dict, channel: str, symbol: str) -> WSMessage | None:
-        if channel == "ticker" and "c" in data:
+        if (channel == "ticker" or channel.startswith("ticker")) and "c" in data:
             return WSMessage(
                 type="ticker",
                 exchange="binance",
@@ -145,7 +184,7 @@ class BinanceWSProxy(ExchangeWSProxy):
                     "quote_volume_24h": data.get("q", "0"),
                 },
             )
-        elif channel == "kline" and "k" in data:
+        elif channel.startswith("kline") and "k" in data:
             k = data["k"]
             return WSMessage(
                 type="kline",
@@ -180,6 +219,12 @@ class OKXProxy(ExchangeWSProxy):
     EXCHANGE = "okx"
     WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 
+    _OKX_CH_MAP = {
+        "ticker": "tickers",
+        "orderbook": "books5",
+    }
+    _OKX_KLINE_PREFIXES = {f"kline_{i}" for i in _VALID_KLINE_INTERVALS}
+
     async def _run_stream(
         self,
         channel: str,
@@ -187,21 +232,27 @@ class OKXProxy(ExchangeWSProxy):
         market_type: str = "spot",
     ) -> None:
         inst_id = self._to_inst_id(symbol, market_type)
-        okx_ch = {"ticker": "tickers", "kline": "candle1m", "orderbook": "books5"}.get(channel)
+        if channel.startswith("kline"):
+            interval = _parse_kline_interval(channel)
+            okx_ch = f"candle{interval.upper()}" if interval != "1M" else "candle1M"
+        else:
+            okx_ch = self._OKX_CH_MAP.get(channel)
         if not okx_ch:
             return
         sub_msg = json.dumps({"op": "subscribe", "args": [{"channel": okx_ch, "instId": inst_id}]})
+        key = _stream_key(channel, symbol, market_type)
         try:
             import websockets
 
             async with websockets.connect(self.WS_URL, ping_interval=20) as ws:
                 await ws.send(sub_msg)
+                self._retry_counts.pop(key, None)
                 async for raw in ws:
                     data = json.loads(raw)
                     if "data" in data:
                         msg = self._parse_message(data, channel, symbol)
                         if msg:
-                            await self._broadcast(msg)
+                            await self._broadcast(msg, channel, market_type)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -271,8 +322,6 @@ class HuobiProxy(ExchangeWSProxy):
 
     EXCHANGE = "huobi"
     SPOT_WS = "wss://api.huobi.pro/ws"
-    # Huobi 更名 HTX 后,旧 api.hbdm.com 域名在部分网络被墙;
-    # 用新合约域 futures.htx.com 的 WS(/linear-swap-ws)
     PERP_WS = "wss://futures.htx.com/linear-swap-ws"
 
     async def _run_stream(
@@ -282,47 +331,54 @@ class HuobiProxy(ExchangeWSProxy):
         market_type: str = "spot",
     ) -> None:
         if market_type == "perp":
-            # 火币线性永续 topic 用 contract_code(BTC-USDT)
             code = self._to_perp_code(symbol)
-            topic = (
-                f"market.{code}.detail"
-                if channel == "ticker"
-                else f"market.{code}.kline.1min"
-                if channel == "kline"
-                else f"market.{code}.depth.step0"
-            )
+            if channel == "ticker":
+                topic = f"market.{code}.detail"
+            elif channel.startswith("kline"):
+                interval = _parse_kline_interval(channel)
+                topic = f"market.{code}.kline.{interval}"
+            elif channel == "orderbook":
+                topic = f"market.{code}.depth.step0"
+            else:
+                topic = f"market.{code}.detail"
             url = self.PERP_WS
         else:
             sym = symbol.lower()
-            topic = (
-                f"market.{sym}.detail"
-                if channel == "ticker"
-                else f"market.{sym}.kline.1min"
-                if channel == "kline"
-                else f"market.{sym}.depth.step0"
-            )
+            if channel == "ticker":
+                topic = f"market.{sym}.detail"
+            elif channel.startswith("kline"):
+                interval = _parse_kline_interval(channel)
+                topic = f"market.{sym}.kline.{interval}"
+            elif channel == "orderbook":
+                topic = f"market.{sym}.depth.step0"
+            else:
+                topic = f"market.{sym}.detail"
             url = self.SPOT_WS
 
         sub_msg = json.dumps({"sub": topic, "id": f"sub-{symbol}-{market_type}"})
+        key = _stream_key(channel, symbol, market_type)
         try:
-            import gzip
-
             import websockets
 
             async with websockets.connect(url, ping_interval=20) as ws:
                 await ws.send(sub_msg)
+                self._retry_counts.pop(key, None)
                 async for raw in ws:
-                    decompressed = (
-                        gzip.decompress(raw).decode("utf-8") if isinstance(raw, bytes) else raw
-                    )
-                    data = json.loads(decompressed)
+                    if isinstance(raw, bytes):
+                        try:
+                            decompressed = gzip.decompress(raw).decode("utf-8")
+                        except Exception:
+                            decompressed = raw.decode("utf-8")
+                    else:
+                        decompressed = raw
+                    data = json.loads(decompressed) if isinstance(decompressed, str) else json.loads(raw)
                     if "ping" in data:
                         await ws.send(json.dumps({"pong": data["ping"]}))
                         continue
                     if "ch" in data:
                         msg = self._parse_message(data, channel, symbol)
                         if msg:
-                            await self._broadcast(msg)
+                            await self._broadcast(msg, channel, market_type)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -342,7 +398,7 @@ class HuobiProxy(ExchangeWSProxy):
         tick = data.get("tick", {})
         if not tick:
             return None
-        if "detail" in ch or channel == "ticker":
+        if "detail" in ch or channel == "ticker" or channel.startswith("ticker"):
             return WSMessage(
                 type="ticker",
                 exchange="huobi",
@@ -357,7 +413,7 @@ class HuobiProxy(ExchangeWSProxy):
                     "quote_volume_24h": str(tick.get("amount", "0")),
                 },
             )
-        elif "kline" in ch or channel == "kline":
+        elif "kline" in ch or channel.startswith("kline"):
             return WSMessage(
                 type="kline",
                 exchange="huobi",
@@ -385,7 +441,10 @@ class HuobiProxy(ExchangeWSProxy):
 
 
 class PollingFallback:
-    """轮询降级模式(websockets 库不可用时启用,只支持现货)"""
+    """轮询降级模式(websockets 库不可用时启用,只支持公开数据)
+
+    若设置了环境变量 BINANCE_API_KEY / BINANCE_API_SECRET 则可用私有数据。
+    """
 
     def __init__(self, conn_manager: Any):
         self._manager = conn_manager
@@ -407,10 +466,12 @@ class PollingFallback:
         from app.core.exchanges.binance import BinanceAdapter
         from app.core.trade_schemas import TickerSchema
 
-        adapter = BinanceAdapter("", "")
+        api_key = os.environ.get("BINANCE_API_KEY", "")
+        api_secret = os.environ.get("BINANCE_API_SECRET", "")
+        adapter = BinanceAdapter(api_key, api_secret)
         while self._running:
             try:
-                symbols = set()
+                symbols: set[str] = set()
                 for sub in self._manager._subs.values():
                     symbols.update(sub.symbols)
                 if not symbols:
@@ -425,7 +486,7 @@ class PollingFallback:
                             symbol=sym,
                             data=TickerSchema.from_dataclass(ticker).model_dump(),
                         )
-                        await self._broadcast(msg)
+                        await self._broadcast(msg, "ticker", "spot")
                     except Exception:
                         pass
                 await asyncio.sleep(2)
@@ -434,10 +495,13 @@ class PollingFallback:
             except Exception:
                 await asyncio.sleep(5)
 
-    async def _broadcast(self, msg: WSMessage) -> None:
-        subscribers = self._manager.get_subscribers(msg.type, msg.symbol or "")
+    async def _broadcast(
+        self,
+        msg: WSMessage,
+        channel: str = "ticker",
+        market_type: str = "spot",
+    ) -> None:
+        subscribers = self._manager.get_subscribers(channel, msg.symbol or "", market_type)
         for ws in subscribers:
-            try:
+            with contextlib.suppress(Exception):
                 await ws.send_text(msg.model_dump_json())
-            except Exception:
-                pass

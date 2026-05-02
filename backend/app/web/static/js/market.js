@@ -363,23 +363,20 @@ function startMarketWs() {
 
   const wsBase = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // WS 端点要求 JWT(在 endpoints.py L18 校验);从 api 客户端取 access token
-  const token = (typeof api !== 'undefined' && api.accessToken) || localStorage.getItem('access_token') || '';
+  const token = (typeof api !== 'undefined' && api.accessToken) || sessionStorage.getItem('access_token') || '';
   if (!token) {
     console.warn('[Market WS] 缺少 access token,跳过 WS 连接(请先登录)');
     return;
   }
   const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&market=${marketType}`;
 
+  const wsProtocols = ['json', `access_token.${token}`];
+
   try {
-    marketWs = new WebSocket(wsUrl);
+    marketWs = new WebSocket(wsUrl, wsProtocols);
 
     marketWs.onopen = () => {
       console.log('[Market WS] Connected:', marketSymbol, marketExchange);
-      // 先发送认证消息（Token 不再走 URL）
-      marketWs.send(JSON.stringify({
-        action: 'auth',
-        token: token,
-      }));
       // 自动订阅 ticker 频道
       marketWs.send(JSON.stringify({
         action: 'subscribe',
@@ -414,6 +411,13 @@ function startMarketWs() {
 function handleMarketWsMessage(msg) {
   // WSMessage 信封格式: { type, data: { price, ... }, symbol, exchange }
   // 需要从 msg.data 内层读取行情字段
+  if (msg.type === 'ping') {
+    try {
+      marketWs?.send(JSON.stringify({ action: 'pong' }));
+    } catch {}
+    return;
+  }
+
   if (msg.type === 'ticker' && msg.symbol) {
     const t = msg.data || {};  // 内层行情数据
     updateMarketOverviewMeta(new Date());

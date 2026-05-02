@@ -5,6 +5,9 @@ Repository 层测试 — 直接对接内存 SQLite，验证 CRUD 与定制查询
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.core.security import hash_password
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
@@ -265,7 +268,12 @@ class TestPositionRepository:
         tpl = await _make_template(db_session, code="rsi_test_strategy")
         inst = await _make_instance(db_session, user.id, tpl.id)
         await _make_position(db_session, account.id, strategy_instance_id=inst.id)
-        await _make_position(db_session, account.id, strategy_instance_id=None)
+        await _make_position(
+            db_session,
+            account.id,
+            symbol="ETHUSDT",
+            strategy_instance_id=None,
+        )
 
         result = await repo.get_by_strategy(inst.id)
         assert len(result) == 1
@@ -276,7 +284,13 @@ class TestPositionRepository:
         user = await _make_user(db_session, email="exposure@example.com")
         account = await _make_account(db_session, user.id)
         await _make_position(db_session, account.id, quantity="2", current_price="100")
-        await _make_position(db_session, account.id, quantity="1", current_price="50")
+        await _make_position(
+            db_session,
+            account.id,
+            symbol="ETHUSDT",
+            quantity="1",
+            current_price="50",
+        )
         # Closed 仓位不计入
         await _make_position(
             db_session,
@@ -310,6 +324,46 @@ class TestPositionRepository:
 
         btc_exposure = await repo.get_total_exposure(account.id, "BTCUSDT")
         assert btc_exposure == Decimal("100")
+
+    async def test_open_position_unique_index_blocks_duplicate_open_positions(self, db_session):
+        user = await _make_user(db_session, email="unique-open@example.com")
+        account = await _make_account(db_session, user.id)
+        await _make_position(db_session, account.id, symbol="BTCUSDT", side="long", status="open")
+
+        db_session.add(
+            Position(
+                account_id=account.id,
+                symbol="BTCUSDT",
+                side="long",
+                quantity=Decimal("1"),
+                entry_price=Decimal("50000"),
+                current_price=Decimal("50000"),
+                status="open",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
+
+    async def test_closed_position_does_not_conflict_with_new_open_position(self, db_session):
+        user = await _make_user(db_session, email="unique-closed@example.com")
+        account = await _make_account(db_session, user.id)
+        await _make_position(
+            db_session,
+            account.id,
+            symbol="BTCUSDT",
+            side="long",
+            status="closed",
+        )
+
+        reopened = await _make_position(
+            db_session,
+            account.id,
+            symbol="BTCUSDT",
+            side="long",
+            status="open",
+        )
+
+        assert reopened.status == "open"
 
 
 # ==================== OrderRepository ====================

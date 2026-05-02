@@ -302,13 +302,17 @@ async function submitSlTp() {
   const takePrice = document.getElementById('sltp-take-price')?.value;
 
   try {
+    const results = [];
     if (stopPrice && parseFloat(stopPrice) > 0) {
       await api.setStopLoss(positionId, accountId, stopPrice);
-      showToast('止损已设置', 'success');
+      results.push('止损');
     }
     if (takePrice && parseFloat(takePrice) > 0) {
       await api.setTakeProfit(positionId, accountId, takePrice);
-      showToast('止盈已设置', 'success');
+      results.push('止盈');
+    }
+    if (results.length > 0) {
+      showToast(results.join(' / ') + '已设置', 'success');
     }
     closeSlTpDialog();
     refreshTradingData();
