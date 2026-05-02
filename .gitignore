@@ -65,8 +65,10 @@ logs/
 # AI tools (local runtime data, never commit)
 .archon/
 .claude/
+.codex/
 .codebuddy/
 .workbuddy/
+CLAUDE.md
 
 # Screenshots (testing artifacts)
 screenshot-*.png
