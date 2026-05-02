@@ -125,8 +125,9 @@ async def init_db():
 
     # Stamp Alembic head version so future migrations don't replay
     try:
-        from alembic import command
         from alembic.config import Config as AlembicConfig
+
+        from alembic import command
 
         alembic_cfg = AlembicConfig()
         alembic_cfg.set_main_option("script_location", "alembic")
