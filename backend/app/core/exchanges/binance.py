@@ -257,6 +257,9 @@ class BinanceAdapter(BaseExchangeAdapter):
         quantity: Decimal,
         price: Decimal | None = None,
     ) -> OrderResult:
+        if order_type.lower() == "limit" and price is None:
+            raise OrderRejectedError("Binance", "限价单必须指定价格")
+
         info = await self.get_exchange_info(symbol)
         normalized_quantity = self._prepare_quantity(quantity, info)
 
@@ -269,8 +272,6 @@ class BinanceAdapter(BaseExchangeAdapter):
                 "quantity": _format_decimal(normalized_quantity),
             }
             if order_type.lower() == "limit":
-                if price is None:
-                    raise OrderRejectedError("Binance", "限价单必须指定价格")
                 normalized_price = self._prepare_price(price, info)
                 params["price"] = _format_decimal(normalized_price)
                 params["timeInForce"] = "GTC"
