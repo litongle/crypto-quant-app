@@ -422,7 +422,8 @@ class TestBinanceAdapter:
         assert result.filled_quantity == Decimal("0.5")
 
     async def test_create_limit_order_without_price_raises(self):
-        # 没 mock client 也能拦截，因为参数校验在 _do 内
+        self.adapter.get_exchange_info = AsyncMock()
+
         with pytest.raises(OrderRejectedError):
             await self.adapter.create_order(
                 symbol="BTCUSDT",
@@ -430,6 +431,7 @@ class TestBinanceAdapter:
                 order_type="limit",
                 quantity=Decimal("1"),
             )
+        self.adapter.get_exchange_info.assert_not_awaited()
 
     async def test_cancel_order_returns_true_on_canceled(self, monkeypatch):
         cancel_payload = {"orderId": 1, "status": "CANCELED"}
