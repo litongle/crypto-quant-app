@@ -2,6 +2,8 @@
 策略服务
 """
 
+from datetime import UTC, datetime
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,8 @@ from app.repositories.strategy_repo import (
     StrategyInstanceRepository,
     StrategyTemplateRepository,
 )
+
+MAX_INSTANCES_PER_USER = 20
 
 
 class StrategyService:
@@ -88,6 +92,15 @@ class StrategyService:
         """获取策略实例详情"""
         return await self.instance_repo.get_with_template(instance_id)
 
+    async def _ensure_instance_quota(self, user_id: int) -> None:
+        """校验用户策略实例数量上限"""
+        current_count = await self.instance_repo.count_by_user(user_id)
+        if current_count >= MAX_INSTANCES_PER_USER:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"策略实例数量已达上限 ({MAX_INSTANCES_PER_USER}个)，请删除后再创建",
+            )
+
     async def create_instance(
         self,
         user: User,
@@ -106,6 +119,8 @@ class StrategyService:
             template_id: 模板ID（可以是int或字符串code）
             account_id: 绑定的交易所账户ID，自动下单时使用
         """
+        await self._ensure_instance_quota(user.id)
+
         # 解析模板ID（支持int或字符串）
         template: StrategyTemplate | None = None
         if isinstance(template_id, str):
@@ -153,6 +168,8 @@ class StrategyService:
             params=params,
             risk_params=risk_params,
             account_id=account_id,
+            status="draft",
+            workspace_state="library",
         )
         return await self.instance_repo.create(instance)
 
@@ -174,10 +191,54 @@ class StrategyService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权操作此策略",
             )
+        if instance.workspace_state != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="正式策略不能直接编辑，请先复制为工作台草案",
+            )
 
-        # 更新字段（account_id 不允许通过 update 修改，需走专门的 change_account 方法）
-        allowed_fields = ["name", "symbol", "params", "risk_params", "direction"]
+        if "account_id" in updates:
+            account_id = updates["account_id"]
+            if account_id:
+                from sqlalchemy import select
+
+                from app.models.exchange import ExchangeAccount
+
+                result = await self.session.execute(
+                    select(ExchangeAccount).where(
+                        ExchangeAccount.id == account_id,
+                        ExchangeAccount.user_id == user_id,
+                        ExchangeAccount.is_active,
+                    )
+                )
+                account = result.scalar_one_or_none()
+                if not account:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="交易所账户不存在或不可用",
+                    )
+
+        if "workspace_state" in updates and updates["workspace_state"] == "running":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="不能通过编辑直接把策略放入运行台，请使用启动操作",
+            )
+
+        allowed_fields = [
+            "name",
+            "exchange",
+            "symbol",
+            "account_id",
+            "params",
+            "risk_params",
+            "direction",
+            "workspace_state",
+        ]
         update_dict = {k: v for k, v in updates.items() if k in allowed_fields}
+        if "symbol" in update_dict and update_dict["symbol"]:
+            update_dict["symbol"] = str(update_dict["symbol"]).upper()
+        if "exchange" in update_dict and update_dict["exchange"]:
+            update_dict["exchange"] = str(update_dict["exchange"]).lower()
 
         return await self.instance_repo.update(instance_id, **update_dict)
 
@@ -200,17 +261,43 @@ class StrategyService:
                 detail="策略已在运行",
             )
 
-        instance = await self.instance_repo.update(instance_id, status="running")
-
-        # 启动策略运行器
         try:
             from app.core.strategy_runner import strategy_runner
 
-            await strategy_runner.start_instance(instance_id)
+            started = await strategy_runner.start_instance(instance_id)
+            if not started:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="策略启动失败，请稍后重试",
+                )
         except Exception as exc:
+            if isinstance(exc, HTTPException):
+                raise
             import logging
 
             logging.getLogger(__name__).warning("启动策略运行器失败: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="策略运行器暂时不可用，请稍后重试",
+            ) from exc
+
+        now = datetime.now(UTC)
+        try:
+            instance = await self.instance_repo.update(
+                instance_id,
+                status="running",
+                workspace_state="running",
+                last_started_at=now,
+                last_run_at=now,
+            )
+        except Exception:
+            try:
+                from app.core.strategy_runner import strategy_runner
+
+                await strategy_runner.stop_instance(instance_id)
+            except Exception:
+                pass
+            raise
 
         return instance
 
@@ -233,7 +320,6 @@ class StrategyService:
                 detail="策略未在运行",
             )
 
-        # 先停止策略运行器
         try:
             from app.core.strategy_runner import strategy_runner
 
@@ -242,8 +328,42 @@ class StrategyService:
             import logging
 
             logging.getLogger(__name__).warning("停止策略运行器失败: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="策略停止失败，请稍后重试",
+            ) from exc
 
-        return await self.instance_repo.update(instance_id, status="stopped")
+        return await self.instance_repo.update(
+            instance_id,
+            status="stopped",
+            workspace_state="library",
+            last_stopped_at=datetime.now(UTC),
+        )
+
+    async def clone_to_draft(self, instance_id: int, user_id: int) -> StrategyInstance:
+        """复制策略为工作台草案"""
+        instance = await self.instance_repo.get_with_template_for_update(instance_id)
+        if not instance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="策略实例不存在",
+            )
+        if instance.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权操作此策略",
+            )
+        if instance.workspace_state == "draft":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="工作台草案已可直接编辑，无需再次复制",
+            )
+        existing_draft = await self.instance_repo.get_existing_draft_by_source(user_id, instance.id)
+        if existing_draft:
+            return existing_draft
+
+        await self._ensure_instance_quota(user_id)
+        return await self.instance_repo.clone_to_draft(instance)
 
     async def delete_instance(self, instance_id: int, user_id: int) -> bool:
         """删除策略实例"""
@@ -264,4 +384,5 @@ class StrategyService:
                 detail="请先停止策略后再删除",
             )
 
+        await self.instance_repo.clear_source_references(instance_id)
         return await self.instance_repo.delete(instance_id)

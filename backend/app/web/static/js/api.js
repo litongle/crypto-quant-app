@@ -180,6 +180,11 @@ class ApiClient {
     return json.data || json;
   }
 
+  async cloneStrategyToDraft(instanceId) {
+    const json = await this.post(`/strategies/instances/${instanceId}/clone-draft`);
+    return json.data || json;
+  }
+
   async deleteStrategy(instanceId) {
     return this.del(`/strategies/instances/${instanceId}`);
   }
