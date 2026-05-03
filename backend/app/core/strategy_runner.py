@@ -37,7 +37,7 @@ from app.core.strategy_engine import (
     get_strategy,
 )
 from app.core.trade_schemas import WSMessage
-from app.models.strategy import StrategyInstance, StrategyTemplate
+from app.models.strategy import StrategyInstance
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class StrategyRunner:
             result = await session.execute(
                 select(StrategyInstance)
                 .where(StrategyInstance.status == "running")
-                .join(StrategyTemplate)
+                .options(joinedload(StrategyInstance.template))
             )
             instances = result.scalars().all()
 

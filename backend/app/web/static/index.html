@@ -256,7 +256,7 @@
                 </div>
                 <div class="cq-create-card__actions">
                   <span id="create-form-status" class="cq-tag cq-tag--info" style="display:none;"></span>
-                  <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="deselectTemplate()">
+                  <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="requestCloseWorkbench()" id="close-workbench-btn">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     关闭
                   </button>
@@ -529,6 +529,24 @@
   </div>
 </div>
 
+<div class="cq-dialog-overlay" id="workbench-leave-dialog">
+  <div class="cq-dialog" style="max-width:420px;">
+    <div class="cq-dialog__header">
+      <span id="workbench-leave-title" style="font-weight:600;">放弃未保存的更改？</span>
+      <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="closeWorkbenchLeaveDialog(false)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cq-dialog__body">
+      <div id="workbench-leave-body" style="color:var(--cq-text-secondary);line-height:1.6;">当前工作台还有未保存的修改，继续操作会丢失这些内容。</div>
+    </div>
+    <div class="cq-dialog__footer">
+      <button class="cq-btn cq-btn--secondary" onclick="closeWorkbenchLeaveDialog(false)">继续编辑</button>
+      <button class="cq-btn cq-btn--danger" onclick="closeWorkbenchLeaveDialog(true)">放弃更改</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="cq-toast" id="toast"></div>
 
@@ -590,7 +608,25 @@ window.addEventListener('resize', () => {
 });
 
 // ===== 全局导航 =====
-function navigate(page, pushHash = true) {
+let _currentPage = location.hash.replace('#', '') || 'dashboard';
+let _suppressHashSync = false;
+
+async function canLeaveCurrentPage(nextPage) {
+  if (_currentPage !== 'strategy' || nextPage === 'strategy') return true;
+  if (typeof hasUnsavedWorkbenchChanges !== 'function' || typeof confirmWorkbenchLeave !== 'function') return true;
+  if (!hasUnsavedWorkbenchChanges()) return true;
+  return confirmWorkbenchLeave('离开策略中心？', '当前工作台还有未保存的修改，离开策略中心会丢失这些内容。');
+}
+
+async function navigate(page, pushHash = true) {
+  if (!await canLeaveCurrentPage(page)) {
+    if (!pushHash && location.hash.replace('#', '') !== _currentPage) {
+      _suppressHashSync = true;
+      location.hash = _currentPage;
+    }
+    return false;
+  }
+
   document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-nav-item').forEach(el => el.classList.remove('active'));
 
@@ -600,7 +636,11 @@ function navigate(page, pushHash = true) {
   if (navEl) navEl.classList.add('active');
 
   // 记住当前页面到 URL hash
-  if (pushHash) location.hash = page;
+  _currentPage = page;
+  if (pushHash) {
+    _suppressHashSync = true;
+    location.hash = page;
+  }
 
   closeSidebar();
 
@@ -613,12 +653,26 @@ function navigate(page, pushHash = true) {
   else if (page === 'accounts') loadAccountsPage();
   else if (page === 'market') loadMarketPage();
   else if (page === 'trading') loadTradingPage();
+
+  return true;
 }
 
 // 浏览器前进/后退时跟随
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', async () => {
+  if (_suppressHashSync) {
+    _suppressHashSync = false;
+    return;
+  }
   const page = location.hash.replace('#', '') || 'dashboard';
-  navigate(page, false);
+  await navigate(page, false);
+});
+
+window.addEventListener('beforeunload', (event) => {
+  if (_currentPage !== 'strategy') return;
+  if (typeof hasUnsavedWorkbenchChanges !== 'function') return;
+  if (!hasUnsavedWorkbenchChanges()) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 
 // ===== 登录/注册 =====
@@ -673,10 +727,21 @@ async function handleRegister() {
   }
 }
 
-function handleLogout() {
+async function handleLogout() {
+  if (!await canLeaveCurrentPage('logout')) return;
+  if (typeof deselectTemplate === 'function') {
+    deselectTemplate({ keepSelection: false, silent: true });
+  }
   api.logout();
   document.getElementById('app-page').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
+  _currentPage = 'dashboard';
+  if (location.hash !== '#dashboard') {
+    _suppressHashSync = true;
+    location.hash = 'dashboard';
+  } else {
+    _suppressHashSync = false;
+  }
 }
 
 async function enterApp() {
@@ -701,6 +766,7 @@ async function enterApp() {
 
 // ===== 危险操作确认弹窗 =====
 let _dangerResolve = null;
+let _workbenchLeaveResolve = null;
 
 function confirmDangerous(title, bodyHtml) {
   return new Promise(resolve => {
@@ -722,6 +788,23 @@ function closeDangerConfirm(confirmed) {
   if (_dangerResolve) {
     _dangerResolve(confirmed);
     _dangerResolve = null;
+  }
+}
+
+function confirmWorkbenchLeave(title, bodyText) {
+  return new Promise(resolve => {
+    _workbenchLeaveResolve = resolve;
+    document.getElementById('workbench-leave-title').textContent = title || '放弃未保存的更改？';
+    document.getElementById('workbench-leave-body').textContent = bodyText || '当前工作台还有未保存的修改，继续操作会丢失这些内容。';
+    document.getElementById('workbench-leave-dialog').classList.add('is-visible');
+  });
+}
+
+function closeWorkbenchLeaveDialog(confirmed) {
+  document.getElementById('workbench-leave-dialog').classList.remove('is-visible');
+  if (_workbenchLeaveResolve) {
+    _workbenchLeaveResolve(confirmed);
+    _workbenchLeaveResolve = null;
   }
 }
 

@@ -3,6 +3,8 @@
  */
 let selectedTemplateId = null;
 let strategyLibraryFilter = 'all';
+let workbenchBusy = false;
+let workbenchInitialSnapshot = null;
 
 /* ── 策略图标映射 ── */
 const STRATEGY_ICONS = {
@@ -89,6 +91,21 @@ function formatTimestamp(ts) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function normalizeWorkbenchValue(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return value;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function formatRuntime(instance) {
@@ -188,6 +205,7 @@ function renderLoadingSkeletons() {
   if (draftList) draftList.innerHTML = '<div class="cq-skeleton" style="height:44px;width:220px;border-radius:999px;"></div>';
   if (emptyState) emptyState.style.display = 'none';
   if (formWrap) formWrap.style.display = 'none';
+  workbenchInitialSnapshot = null;
 }
 
 async function loadStrategyPage() {
@@ -332,6 +350,11 @@ function renderLibraryCard(instance) {
         <span>本次运行 ${escapeHtml(runtime)}</span>
         <span class="sep">·</span>
         <span>启动时间 ${escapeHtml(lastStarted)}</span>`
+    : (!instance.lastStartedAt && !instance.lastStoppedAt)
+    ? `
+        <span>从未启动</span>
+        <span class="sep">·</span>
+        <span>创建于 ${escapeHtml(formatTimestamp(instance.createdAt))}</span>`
     : `
         <span>${totalTrades} 笔交易</span>
         <span class="sep">·</span>
@@ -541,10 +564,12 @@ async function ensureWorkbenchFormInfra() {
 }
 
 async function quickLaunchTemplate(templateId) {
+  if (!await ensureWorkbenchCanLeave('切换模板将丢失当前未保存的修改，确定继续吗？')) return;
   return openTemplateWorkbench(templateId);
 }
 
 async function selectTemplate(id) {
+  if (!await ensureWorkbenchCanLeave('切换工作台内容将丢失当前未保存的修改，确定继续吗？', id)) return;
   if (String(id).startsWith('draft_')) {
     return openDraftInWorkbench(Number(String(id).replace('draft_', '')));
   }
@@ -556,6 +581,7 @@ function deselectTemplate(options = {}) {
   if (!keepSelection) selectedTemplateId = null;
   window._editingInstanceId = null;
   resetRuleBuilderState();
+  workbenchInitialSnapshot = null;
   markTemplateSelection(null);
   renderWorkbenchDraftList(groupStrategyInstances(window._strategyInstances || []).drafts);
   showWorkbenchEmpty();
@@ -583,7 +609,7 @@ async function openTemplateWorkbench(templateId, options = {}) {
   window._editingInstanceId = null;
   await showCreateForm(templateId, {
     title: `新建草案 · ${template.name}`,
-    statusText: '新草案',
+    statusText: '未保存',
     strategy: {
       name: '',
       exchange: 'binance',
@@ -664,6 +690,7 @@ async function showCreateForm(templateId, options = {}) {
   if (window._strategySymbolSel && strategy.symbol) {
     try { window._strategySymbolSel.setValue(strategy.symbol); } catch {}
   }
+  captureWorkbenchInitialSnapshot();
 }
 
 function applyParamValues(paramDefs, values) {
@@ -839,7 +866,70 @@ function collectStrategyParams() {
   return out;
 }
 
+function buildCurrentWorkbenchSnapshot() {
+  if (!selectedTemplateId) return null;
+
+  const name = document.getElementById('new-strategy-name')?.value?.trim() || '';
+  const exchange = document.getElementById('new-strategy-exchange')?.value || 'binance';
+  const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
+  const accountRaw = document.getElementById('new-strategy-account')?.value;
+  const accountId = accountRaw ? parseInt(accountRaw, 10) || null : null;
+
+  let params = {};
+  try {
+    params = collectStrategyParams();
+  } catch {
+    params = {};
+  }
+
+  if (findTemplate(selectedTemplateId)?.strategyType === 'rule') {
+    params.rules = buildRulesDSL();
+  }
+
+  return {
+    templateId: selectedTemplateId,
+    editingInstanceId: window._editingInstanceId ? Number(window._editingInstanceId) : null,
+    name,
+    exchange,
+    symbol,
+    accountId,
+    params,
+  };
+}
+
+function captureWorkbenchInitialSnapshot() {
+  workbenchInitialSnapshot = buildCurrentWorkbenchSnapshot();
+}
+
+function hasUnsavedWorkbenchChanges() {
+  const formWrap = document.getElementById('create-form-wrap');
+  if (!formWrap || formWrap.style.display === 'none' || !workbenchInitialSnapshot) return false;
+  return stableStringify(buildCurrentWorkbenchSnapshot()) !== stableStringify(workbenchInitialSnapshot);
+}
+
+function isSameWorkbenchTarget(targetId) {
+  const currentDraftId = window._editingInstanceId ? `draft_${window._editingInstanceId}` : null;
+  const currentTemplateId = !window._editingInstanceId ? selectedTemplateId : null;
+  return targetId === currentDraftId || targetId === currentTemplateId;
+}
+
+async function ensureWorkbenchCanLeave(message, targetId = null) {
+  if (workbenchBusy) return false;
+  if (targetId && isSameWorkbenchTarget(targetId)) return true;
+  if (!hasUnsavedWorkbenchChanges()) return true;
+  return confirmWorkbenchLeave('放弃未保存的更改？', message || '当前工作台还有未保存的修改，继续操作会丢失这些内容。');
+}
+
+function setWorkbenchBusyState(busy) {
+  workbenchBusy = busy;
+  ['save-strategy-btn', 'start-strategy-btn', 'delete-strategy-btn', 'close-workbench-btn'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.disabled = busy;
+  });
+}
+
 async function persistWorkbenchStrategy({ startAfterSave }) {
+  if (workbenchBusy) return;
   if (!selectedTemplateId) { showToast('请先选择策略模板', 'warn'); return; }
 
   const name = document.getElementById('new-strategy-name').value.trim();
@@ -869,8 +959,10 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
     params.rules = buildRulesDSL();
   }
 
+  setWorkbenchBusyState(true);
   try {
     let instanceId = window._editingInstanceId ? Number(window._editingInstanceId) : null;
+    const isEditingDraft = Boolean(window._editingInstanceId);
     if (window._editingInstanceId) {
       const updatePayload = {
         name,
@@ -885,7 +977,10 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
       await api.updateStrategy(window._editingInstanceId, {
         ...updatePayload,
       });
-      showToast(startAfterSave ? '草案已保存，准备启动' : '策略已保存并进入仓库', 'success');
+      captureWorkbenchInitialSnapshot();
+      if (!startAfterSave) {
+        showToast('策略已保存并进入仓库', 'success');
+      }
     } else {
       const result = await api.createStrategyInstance({
         name,
@@ -896,18 +991,34 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
         params,
       });
       instanceId = parseInt(result.id, 10);
-      showToast(startAfterSave ? '草案已创建，准备启动' : '策略已保存', 'success');
+      if (!startAfterSave) {
+        showToast('策略已保存', 'success');
+      }
     }
 
     if (startAfterSave && instanceId) {
-      await api.startStrategy(instanceId);
-      showToast('策略已启动', 'success');
+      try {
+        await api.startStrategy(instanceId);
+        showToast('策略已启动', 'success');
+      } catch (err) {
+        if (isEditingDraft) {
+          showToast(`启动失败，草案仍保留在工作台: ${err.message}`, 'error');
+          return;
+        }
+        deselectTemplate({ keepSelection: false, silent: true });
+        await loadStrategyPage();
+        document.getElementById('strategy-library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        showToast(`启动失败，策略已保存到仓库: ${err.message}`, 'error');
+        return;
+      }
     }
 
     deselectTemplate({ keepSelection: false, silent: true });
     await loadStrategyPage();
   } catch (err) {
     showToast((startAfterSave ? '启动失败: ' : '保存失败: ') + err.message, 'error');
+  } finally {
+    setWorkbenchBusyState(false);
   }
 }
 
@@ -1054,6 +1165,7 @@ function closeStrategyEditModal() {
 }
 
 async function cloneStrategyToWorkbench(instanceId) {
+  if (!await ensureWorkbenchCanLeave('复制为草案并打开工作台，会丢失当前未保存的修改，确定继续吗？', `clone_${instanceId}`)) return;
   try {
     const result = await api.cloneStrategyToDraft(instanceId);
     const clonedId = Number(result?.id ?? result?.instanceId ?? result?.instance_id ?? 0);
@@ -1070,6 +1182,11 @@ async function cloneStrategyToWorkbench(instanceId) {
   } catch (error) {
     showToast(`复制草案失败: ${error.message}`, 'error');
   }
+}
+
+async function requestCloseWorkbench() {
+  if (!await ensureWorkbenchCanLeave('关闭工作台会丢失当前未保存的修改，确定继续吗？')) return;
+  deselectTemplate();
 }
 
 /* ═══════════════════════════════════════════════════════════════
