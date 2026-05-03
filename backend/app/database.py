@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -50,6 +51,234 @@ class Base(DeclarativeBase):
     """SQLAlchemy 基类"""
 
     pass
+
+
+def _inspect_schema_state(sync_conn) -> dict[str, object]:
+    """采集当前数据库结构状态，用于决定初始化/升级策略。"""
+    inspector = inspect(sync_conn)
+    table_names = set(inspector.get_table_names())
+    strategy_columns: set[str] = set()
+    if "strategy_instances" in table_names:
+        strategy_columns = {col["name"] for col in inspector.get_columns("strategy_instances")}
+    current_revision = None
+    if "alembic_version" in table_names:
+        current_revision = sync_conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+    app_tables = {
+        "users",
+        "strategy_templates",
+        "strategy_instances",
+        "orders",
+        "signals",
+    }
+    return {
+        "table_names": table_names,
+        "strategy_columns": strategy_columns,
+        "has_app_tables": bool(table_names & app_tables),
+        "has_alembic_version": "alembic_version" in table_names,
+        "current_revision": current_revision,
+    }
+
+
+def _repair_strategy_instances_schema(sync_conn) -> bool:
+    """修复历史部署中 strategy_instances 的缺失列。
+
+    旧版本启动逻辑会对已有旧库直接 stamp 到 head，导致 Alembic 版本号前进，
+    但实际列并没有补齐。这里做幂等修复，确保云端旧库能自愈。
+    """
+    inspector = inspect(sync_conn)
+    table_names = set(inspector.get_table_names())
+    if "strategy_instances" not in table_names:
+        return False
+
+    existing_columns = {col["name"] for col in inspector.get_columns("strategy_instances")}
+    repaired = False
+    dialect = sync_conn.dialect.name
+
+    if "state_json" not in existing_columns:
+        if dialect == "postgresql":
+            sync_conn.execute(
+                text("ALTER TABLE strategy_instances ADD COLUMN IF NOT EXISTS state_json JSON")
+            )
+        else:
+            sync_conn.execute(text("ALTER TABLE strategy_instances ADD COLUMN state_json JSON"))
+        repaired = True
+
+    if "workspace_state" not in existing_columns:
+        if dialect == "postgresql":
+            sync_conn.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        CREATE TYPE instance_workspace_state AS ENUM ('draft', 'library', 'running');
+                    EXCEPTION
+                        WHEN duplicate_object THEN NULL;
+                    END
+                    $$;
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ADD COLUMN IF NOT EXISTS workspace_state instance_workspace_state
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    UPDATE strategy_instances
+                    SET workspace_state = CASE
+                        WHEN status = 'running' THEN 'running'::instance_workspace_state
+                        ELSE 'library'::instance_workspace_state
+                    END
+                    WHERE workspace_state IS NULL
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ALTER COLUMN workspace_state SET DEFAULT 'library'
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ALTER COLUMN workspace_state SET NOT NULL
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_strategy_instances_workspace_state
+                    ON strategy_instances (workspace_state)
+                    """
+                )
+            )
+        else:
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ADD COLUMN workspace_state VARCHAR(20) NOT NULL DEFAULT 'library'
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    UPDATE strategy_instances
+                    SET workspace_state = CASE
+                        WHEN status = 'running' THEN 'running'
+                        ELSE 'library'
+                    END
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_strategy_instances_workspace_state
+                    ON strategy_instances (workspace_state)
+                    """
+                )
+            )
+        repaired = True
+
+    if "source_instance_id" not in existing_columns:
+        if dialect == "postgresql":
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ADD COLUMN IF NOT EXISTS source_instance_id INTEGER
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_strategy_instances_source_instance_id
+                    ON strategy_instances (source_instance_id)
+                    """
+                )
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'fk_strategy_instances_source_instance_id_strategy_instances'
+                        ) THEN
+                            ALTER TABLE strategy_instances
+                            ADD CONSTRAINT fk_strategy_instances_source_instance_id_strategy_instances
+                            FOREIGN KEY (source_instance_id)
+                            REFERENCES strategy_instances (id)
+                            ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+        else:
+            sync_conn.execute(
+                text("ALTER TABLE strategy_instances ADD COLUMN source_instance_id INTEGER")
+            )
+            sync_conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_strategy_instances_source_instance_id
+                    ON strategy_instances (source_instance_id)
+                    """
+                )
+            )
+        repaired = True
+
+    if "last_started_at" not in existing_columns:
+        if dialect == "postgresql":
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ADD COLUMN IF NOT EXISTS last_started_at TIMESTAMP WITH TIME ZONE
+                    """
+                )
+            )
+        else:
+            sync_conn.execute(
+                text("ALTER TABLE strategy_instances ADD COLUMN last_started_at DATETIME")
+            )
+        repaired = True
+
+    if "last_stopped_at" not in existing_columns:
+        if dialect == "postgresql":
+            sync_conn.execute(
+                text(
+                    """
+                    ALTER TABLE strategy_instances
+                    ADD COLUMN IF NOT EXISTS last_stopped_at TIMESTAMP WITH TIME ZONE
+                    """
+                )
+            )
+        else:
+            sync_conn.execute(
+                text("ALTER TABLE strategy_instances ADD COLUMN last_stopped_at DATETIME")
+            )
+        repaired = True
+
+    return repaired
 
 
 def _build_engine():
@@ -106,9 +335,9 @@ async def reset_database():
 async def init_db():
     """Initialize database tables (called on first setup).
 
-    Uses Alembic migrations if available, falls back to create_all().
-    After create_all(), stamps the Alembic version so future
-    `alembic upgrade head` won't try to recreate existing tables.
+    Uses Alembic migrations when the database is already under Alembic control.
+    For fresh databases, create_all() + stamp head is enough.
+    For legacy drifted databases, perform targeted schema repair.
     """
     # Ensure data directory exists (SQLite)
     settings = get_settings()
@@ -120,10 +349,15 @@ async def init_db():
     import app.models  # noqa: F401
 
     engine = await get_engine()
+    schema_state: dict[str, object] = {}
     async with engine.begin() as conn:
+        schema_state = await conn.run_sync(_inspect_schema_state)
         await conn.run_sync(Base.metadata.create_all)
 
-    # Stamp Alembic head version so future migrations don't replay
+    # Fresh DB: create_all + stamp head.
+    # Existing DB with alembic_version: upgrade head.
+    # Existing DB without alembic_version: avoid replaying migrations over a
+    # partially managed schema; rely on create_all + targeted repair instead.
     try:
         from alembic.config import Config as AlembicConfig
 
@@ -132,11 +366,27 @@ async def init_db():
         alembic_cfg = AlembicConfig()
         alembic_cfg.set_main_option("script_location", "alembic")
         alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
-        await asyncio.to_thread(command.stamp, alembic_cfg, "head")
-        logger.info("Alembic version stamped to head")
+        if not schema_state.get("has_app_tables"):
+            await asyncio.to_thread(command.stamp, alembic_cfg, "head")
+            logger.info("Alembic version stamped to head")
+        elif schema_state.get("has_alembic_version"):
+            await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+            logger.info("Alembic migrations upgraded to head")
+        else:
+            logger.warning(
+                "Detected existing app tables without alembic_version; "
+                "skipping Alembic replay and applying targeted schema repair"
+            )
     except Exception:
-        # Alembic not configured or stamp failed — not critical
-        pass
+        if schema_state.get("has_alembic_version"):
+            logger.exception("Alembic upgrade failed for existing managed database")
+            raise
+        logger.warning("Alembic initialization unavailable for fresh database; continuing")
+
+    async with engine.begin() as conn:
+        repaired = await conn.run_sync(_repair_strategy_instances_schema)
+        if repaired:
+            logger.warning("Repaired legacy strategy_instances schema drift during startup")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

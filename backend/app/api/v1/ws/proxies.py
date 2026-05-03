@@ -164,8 +164,14 @@ class BinanceWSProxy(ExchangeWSProxy):
                         await self._broadcast(msg, channel, market_type)
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
-            logger.warning("[BinanceWS] 连接异常 %s/%s: %s", symbol, market_type, exc)
+        except Exception:
+            logger.exception(
+                "[BinanceWS] 连接异常 channel=%s symbol=%s market=%s url=%s",
+                channel,
+                symbol,
+                market_type,
+                url,
+            )
             await self._restart_on_error(channel, symbol, market_type)
 
     def _parse_message(self, data: dict, channel: str, symbol: str) -> WSMessage | None:

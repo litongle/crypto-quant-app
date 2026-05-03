@@ -56,6 +56,22 @@ _KLINE_INTERVAL_TO_POLL_SECONDS = {
 }
 
 
+def _normalize_kline_timestamp(value: Any) -> int:
+    """统一 K 线时间戳为毫秒整数。"""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0
+
+
 def _kline_poll_seconds(kline_interval: str) -> int:
     """根据 K 线周期返回推荐的轮询节奏(秒)。"""
     return _KLINE_INTERVAL_TO_POLL_SECONDS.get(kline_interval, 60)
@@ -406,7 +422,7 @@ class StrategyRunner:
                     "low": float(k.low),
                     "close": float(k.close),
                     "volume": float(k.volume),
-                    "timestamp": k.timestamp,
+                    "timestamp": _normalize_kline_timestamp(k.timestamp),
                 }
                 for k in klines
             ]

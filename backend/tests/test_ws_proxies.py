@@ -4,6 +4,8 @@ WebSocket 交易所代理单元测试 — 消息解析、路由键、广播、�
 
 import asyncio
 import os
+import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from app.api.v1.ws.proxies import (
@@ -435,6 +437,28 @@ class TestStartStopProxy:
 
         await proxy.stop_if_idle("ticker", "BTCUSDT", "spot")
         assert key not in proxy._retry_counts
+
+    async def test_run_stream_logs_traceback_and_restarts_on_error(self, monkeypatch):
+        mock_mgr = MagicMock()
+        proxy = BinanceWSProxy(mock_mgr)
+        proxy._restart_on_error = AsyncMock()
+
+        def fake_connect(*args, **kwargs):
+            raise OSError("boom")
+
+        log_calls: list[tuple] = []
+
+        def fake_exception(message, *args, **kwargs):
+            log_calls.append((message, args, kwargs))
+
+        monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(connect=fake_connect))
+        monkeypatch.setattr("app.api.v1.ws.proxies.logger.exception", fake_exception)
+
+        await proxy._run_stream("ticker", "BTCUSDT", "perp")
+
+        assert log_calls
+        assert "channel=%s symbol=%s market=%s url=%s" in log_calls[0][0]
+        proxy._restart_on_error.assert_awaited_once_with("ticker", "BTCUSDT", "perp")
 
 
 # ==================== _restart_on_error (exponential backoff) ====================
