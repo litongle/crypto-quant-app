@@ -96,6 +96,26 @@ class TestAnalyzePreconditions:
         assert sig is None
         assert s._mode == "monitoring"
 
+    def test_datetime_timestamp_is_accepted(self):
+        from datetime import datetime
+
+        s = make_strategy()
+        klines = make_klines([100.0] * 30)
+        klines[-1]["timestamp"] = datetime.fromtimestamp(1_700_001_740, tz=UTC)
+
+        run(s.analyze(klines))
+
+        assert s._last_kline_ts == 1_700_001_740_000
+
+    def test_string_timestamp_is_accepted(self):
+        s = make_strategy()
+        klines = make_klines([100.0] * 30)
+        klines[-1]["timestamp"] = "1700001740000"
+
+        run(s.analyze(klines))
+
+        assert s._last_kline_ts == 1_700_001_740_000
+
 
 # ── RSI 分层 ──────────────────────────────────────────────
 

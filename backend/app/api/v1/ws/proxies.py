@@ -19,10 +19,11 @@ import os
 from typing import Any
 
 from app.core.trade_schemas import WSMessage
+from app.services.market_service import KLINE_INTERVALS, MarketService
 
 logger = logging.getLogger(__name__)
 
-_VALID_KLINE_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"}
+_VALID_KLINE_INTERVALS = set(KLINE_INTERVALS)
 _DEFAULT_KLINE_INTERVAL = "1m"
 _MAX_BACKOFF_S = 60
 _BASE_BACKOFF_S = 5
@@ -163,8 +164,14 @@ class BinanceWSProxy(ExchangeWSProxy):
                         await self._broadcast(msg, channel, market_type)
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
-            logger.warning("[BinanceWS] 连接异常 %s/%s: %s", symbol, market_type, exc)
+        except Exception:
+            logger.exception(
+                "[BinanceWS] 连接异常 channel=%s symbol=%s market=%s url=%s",
+                channel,
+                symbol,
+                market_type,
+                url,
+            )
             await self._restart_on_error(channel, symbol, market_type)
 
     def _parse_message(self, data: dict, channel: str, symbol: str) -> WSMessage | None:
@@ -192,6 +199,8 @@ class BinanceWSProxy(ExchangeWSProxy):
                 symbol=symbol,
                 data={
                     "symbol": symbol,
+                    "timestamp": k.get("t"),
+                    "close_time": k.get("T"),
                     "open": k.get("o", "0"),
                     "high": k.get("h", "0"),
                     "low": k.get("l", "0"),
@@ -296,11 +305,14 @@ class OKXProxy(ExchangeWSProxy):
                 symbol=symbol,
                 data={
                     "symbol": symbol,
+                    "timestamp": k[0],
+                    "close_time": k[0],
                     "open": k[1],
                     "high": k[2],
                     "low": k[3],
                     "close": k[4],
                     "volume": k[5],
+                    "is_closed": str(k[8]) == "1" if len(k) > 8 else False,
                 },
             )
         elif okx_ch == "books5":
@@ -336,7 +348,7 @@ class HuobiProxy(ExchangeWSProxy):
                 topic = f"market.{code}.detail"
             elif channel.startswith("kline"):
                 interval = _parse_kline_interval(channel)
-                topic = f"market.{code}.kline.{interval}"
+                topic = f"market.{code}.kline.{MarketService._to_huobi_period(interval)}"
             elif channel == "orderbook":
                 topic = f"market.{code}.depth.step0"
             else:
@@ -348,7 +360,7 @@ class HuobiProxy(ExchangeWSProxy):
                 topic = f"market.{sym}.detail"
             elif channel.startswith("kline"):
                 interval = _parse_kline_interval(channel)
-                topic = f"market.{sym}.kline.{interval}"
+                topic = f"market.{sym}.kline.{MarketService._to_huobi_period(interval)}"
             elif channel == "orderbook":
                 topic = f"market.{sym}.depth.step0"
             else:
@@ -420,6 +432,8 @@ class HuobiProxy(ExchangeWSProxy):
                 symbol=symbol,
                 data={
                     "symbol": symbol,
+                    "timestamp": tick.get("id"),
+                    "close_time": tick.get("id"),
                     "open": str(tick.get("open", "0")),
                     "high": str(tick.get("high", "0")),
                     "low": str(tick.get("low", "0")),

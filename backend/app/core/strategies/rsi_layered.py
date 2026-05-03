@@ -115,7 +115,7 @@ class RsiLayeredStrategy(BaseStrategy):
             return None
 
         latest = klines[-1]
-        ts = int(latest.get("timestamp") or 0)
+        ts = _normalize_ts(latest.get("timestamp"))
         if self._last_kline_ts is not None and ts != 0 and ts <= self._last_kline_ts:
             return None
         self._last_kline_ts = ts
@@ -512,3 +512,19 @@ def _ts_to_dt(ts: int) -> datetime:
     if ts > 10_000_000_000:  # 13 位以上视为毫秒
         return datetime.fromtimestamp(ts / 1000, tz=UTC)
     return datetime.fromtimestamp(ts, tz=UTC)
+
+
+def _normalize_ts(value: Any) -> int:
+    """将 K 线 timestamp 统一归一化为整数时间戳。"""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0

@@ -180,6 +180,11 @@ class ApiClient {
     return json.data || json;
   }
 
+  async cloneStrategyToDraft(instanceId) {
+    const json = await this.post(`/strategies/instances/${instanceId}/clone-draft`);
+    return json.data || json;
+  }
+
   async deleteStrategy(instanceId) {
     return this.del(`/strategies/instances/${instanceId}`);
   }
@@ -201,8 +206,9 @@ class ApiClient {
 
   // ===== 行情数据 =====
   // market: 'spot' | 'perp'(永续合约)
-  async getTicker(symbol, exchange = 'binance', market = 'spot') {
-    const json = await this.get(`/market/ticker/${symbol}?exchange=${exchange}&market=${market}`);
+  async getTicker(symbol, exchange = 'binance', market = 'spot', fresh = false) {
+    const suffix = fresh ? '&fresh=1' : '';
+    const json = await this.get(`/market/ticker/${symbol}?exchange=${exchange}&market=${market}${suffix}`);
     return json.data || json;
   }
 
@@ -218,6 +224,11 @@ class ApiClient {
 
   async getSymbols() {
     const json = await this.get('/market/symbols');
+    return json.data || json;
+  }
+
+  async getMarketIntervals(exchange = 'binance', market = 'spot') {
+    const json = await this.get(`/market/intervals?exchange=${exchange}&market=${market}`);
     return json.data || json;
   }
 

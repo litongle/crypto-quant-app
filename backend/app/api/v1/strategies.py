@@ -6,6 +6,7 @@ P1-6: 策略实例创建上限（每用户最多 20 个）
 补充: 业务错误统一用 HTTPException
 """
 
+from datetime import UTC
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -58,8 +59,17 @@ class CreateStrategyRequest(BaseModel):
 class UpdateStrategyRequest(BaseModel):
     """更新策略请求"""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str | None = None
+    exchange: str | None = None
+    symbol: str | None = None
+    account_id: int | None = Field(default=None, alias="accountId")
     params: dict | None = None
+    workspace_state: Literal["draft", "library", "running"] | None = Field(
+        default=None,
+        alias="workspaceState",
+    )
 
 
 # ============ 响应模型 ============
@@ -126,7 +136,9 @@ class StrategyInstanceResponse(BaseModel):
     name: str
     template_id: str = Field(alias="templateId")
     template_name: str = Field(alias="templateName")
-    status: Literal["running", "stopped", "paused"]
+    status: Literal["draft", "running", "stopped", "paused"]
+    workspace_state: Literal["draft", "library", "running"] = Field(alias="workspaceState")
+    source_instance_id: int | None = Field(default=None, alias="sourceInstanceId")
     exchange: str = ""
     symbol: str = ""
     account_id: int | None = Field(default=None, alias="accountId")
@@ -138,6 +150,8 @@ class StrategyInstanceResponse(BaseModel):
     total_trades: int = Field(default=0, alias="totalTrades")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+    last_started_at: str | None = Field(default=None, alias="lastStartedAt")
+    last_stopped_at: str | None = Field(default=None, alias="lastStoppedAt")
 
 
 class CreateInstanceResponse(BaseModel):
@@ -244,12 +258,21 @@ def _format_instance(inst: StrategyInstance) -> dict:
     template_code = TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
     template_name = _TEMPLATE_NAME_BY_ID.get(template_code, "未知策略")
 
+    def _format_datetime(value):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.isoformat().replace("+00:00", "Z")
+
     return {
         "id": inst.id,  # 直接用整数 ID
         "name": inst.name,
         "templateId": template_code,
         "templateName": template_name,
         "status": inst.status,
+        "workspaceState": inst.workspace_state,
+        "sourceInstanceId": inst.source_instance_id,
         "exchange": inst.exchange,
         "symbol": inst.symbol,
         "accountId": inst.account_id,
@@ -259,8 +282,10 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "totalPnlPercent": float(inst.total_pnl_percent or 0),
         "winRate": float(inst.win_rate or 0),
         "totalTrades": inst.total_trades or 0,
-        "createdAt": inst.created_at.isoformat().replace("+00:00", "Z") if inst.created_at else "",
-        "updatedAt": inst.updated_at.isoformat().replace("+00:00", "Z") if inst.updated_at else "",
+        "createdAt": _format_datetime(inst.created_at) or "",
+        "updatedAt": _format_datetime(inst.updated_at) or "",
+        "lastStartedAt": _format_datetime(inst.last_started_at),
+        "lastStoppedAt": _format_datetime(inst.last_stopped_at),
     }
 
 
@@ -288,8 +313,12 @@ async def get_user_strategies(
     instances = await service.get_user_instances(current_user.id, active_only=False)
 
     # 过滤状态
-    if status != "all":
-        instances = [i for i in instances if i.status == status]
+    if status == "running":
+        instances = [i for i in instances if i.workspace_state == "running"]
+    elif status == "stopped":
+        instances = [i for i in instances if i.workspace_state == "library"]
+    elif status != "all":
+        raise HTTPException(status_code=422, detail="状态筛选仅支持 running/stopped/all")
 
     return APIResponse(data=[_format_instance(i) for i in instances])
 
@@ -373,11 +402,7 @@ async def update_strategy(
 
     service = StrategyService(session)
 
-    update_data = {}
-    if request.name:
-        update_data["name"] = request.name
-    if request.params is not None:
-        update_data["params"] = request.params
+    update_data = request.model_dump(by_alias=False, exclude_unset=True)
 
     instance = await service.update_instance(
         instance_id=inst_id,
@@ -388,17 +413,6 @@ async def update_strategy(
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
     await session.commit()
-
-    # 如果策略正在运行，重启 runner 以加载新参数
-    if instance.status == "running":
-        try:
-            from app.core.strategy_runner import strategy_runner
-
-            await strategy_runner.restart_instance(inst_id)
-        except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).warning("重启策略运行器失败: %s", exc)
 
     return APIResponse(
         data={
@@ -456,6 +470,22 @@ async def stop_strategy(
             "status": instance.status,
         }
     )
+
+
+@router.post("/instances/{instance_id}/clone-draft")
+async def clone_strategy_to_draft(
+    instance_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> APIResponse[StrategyInstanceResponse]:
+    """复制策略为工作台草案"""
+    inst_id = _parse_instance_id(instance_id)
+
+    service = StrategyService(session)
+    instance = await service.clone_to_draft(inst_id, current_user.id)
+    await session.commit()
+
+    return APIResponse(data=_format_instance(instance))
 
 
 @router.delete("/instances/{instance_id}")

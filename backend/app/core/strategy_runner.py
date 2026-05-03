@@ -37,7 +37,7 @@ from app.core.strategy_engine import (
     get_strategy,
 )
 from app.core.trade_schemas import WSMessage
-from app.models.strategy import StrategyInstance, StrategyTemplate
+from app.models.strategy import StrategyInstance
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,22 @@ _KLINE_INTERVAL_TO_POLL_SECONDS = {
     "4h": 300,
     "1d": 300,
 }
+
+
+def _normalize_kline_timestamp(value: Any) -> int:
+    """统一 K 线时间戳为毫秒整数。"""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0
 
 
 def _kline_poll_seconds(kline_interval: str) -> int:
@@ -147,7 +163,7 @@ class StrategyRunner:
             result = await session.execute(
                 select(StrategyInstance)
                 .where(StrategyInstance.status == "running")
-                .join(StrategyTemplate)
+                .options(joinedload(StrategyInstance.template))
             )
             instances = result.scalars().all()
 
@@ -406,7 +422,7 @@ class StrategyRunner:
                     "low": float(k.low),
                     "close": float(k.close),
                     "volume": float(k.volume),
-                    "timestamp": k.timestamp,
+                    "timestamp": _normalize_kline_timestamp(k.timestamp),
                 }
                 for k in klines
             ]

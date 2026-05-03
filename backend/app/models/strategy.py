@@ -71,7 +71,20 @@ class StrategyInstance(Base):
     # 状态: draft(草稿), running(运行中), paused(暂停), stopped(已停止)
     status: Mapped[str] = mapped_column(
         Enum("draft", "running", "paused", "stopped", name="instance_status"),
-        default="stopped",
+        default="draft",
+    )
+    workspace_state: Mapped[str] = mapped_column(
+        Enum("draft", "library", "running", name="instance_workspace_state"),
+        default="library",
+        server_default="library",
+        index=True,
+        comment="策略中心工作区状态: draft=工作台草稿, library=策略仓库, running=运行台",
+    )
+    source_instance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategy_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="草稿副本来源的原始策略实例ID",
     )
     # 统计字段
     total_pnl: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=Decimal("0"))
@@ -92,6 +105,14 @@ class StrategyInstance(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    last_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_stopped_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     # Step 3: 策略状态机持久化(每 tick 末由 runner 写入,启动时恢复)
     # 形如 {"mode": "long", "entry_price": 50000.0, ...},内容由具体策略 to_dict 决定
     state_json: Mapped[dict | None] = mapped_column(
@@ -105,6 +126,10 @@ class StrategyInstance(Base):
     user: Mapped["User"] = relationship("User", back_populates="strategies")
     template: Mapped["StrategyTemplate"] = relationship()
     account: Mapped["ExchangeAccount | None"] = relationship()
+    source_instance: Mapped["StrategyInstance | None"] = relationship(
+        "StrategyInstance",
+        remote_side=lambda: [StrategyInstance.id],
+    )
 
     def __repr__(self) -> str:
         return f"<StrategyInstance(id={self.id}, name={self.name}, status={self.status})>"

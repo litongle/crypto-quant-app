@@ -1,7 +1,10 @@
 /**
- * 策略中心页面逻辑 v3 - 药丸选择器 + 内联表单
+ * 策略中心页面逻辑 v5 - 策略仓库 / 工作台
  */
 let selectedTemplateId = null;
+let strategyLibraryFilter = 'all';
+let workbenchBusy = false;
+let workbenchInitialSnapshot = null;
 
 /* ── 策略图标映射 ── */
 const STRATEGY_ICONS = {
@@ -14,12 +17,493 @@ const STRATEGY_ICONS = {
   default: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>',
 };
 
+const TEMPLATE_GROUPS = [
+  {
+    title: '快速模板',
+    hint: '选中后在工作台配置，保存进入策略仓库，按需启动到实盘或模拟运行',
+    ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale', 'rsi_layered', 'dca', 'multi_symbol'],
+  },
+  {
+    title: '自定义创建',
+    hint: '用规则构建器组合指标条件，生成自己的策略草案',
+    ids: ['rule_custom'],
+  },
+];
+
 function getStrategyIcon(templateId) {
-  const key = (templateId || '').toLowerCase();
-  for (const [k, v] of Object.entries(STRATEGY_ICONS)) {
-    if (key.includes(k)) return v;
+  const key = String(templateId || '').toLowerCase();
+  for (const [iconKey, iconSvg] of Object.entries(STRATEGY_ICONS)) {
+    if (key.includes(iconKey)) return iconSvg;
   }
   return STRATEGY_ICONS.default;
+}
+
+function resetRuleBuilderState() {
+  _ruleBuilderState = {
+    buyRules: [],
+    sellRules: [],
+    buyLogic: 'AND',
+    sellLogic: 'AND',
+    stopLossPct: 3,
+    takeProfitPct: 6,
+    confidenceBase: 0.7,
+    _nextId: 1,
+  };
+}
+
+function getExchangeLabel(exchange) {
+  return { binance: 'Binance', okx: 'OKX', htx: 'HTX' }[exchange] || exchange || '-';
+}
+
+function getStatusTag(status) {
+  if (status === 'running') {
+    return '<span class="cq-tag cq-tag--profit"><span class="cq-pulse-dot" style="width:6px;height:6px;margin-right:4px;"></span>运行中</span>';
+  }
+  if (status === 'draft') return '<span class="cq-tag cq-tag--info">未启动</span>';
+  if (status === 'paused') return '<span class="cq-tag cq-tag--warn">已暂停</span>';
+  return '<span class="cq-tag cq-tag--neutral">已停止</span>';
+}
+
+function getModeTag(instance) {
+  const isLive = instance.isLive || instance.accountId;
+  return isLive
+    ? '<span class="cq-tag cq-tag--profit" style="font-size:10px;padding:1px 6px;">实盘</span>'
+    : '<span class="cq-tag cq-tag--neutral" style="font-size:10px;padding:1px 6px;">模拟</span>';
+}
+
+function formatMoney(value) {
+  const num = Number(value ?? 0);
+  return `${num >= 0 ? '+' : ''}$${num.toFixed(2)}`;
+}
+
+function formatPercent(value, digits = 1) {
+  const num = Number(value ?? 0);
+  return `${num >= 0 ? '+' : ''}${num.toFixed(digits)}%`;
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '--';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '--';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function normalizeWorkbenchValue(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return value;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function formatRuntime(instance) {
+  const startValue = instance.lastStartedAt || instance.startedAt;
+  if (!startValue) return '待同步';
+  const start = new Date(startValue);
+  if (Number.isNaN(start.getTime())) return '待同步';
+  const diffMs = Date.now() - start.getTime();
+  if (diffMs <= 0) return '刚刚启动';
+
+  const minutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}天${hours % 24}时`;
+  if (hours > 0) return `${hours}时${minutes % 60}分`;
+  return `${minutes}分钟`;
+}
+
+function normalizeWorkspaceState(instance) {
+  const workspaceState = String(instance.workspaceState || '').toLowerCase();
+  const status = String(instance.status || '').toLowerCase();
+
+  if (status === 'running') return 'running';
+  if (['draft', 'editing', 'workbench', 'workspace', 'drafts'].includes(workspaceState)) return 'draft';
+  if (['running', 'active', 'live'].includes(workspaceState)) return 'running';
+  if (['library', 'saved', 'warehouse', 'catalog'].includes(workspaceState)) return 'library';
+  if (status === 'paused' || status === 'stopped' || status === 'idle') return 'library';
+  return 'library';
+}
+
+function groupStrategyInstances(instances) {
+  const groups = { running: [], library: [], drafts: [] };
+  for (const instance of instances || []) {
+    const bucket = normalizeWorkspaceState(instance);
+    if (bucket === 'running') groups.running.push(instance);
+    else if (bucket === 'draft') groups.drafts.push(instance);
+    else groups.library.push(instance);
+  }
+  return groups;
+}
+
+const STRATEGY_LIBRARY_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'running', label: '运行中' },
+  { key: 'idle', label: '未运行' },
+];
+
+function getFormalStrategies(instances) {
+  const groups = groupStrategyInstances(instances || []);
+  return [...groups.running, ...groups.library].sort((left, right) => {
+    const leftBucket = normalizeWorkspaceState(left) === 'running' ? 0 : 1;
+    const rightBucket = normalizeWorkspaceState(right) === 'running' ? 0 : 1;
+    if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+
+    const leftTime = new Date(left.lastStartedAt || left.startedAt || left.updatedAt || left.createdAt || 0).getTime();
+    const rightTime = new Date(right.lastStartedAt || right.startedAt || right.updatedAt || right.createdAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+}
+
+function getFilteredLibraryStrategies(instances) {
+  if (strategyLibraryFilter === 'running') {
+    return (instances || []).filter(instance => normalizeWorkspaceState(instance) === 'running');
+  }
+  if (strategyLibraryFilter === 'idle') {
+    return (instances || []).filter(instance => normalizeWorkspaceState(instance) !== 'running');
+  }
+  return instances || [];
+}
+
+function getLibraryFilterCounts(instances) {
+  const counts = { all: 0, running: 0, idle: 0 };
+  for (const instance of instances || []) {
+    counts.all += 1;
+    if (normalizeWorkspaceState(instance) === 'running') counts.running += 1;
+    else counts.idle += 1;
+  }
+  return counts;
+}
+
+function findTemplate(templateId) {
+  return (window._cachedTemplates || []).find(template => template.id === templateId);
+}
+
+function getTemplateName(instance) {
+  return instance.templateName || findTemplate(instance.templateId)?.name || instance.templateId || '策略';
+}
+
+function renderLoadingSkeletons() {
+  const libraryList = document.getElementById('strategy-library-list');
+  const libraryFilters = document.getElementById('strategy-library-filters');
+  const draftList = document.getElementById('workbench-draft-list');
+  const emptyState = document.getElementById('workbench-empty');
+  const formWrap = document.getElementById('create-form-wrap');
+  if (libraryFilters) libraryFilters.innerHTML = '<div class="cq-skeleton" style="height:36px;width:220px;border-radius:999px;"></div>';
+  if (libraryList) libraryList.innerHTML = '<div class="cq-skeleton" style="height:140px;border-radius:var(--cq-radius-lg);"></div>';
+  if (draftList) draftList.innerHTML = '<div class="cq-skeleton" style="height:44px;width:220px;border-radius:999px;"></div>';
+  if (emptyState) emptyState.style.display = 'none';
+  if (formWrap) formWrap.style.display = 'none';
+  workbenchInitialSnapshot = null;
+}
+
+async function loadStrategyPage() {
+  renderLoadingSkeletons();
+
+  try {
+    window._connectedAccounts = await api.getExchangeAccounts();
+  } catch (error) {
+    console.warn('预加载交易所账户失败:', error);
+  }
+
+  try {
+    const [templates, instances] = await Promise.all([
+      api.getStrategyTemplates().catch(() => []),
+      api.getStrategyInstances().catch(() => []),
+    ]);
+
+    window._cachedTemplates = templates;
+    window._strategyInstances = instances;
+
+    const groups = groupStrategyInstances(instances);
+    renderStrategyLibrary(getFormalStrategies(instances));
+    renderTemplatePills(templates);
+    renderWorkbenchDraftList(groups.drafts);
+
+    const draftId = chooseWorkbenchDraft(groups.drafts);
+    if (draftId) {
+      await openDraftInWorkbench(draftId, { scroll: false });
+      return;
+    }
+
+    if (selectedTemplateId) {
+      await openTemplateWorkbench(selectedTemplateId, { scroll: false });
+      return;
+    }
+
+    deselectTemplate({ keepSelection: false, silent: true });
+  } catch (error) {
+    const message = `<div class="cq-card cq-empty-state"><h3>${escapeHtml(error.message)}</h3></div>`;
+    document.getElementById('strategy-library-list').innerHTML = message;
+    const filterEl = document.getElementById('strategy-library-filters');
+    if (filterEl) filterEl.innerHTML = '';
+    document.getElementById('workbench-draft-list').innerHTML = '';
+    showWorkbenchEmpty();
+  }
+}
+
+function chooseWorkbenchDraft(drafts) {
+  const currentId = window._editingInstanceId ? Number(window._editingInstanceId) : null;
+  const focusedId = window._strategyFocusDraftId ? Number(window._strategyFocusDraftId) : null;
+  const focusedSourceId = window._strategyFocusSourceInstanceId ? Number(window._strategyFocusSourceInstanceId) : null;
+
+  const pick = drafts.find(item => item.id === focusedId)
+    || drafts.find(item => item.id === currentId)
+    || drafts.find(item => focusedSourceId && Number(item.sourceInstanceId) === focusedSourceId)
+    || drafts[0];
+
+  window._strategyFocusDraftId = null;
+  window._strategyFocusSourceInstanceId = null;
+  return pick ? pick.id : null;
+}
+
+function renderStrategyLibrary(instances) {
+  const el = document.getElementById('strategy-library-list');
+  const filterEl = document.getElementById('strategy-library-filters');
+  if (!el) return;
+
+  const counts = getLibraryFilterCounts(instances);
+  if (filterEl) {
+    filterEl.innerHTML = STRATEGY_LIBRARY_FILTERS.map(filter => `
+      <button
+        type="button"
+        class="cq-strategy-filter-tab${strategyLibraryFilter === filter.key ? ' is-active' : ''}"
+        onclick="setStrategyLibraryFilter('${filter.key}')"
+      >
+        <span>${filter.label}</span>
+        <span class="cq-strategy-filter-tab__count">${counts[filter.key] ?? 0}</span>
+      </button>
+    `).join('');
+  }
+
+  const filteredInstances = getFilteredLibraryStrategies(instances);
+  if (!instances || instances.length === 0) {
+    el.innerHTML = `
+      <div class="cq-card cq-empty-state">
+        <h3>策略仓库还是空的</h3>
+        <p>先在工作台保存一个草案，保存后就会进入这里。</p>
+      </div>`;
+    return;
+  }
+
+  if (!filteredInstances || filteredInstances.length === 0) {
+    const emptyMap = {
+      running: {
+        title: '当前没有运行中的策略',
+        text: '从工作台或未运行策略里启动后，会立即出现在这里。',
+      },
+      idle: {
+        title: '当前没有未运行策略',
+        text: '已停止的正式策略会出现在这里，方便继续编辑或再次启动。',
+      },
+      all: {
+        title: '策略仓库还是空的',
+        text: '先在工作台保存一个草案，保存后就会进入这里。',
+      },
+    };
+    const emptyState = emptyMap[strategyLibraryFilter] || emptyMap.all;
+    el.innerHTML = `
+      <div class="cq-card cq-empty-state">
+        <h3>${emptyState.title}</h3>
+        <p>${emptyState.text}</p>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="cq-strategy-list">${filteredInstances.map(renderLibraryCard).join('')}</div>`;
+}
+
+function renderLibraryCard(instance) {
+  const pnl = Number(instance.totalPnl ?? 0);
+  const totalTrades = Number(instance.totalTrades ?? 0);
+  const isRunning = normalizeWorkspaceState(instance) === 'running';
+  const runtime = formatRuntime(instance);
+  const lastStarted = formatTimestamp(instance.lastStartedAt);
+  const lastStopped = formatTimestamp(instance.lastStoppedAt);
+  const primaryAction = isRunning
+    ? `
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="toggleStrategy(${instance.id}, 'stop')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          停止
+        </button>`
+    : `
+        <button class="cq-btn cq-btn--primary cq-btn--sm" onclick="toggleStrategy(${instance.id}, 'start')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          启动
+        </button>`;
+  const editActionLabel = '复制为草案';
+  const metrics = isRunning
+    ? `
+        <span>累计交易 ${totalTrades} 笔</span>
+        <span class="sep">·</span>
+        <span>本次运行 ${escapeHtml(runtime)}</span>
+        <span class="sep">·</span>
+        <span>启动时间 ${escapeHtml(lastStarted)}</span>`
+    : (!instance.lastStartedAt && !instance.lastStoppedAt)
+    ? `
+        <span>从未启动</span>
+        <span class="sep">·</span>
+        <span>创建于 ${escapeHtml(formatTimestamp(instance.createdAt))}</span>`
+    : `
+        <span>${totalTrades} 笔交易</span>
+        <span class="sep">·</span>
+        <span>上次启动 ${escapeHtml(lastStarted)}</span>
+        <span class="sep">·</span>
+        <span>上次停止 ${escapeHtml(lastStopped)}</span>`;
+
+  return `
+    <div class="cq-card cq-instance-card">
+      <div class="cq-instance-card__header">
+        <div class="cq-instance-card__info">
+          <div class="cq-instance-card__name-row">
+            <span class="cq-instance-card__name">${escapeHtml(instance.name)}</span>
+            ${getStatusTag(instance.status)}
+            ${getModeTag(instance)}
+          </div>
+          <div class="cq-instance-card__meta">
+            <span>${escapeHtml(getTemplateName(instance))}</span>
+            <span class="sep">·</span>
+            <span>${escapeHtml(getExchangeLabel(instance.exchange))}</span>
+            <span class="sep">·</span>
+            <span class="cq-num">${escapeHtml(instance.symbol || '-')}</span>
+            <span class="sep">·</span>
+            ${metrics}
+          </div>
+        </div>
+        <div class="cq-instance-card__pnl">
+          <div class="cq-instance-card__pnl-value" style="color:${pnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${formatMoney(pnl)}</div>
+          <div class="cq-instance-card__pnl-rate">${formatPercent(instance.winRate ?? 0, 1)} 胜率</div>
+        </div>
+      </div>
+      <div class="cq-instance-card__actions">
+        ${primaryAction}
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="cloneStrategyToWorkbench(${instance.id})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          ${editActionLabel}
+        </button>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="showStrategyPerformance(${instance.id})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>
+          绩效
+        </button>
+        ${isRunning ? '' : `
+        <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="deleteStrategyInst(${instance.id})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          删除
+        </button>`}
+      </div>
+    </div>`;
+}
+
+function setStrategyLibraryFilter(filterKey) {
+  strategyLibraryFilter = STRATEGY_LIBRARY_FILTERS.some(filter => filter.key === filterKey) ? filterKey : 'all';
+  renderStrategyLibrary(getFormalStrategies(window._strategyInstances || []));
+}
+
+function renderTemplateButton(template) {
+  const isSelected = !window._editingInstanceId && selectedTemplateId === template.id;
+  return `
+    <button class="cq-pill${isSelected ? ' is-selected' : ''}" id="pill-${template.id}" onclick="quickLaunchTemplate('${template.id}')" title="${escapeHtml(template.description || template.name)}">
+      <div class="cq-pill__icon">${getStrategyIcon(template.icon || template.id)}</div>
+      <span class="cq-pill__name">${escapeHtml(template.name)}</span>
+      <div class="cq-pill__check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    </button>`;
+}
+
+function renderTemplatePills(templates) {
+  const el = document.getElementById('template-list');
+  if (!el) return;
+  if (!templates || templates.length === 0) {
+    el.innerHTML = '<div style="color:var(--cq-text-tertiary);font-size:var(--cq-text-sm);">暂无策略模板</div>';
+    return;
+  }
+
+  const templateMap = new Map(templates.map(template => [template.id, template]));
+  const groupedIds = new Set(TEMPLATE_GROUPS.flatMap(group => group.ids));
+  const groups = TEMPLATE_GROUPS.map(group => ({
+    ...group,
+    templates: group.ids.map(id => templateMap.get(id)).filter(Boolean),
+  })).filter(group => group.templates.length > 0);
+
+  const restTemplates = templates.filter(template => !groupedIds.has(template.id));
+  if (restTemplates.length > 0) {
+    groups.push({
+      title: '其他模板',
+      hint: '保留已有能力，直接在工作台里继续配置',
+      templates: restTemplates,
+    });
+  }
+
+  el.innerHTML = groups.map(group => `
+    <div class="cq-template-group${group.title === '自定义创建' ? ' cq-template-group--compact' : ''}">
+      <div class="cq-template-group__header">
+        <span class="cq-template-group__title">${group.title}</span>
+        <span class="cq-template-group__hint">${group.hint}</span>
+      </div>
+      <div class="cq-template-group__pills">
+        ${group.templates.map(renderTemplateButton).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function renderWorkbenchDraftList(drafts) {
+  const el = document.getElementById('workbench-draft-list');
+  if (!el) return;
+
+  if (!drafts || drafts.length === 0) {
+    el.innerHTML = '<span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">暂无草案</span>';
+    return;
+  }
+
+  el.innerHTML = drafts.map(draft => {
+    const isActive = Number(window._editingInstanceId) === Number(draft.id);
+    return `
+      <button class="cq-workbench-draft-pill${isActive ? ' is-active' : ''}" onclick="selectTemplate('draft_${draft.id}')">
+        <div class="cq-pill__icon">${getStrategyIcon(draft.templateId)}</div>
+        <span class="cq-workbench-draft-pill__text">
+          <span class="cq-workbench-draft-pill__name">${escapeHtml(draft.name)}</span>
+          <span class="cq-workbench-draft-pill__meta">${escapeHtml(getTemplateName(draft))}</span>
+        </span>
+      </button>`;
+  }).join('');
+}
+
+function showWorkbenchEmpty() {
+  const emptyState = document.getElementById('workbench-empty');
+  const formWrap = document.getElementById('create-form-wrap');
+  if (emptyState) emptyState.style.display = 'block';
+  if (formWrap) formWrap.style.display = 'none';
+}
+
+function showWorkbenchForm() {
+  const emptyState = document.getElementById('workbench-empty');
+  const formWrap = document.getElementById('create-form-wrap');
+  if (emptyState) emptyState.style.display = 'none';
+  if (formWrap) formWrap.style.display = 'block';
+}
+
+function markTemplateSelection(templateId) {
+  document.querySelectorAll('#template-list .cq-pill').forEach(pill => pill.classList.remove('is-selected'));
+  if (!templateId) return;
+  const pill = document.getElementById(`pill-${templateId}`);
+  if (pill) pill.classList.add('is-selected');
+}
+
+function markDraftSelection(draftId) {
+  window._editingInstanceId = draftId ? Number(draftId) : null;
+  renderWorkbenchDraftList(groupStrategyInstances(window._strategyInstances || []).drafts);
 }
 
 /** 根据当前选中的交易所过滤账户下拉 */
@@ -30,11 +514,10 @@ function filterAccountsByExchange() {
 
   const selectedExchange = exSelect.value;
   const accounts = window._connectedAccounts || [];
+  const filtered = accounts.filter(account => account.exchange === selectedExchange);
 
-  const filtered = accounts.filter(a => a.exchange === selectedExchange);
-
-  accountSelect.innerHTML = '<option value="">模拟模式(不下单)</option>' +
-    filtered.map(a => `<option value="${a.id}">${escapeHtml(a.account_name || a.exchange)} (${escapeHtml(a.exchange)})</option>`).join('');
+  accountSelect.innerHTML = '<option value="">模拟模式(不下单)</option>'
+    + filtered.map(account => `<option value="${account.id}">${escapeHtml(account.account_name || account.exchange)} (${escapeHtml(account.exchange)})</option>`).join('');
 
   if (filtered.length === 0) {
     const opt = document.createElement('option');
@@ -44,278 +527,10 @@ function filterAccountsByExchange() {
   }
 }
 
-async function loadStrategyPage() {
-  const container = document.getElementById('instance-list');
-  container.innerHTML = '<div class="cq-skeleton" style="height:80px;margin-bottom:var(--cq-space-3);"></div><div class="cq-skeleton" style="height:60px;"></div>';
-
-  // 预加载账户数据
-  try {
-    window._connectedAccounts = await api.getExchangeAccounts();
-  } catch (e) { console.warn('预加载交易所账户失败:', e); }
-
-  try {
-    const [templates, instances] = await Promise.all([
-      api.getStrategyTemplates().catch(() => []),
-      api.getStrategyInstances().catch(() => []),
-    ]);
-
-    window._strategyInstances = instances;
-    window._cachedTemplates = templates;
-    renderTemplatePills(templates);
-    renderInstanceList(instances);
-  } catch (err) {
-    container.innerHTML = `
-      <div class="cq-card cq-empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-        <h3>${escapeHtml(err.message)}</h3>
-      </div>`;
-  }
-}
-
-const TEMPLATE_GROUPS = [
-  {
-    title: '快速启动',
-    hint: '点击模板快速创建并启动策略实例',
-    ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale', 'rsi_layered', 'dca', 'multi_symbol'],
-  },
-  {
-    title: '自定义创建',
-    hint: '从规则构建器开始,组合指标条件生成策略',
-    ids: ['rule_custom'],
-  },
-  {
-    title: '我的策略',
-    hint: '你已创建的策略实例,点击可编辑',
-    ids: [],
-    dynamicKey: 'myStrategies',
-  },
-];
-
-function renderTemplateButton(t) {
-  const pillId = t.id;
-  const isInst = t._isInstancePill;
-  // 系统模板 → quickLaunch / 自定义/实例 → selectTemplate
-  const isSystemTemplate = !isInst && t.id !== 'rule_custom';
-  const clickAction = isSystemTemplate
-    ? `quickLaunchTemplate('${t.id}')`
-    : `selectTemplate('${t.id}')`;
-  // 实例药丸状态标签
-  let instTag = '';
-  if (isInst) {
-    const st = t._instanceStatus;
-    if (st === 'running') instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-profit);margin-left:4px;">运行中</span>';
-    else if (st === 'draft') instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-text-tertiary);margin-left:4px;">草稿</span>';
-    else instTag = '<span class="cq-pill__tag" style="font-size:10px;color:var(--cq-text-tertiary);margin-left:4px;">已停止</span>';
-  }
-  const isSelected = isInst
-    ? (window._editingInstanceId === t._instanceId)  // 编辑模式按实例ID匹配
-    : (selectedTemplateId === t.id);
-  return `
-    <button class="cq-pill${isSelected ? ' is-selected' : ''}" id="pill-${pillId}" onclick="${clickAction}" title="${escapeHtml(t.description || t.name)}">
-      <div class="cq-pill__icon">${getStrategyIcon(t.icon || t.id)}</div>
-      <span class="cq-pill__name">${escapeHtml(t.name)}</span>
-      ${instTag}
-      <div class="cq-pill__check">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      </div>
-    </button>
-  `;
-}
-
-/* ── 从策略实例构造"我的策略"动态药丸 ── */
-function _buildMyStrategyPills(instances) {
-  if (!instances || instances.length === 0) return [];
-  return instances.map(inst => ({
-    id: 'inst_' + inst.id,
-    name: inst.name,
-    description: inst.templateName + ' · ' + (inst.symbol || ''),
-    icon: inst.templateId || inst._templateId || 'default',
-    strategyType: inst.templateId === 'rule_custom' ? 'rule' : inst.templateId,
-    _instanceId: inst.id,
-    _isInstancePill: true,
-    _instanceStatus: inst.status,
-    _templateId: inst.templateId,
-  }));
-}
-
-/* ── 渲染分组模板选择器 ── */
-function renderTemplatePills(templates) {
-  const el = document.getElementById('template-list');
-  if (!templates || templates.length === 0) {
-    el.innerHTML = '<div style="color:var(--cq-text-tertiary);font-size:var(--cq-text-sm);">暂无策略模板</div>';
-    return;
-  }
-
-  const templateMap = new Map(templates.map(t => [t.id, t]));
-  const instances = window._strategyInstances || [];
-  const myStrategyPills = _buildMyStrategyPills(instances);
-
-  const groupedIds = new Set(TEMPLATE_GROUPS.flatMap(group => group.ids));
-  const groups = TEMPLATE_GROUPS.map(group => {
-    const staticTemplates = group.ids.map(id => templateMap.get(id)).filter(Boolean);
-    // 动态注入"我的策略"实例药丸
-    const dynamicPills = group.dynamicKey === 'myStrategies' ? myStrategyPills : [];
-    return {
-      ...group,
-      templates: [...staticTemplates, ...dynamicPills],
-    };
-  }).filter(group => group.templates.length > 0);
-
-  const ungroupedTemplates = templates.filter(t => !groupedIds.has(t.id));
-  if (ungroupedTemplates.length > 0) {
-    const systemGroup = groups.find(group => group.title === '系统模板');
-    if (systemGroup) {
-      systemGroup.templates.push(...ungroupedTemplates);
-    } else {
-      groups.push({ title: '系统模板', hint: '内置示例模板,可直接配置运行', templates: ungroupedTemplates });
-    }
-  }
-
-  el.innerHTML = groups.map(group => `
-
-    <div class="cq-template-group">
-      <div class="cq-template-group__header">
-        <span class="cq-template-group__title">${group.title}</span>
-        <span class="cq-template-group__hint">${group.hint}</span>
-      </div>
-      <div class="cq-template-group__pills">
-        ${group.templates.map(renderTemplateButton).join('')}
-      </div>
-    </div>
-  `).join('');
-}
-
-
-/* ── 渲染实例列表 ── */
-function renderInstanceList(instances) {
-  const el = document.getElementById('instance-list');
-  if (!instances || instances.length === 0) {
-    el.innerHTML = `
-      <div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8.5 8.5L5 12l3.5 3.5"/><path d="M15.5 8.5L19 12l-3.5 3.5"/><circle cx="12" cy="18" r="3"/></svg>
-        <h3>暂无策略实例</h3>
-        <p>点击上方模板,快速启动你的第一个策略</p>
-      </div>`;
-    return;
-  }
-
-  el.innerHTML = instances.map(inst => {
-    const statusTag = inst.status === 'running'
-      ? '<span class="cq-tag cq-tag--profit"><span class="cq-pulse-dot" style="width:6px;height:6px;margin-right:4px;"></span>运行中</span>'
-      : inst.status === 'paused'
-      ? '<span class="cq-tag cq-tag--warn">已暂停</span>'
-      : '<span class="cq-tag cq-tag--neutral">已停止</span>';
-
-    const isLive = inst.isLive || inst.accountId;
-    const modeTag = isLive
-      ? '<span class="cq-tag cq-tag--profit" style="font-size:10px;padding:1px 6px;">实盘</span>'
-      : '<span class="cq-tag cq-tag--neutral" style="font-size:10px;padding:1px 6px;">模拟</span>';
-
-    const exchangeLabel = { binance: 'Binance', okx: 'OKX', htx: 'HTX' }[inst.exchange] || inst.exchange;
-    const pnl = inst.totalPnl ?? 0;
-    const winRate = inst.winRate ?? 0;
-    const totalTrades = inst.totalTrades ?? 0;
-
-    // 运行时长
-    let runDuration = '';
-    if (inst.status === 'running' && inst.createdAt) {
-      const created = new Date(inst.createdAt);
-      const now = new Date();
-      const diffMs = now - created;
-      const hours = Math.floor(diffMs / 3600000);
-      const mins = Math.floor((diffMs % 3600000) / 60000);
-      if (hours >= 24) {
-        const days = Math.floor(hours / 24);
-        runDuration = `${days}天${hours % 24}时`;
-      } else if (hours > 0) {
-        runDuration = `${hours}时${mins}分`;
-      } else {
-        runDuration = `${mins}分钟`;
-      }
-    }
-    const runDurationTag = runDuration
-      ? `<span class="sep">·</span><span style=\"color:var(--cq-color-profit);\">⏱ ${runDuration}</span>`
-      : '';
-
-    return `
-    <div class="cq-card cq-instance-card">
-      <div class="cq-instance-card__header">
-        <div class="cq-instance-card__info">
-          <div class="cq-instance-card__name-row">
-            <span class="cq-instance-card__name">${escapeHtml(inst.name)}</span>
-            ${statusTag}
-            ${modeTag}
-          </div>
-          <div class="cq-instance-card__meta">
-            <span>${escapeHtml(inst.templateName)}</span>
-            <span class="sep">·</span>
-            <span>${exchangeLabel}</span>
-            <span class="sep">·</span>
-            <span style="font-family:var(--cq-font-mono);">${escapeHtml(inst.symbol || '-')}</span>
-            <span class="sep">·</span>
-            <span>${totalTrades} 笔交易</span>
-            ${runDurationTag}
-          </div>
-        </div>
-        <div class="cq-instance-card__pnl">
-          <div class="cq-instance-card__pnl-value" style="color:${pnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</div>
-          <div class="cq-instance-card__pnl-rate">${winRate.toFixed(1)}% 胜率</div>
-        </div>
-      </div>
-      <div class="cq-instance-card__actions">
-        ${inst.status !== 'running'
-          ? `<button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="toggleStrategy('${inst.id}', 'start')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              启动
-            </button>`
-          : `<button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="toggleStrategy('${inst.id}', 'stop')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-              停止
-            </button>`
-        }
-        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="showStrategyPerformance('${inst.id}')" title="绩效报告">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>
-          绩效
-        </button>
-        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="${inst.templateId === 'rule_custom' ? `selectTemplate('rule_custom', ${inst.id})` : `showStrategyEdit('${inst.id}')`}" title="编辑策略">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="deleteStrategyInst('${inst.id}')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          删除
-        </button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-/* ── 快速启动系统模板 ── */
-async function quickLaunchTemplate(templateId) {
-  // 切换药丸选中态
-  document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
-  const pill = document.getElementById('pill-' + templateId);
-  if (pill) pill.classList.add('is-selected');
-
-  selectedTemplateId = templateId;
-  window._editingInstanceId = null;
-
-  // 展开快速配置面板
-  const wrap = document.getElementById('create-form-wrap');
-  const templates = window._cachedTemplates || [];
-  const tmpl = templates.find(t => t.id === templateId);
-  if (!tmpl) { showToast('模板信息加载失败', 'error'); return; }
-
-  // 更新标题
-  const titleEl = document.getElementById('create-form-title');
-  if (titleEl) titleEl.textContent = `启动 ${tmpl.name}`;
-
-  // 显示表单
-  wrap.style.display = 'block';
-
-  // 初始化交易对选择器
+async function ensureWorkbenchFormInfra() {
   if (!window._strategySymbolSel) {
-    const selEl = document.getElementById('strategy-symbol-selector');
-    if (selEl) {
+    const selectorHost = document.getElementById('strategy-symbol-selector');
+    if (selectorHost) {
       window._strategySymbolSel = new SymbolSelector({
         containerId: 'strategy-symbol-selector',
         value: 'BTCUSDT',
@@ -324,220 +539,186 @@ async function quickLaunchTemplate(templateId) {
     }
   }
 
-  // 初始化交易所账户联动
   try {
     const accounts = window._connectedAccounts || await api.getExchangeAccounts();
     window._connectedAccounts = accounts;
     const exSelect = document.getElementById('new-strategy-exchange');
     if (exSelect && !exSelect.dataset.initialized) {
-      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
+      const connectedExchanges = [...new Set(accounts.map(account => account.exchange).filter(Boolean))];
       const allExchanges = [
         { value: 'binance', label: 'Binance' },
         { value: 'okx', label: 'OKX' },
         { value: 'htx', label: 'HTX' },
       ];
-      exSelect.innerHTML = allExchanges.map(ex => {
-        const connected = connectedExchanges.includes(ex.value);
-        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '(未连接)'}</option>`;
+      exSelect.innerHTML = allExchanges.map(exchange => {
+        const connected = connectedExchanges.includes(exchange.value);
+        return `<option value="${exchange.value}">${exchange.label}${connected ? ' ✓' : '(未连接)'}</option>`;
       }).join('');
       exSelect.addEventListener('change', () => filterAccountsByExchange());
       exSelect.dataset.initialized = '1';
     }
     filterAccountsByExchange();
-  } catch (e) { console.warn('加载交易所账户失败:', e); }
+  } catch (error) {
+    console.warn('加载交易所账户失败:', error);
+  }
+}
 
-  // 渲染参数控件
-  if (tmpl.params && tmpl.params.length > 0) {
-    // 过滤掉 rules 类型参数(系统模板不会有,保险起见)
-    const nonRuleParams = tmpl.params.filter(p => p.type !== 'rules');
-    renderParamSliders(nonRuleParams);
+async function quickLaunchTemplate(templateId) {
+  if (!await ensureWorkbenchCanLeave('切换模板将丢失当前未保存的修改，确定继续吗？')) return;
+  return openTemplateWorkbench(templateId);
+}
+
+async function selectTemplate(id) {
+  if (!await ensureWorkbenchCanLeave('切换工作台内容将丢失当前未保存的修改，确定继续吗？', id)) return;
+  if (String(id).startsWith('draft_')) {
+    return openDraftInWorkbench(Number(String(id).replace('draft_', '')));
+  }
+  return openTemplateWorkbench(id);
+}
+
+function deselectTemplate(options = {}) {
+  const { keepSelection = false, silent = false } = options;
+  if (!keepSelection) selectedTemplateId = null;
+  window._editingInstanceId = null;
+  resetRuleBuilderState();
+  workbenchInitialSnapshot = null;
+  markTemplateSelection(null);
+  renderWorkbenchDraftList(groupStrategyInstances(window._strategyInstances || []).drafts);
+  showWorkbenchEmpty();
+  const statusTag = document.getElementById('create-form-status');
+  if (statusTag) {
+    statusTag.style.display = 'none';
+    statusTag.textContent = '';
+  }
+  const deleteBtn = document.getElementById('delete-strategy-btn');
+  if (deleteBtn) deleteBtn.style.display = 'none';
+  if (!silent) {
+    const nameInput = document.getElementById('new-strategy-name');
+    if (nameInput) nameInput.value = '';
+  }
+}
+
+async function openTemplateWorkbench(templateId, options = {}) {
+  const template = findTemplate(templateId);
+  if (!template) {
+    showToast('模板信息加载失败', 'error');
+    return;
+  }
+
+  selectedTemplateId = templateId;
+  window._editingInstanceId = null;
+  await showCreateForm(templateId, {
+    title: `新建草案 · ${template.name}`,
+    statusText: '未保存',
+    strategy: {
+      name: '',
+      exchange: 'binance',
+      symbol: 'BTCUSDT',
+      accountId: '',
+      params: {},
+    },
+  });
+
+  markTemplateSelection(templateId);
+  markDraftSelection(null);
+  if (options.scroll !== false) {
+    document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+async function openDraftInWorkbench(instanceId, options = {}) {
+  try {
+    const detail = await api.getStrategyDetail(instanceId);
+    selectedTemplateId = detail.templateId;
+    await showCreateForm(detail.templateId, {
+      title: `编辑草案 · ${detail.name}`,
+      statusText: detail.sourceInstanceId ? '复制草案' : '草案',
+      strategy: detail,
+    });
+    markTemplateSelection(null);
+    markDraftSelection(instanceId);
+    if (options.scroll !== false) {
+      document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch (error) {
+    showToast(`加载草案失败: ${error.message}`, 'error');
+  }
+}
+
+async function showCreateForm(templateId, options = {}) {
+  const template = findTemplate(templateId);
+  if (!template) {
+    showToast('模板信息加载失败', 'error');
+    return;
+  }
+
+  showWorkbenchForm();
+  await ensureWorkbenchFormInfra();
+  const strategy = options.strategy || {};
+  const titleEl = document.getElementById('create-form-title');
+  const statusEl = document.getElementById('create-form-status');
+  const deleteBtn = document.getElementById('delete-strategy-btn');
+
+  if (titleEl) titleEl.textContent = options.title || `新建草案 · ${template.name}`;
+  if (statusEl) {
+    statusEl.textContent = options.statusText || '';
+    statusEl.style.display = options.statusText ? 'inline-flex' : 'none';
+  }
+  if (deleteBtn) deleteBtn.style.display = strategy.id ? 'inline-flex' : 'none';
+
+  resetRuleBuilderState();
+
+  if (template.strategyType === 'rule') {
+    if (strategy.params && strategy.params.rules) {
+      loadRulesFromDSL(strategy.params.rules);
+    }
+    renderRuleBuilder();
+  } else if (template.params && template.params.length > 0) {
+    renderParamSliders(template.params);
+    applyParamValues(template.params, strategy.params || {});
   } else {
     document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
   }
 
-  // 更新按钮文案为"启动策略"
-  const btn = document.getElementById('create-strategy-btn');
-  if (btn) btn.textContent = '启动策略';
-  // 隐藏删除按钮
-  const delBtn = document.getElementById('delete-strategy-btn');
-  if (delBtn) delBtn.style.display = 'none';
-
-  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const nameInput = document.getElementById('new-strategy-name');
+  const exchangeSelect = document.getElementById('new-strategy-exchange');
+  const accountSelect = document.getElementById('new-strategy-account');
+  if (nameInput) nameInput.value = strategy.name || '';
+  if (exchangeSelect) exchangeSelect.value = strategy.exchange || 'binance';
+  filterAccountsByExchange();
+  if (accountSelect) accountSelect.value = strategy.accountId ? String(strategy.accountId) : '';
+  if (window._strategySymbolSel && strategy.symbol) {
+    try { window._strategySymbolSel.setValue(strategy.symbol); } catch {}
+  }
+  captureWorkbenchInitialSnapshot();
 }
 
-/* ── 选择模板(仅自定义创建 + 实例编辑) ── */
-async function selectTemplate(id) {
-  // 如果再次点击已选中的药丸,则取消选择
-  const isSameInstancePill = id.startsWith('inst_') && window._editingInstanceId === parseInt(id.replace('inst_', ''));
-  if (selectedTemplateId === id || isSameInstancePill) {
-    deselectTemplate();
-    return;
-  }
+function applyParamValues(paramDefs, values) {
+  for (const param of paramDefs || []) {
+    if (param.type === 'rules') continue;
+    const value = values[param.key] ?? param.default;
+    const input = document.getElementById(`param-${param.key}`) || document.getElementById(`sl-${param.key}`);
+    if (!input) continue;
 
-  // 实例药丸:根据策略类型走不同编辑流程
-  if (id.startsWith('inst_')) {
-    const instanceId = parseInt(id.replace('inst_', ''));
-    const inst = (window._strategyInstances || []).find(i => i.id === instanceId);
-    if (!inst) return;
-
-    // rule_custom 走规则构建器编辑
-    if (inst.templateId === 'rule_custom' || inst._templateId === 'rule_custom') {
-      // 设置编辑模式
-      window._editingInstanceId = instanceId;
-      selectedTemplateId = 'rule_custom';
-
-      // 先展开 rule_custom 表单
-      await showCreateForm('rule_custom');
-
-      // 从实例详情加载 rules 到规则构建器
-      try {
-        const detail = await api.getStrategyDetail(instanceId);
-        if (detail.params && detail.params.rules) {
-          loadRulesFromDSL(detail.params.rules);
-          renderRuleBuilder(); // 重新渲染构建器
-        }
-        // 填入名称
-        const nameEl = document.getElementById('new-strategy-name');
-        if (nameEl) nameEl.value = detail.name || '';
-      } catch (e) {
-        console.warn('加载实例详情失败:', e);
-      }
-    } else {
-      // 非 rule 策略走 slider 编辑弹窗
-      showStrategyEdit(String(instanceId));
-      return;
+    if (param.type === 'bool') {
+      input.checked = Boolean(value);
+      continue;
     }
 
-    // 更新药丸选中态
-    document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
-    const pill = document.getElementById('pill-' + id);
-    if (pill) pill.classList.add('is-selected');
-
-    // 更新标题和按钮文案
-    const titleEl = document.getElementById('create-form-title');
-    if (titleEl) titleEl.textContent = `编辑 ${inst.name}`;
-    const btn = document.getElementById('create-strategy-btn');
-    if (btn) btn.textContent = '更新策略';
-    // 编辑模式显示删除按钮
-    const delBtn = document.getElementById('delete-strategy-btn');
-    if (delBtn) delBtn.style.display = 'inline-flex';
-    return;
-  }
-
-  selectedTemplateId = id;
-
-  // 切换到非实例药丸时,清除编辑模式并重置规则构建器状态
-  window._editingInstanceId = null;
-  _ruleBuilderState = {
-    buyRules: [], sellRules: [],
-    buyLogic: 'AND', sellLogic: 'AND',
-    stopLossPct: 3, takeProfitPct: 6, confidenceBase: 0.7,
-    _nextId: 1,
-  };
-
-  // 更新药丸选中态
-  document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
-  const pill = document.getElementById('pill-' + id);
-  if (pill) pill.classList.add('is-selected');
-
-  // 展开创建表单
-  await showCreateForm(id);
-}
-
-/* ── 取消选择 ── */
-function deselectTemplate() {
-  selectedTemplateId = null;
-  window._editingInstanceId = null;
-  // 重置规则构建器状态
-  _ruleBuilderState = {
-    buyRules: [], sellRules: [],
-    buyLogic: 'AND', sellLogic: 'AND',
-    stopLossPct: 3, takeProfitPct: 6, confidenceBase: 0.7,
-    _nextId: 1,
-  };
-  document.querySelectorAll('.cq-pill').forEach(p => p.classList.remove('is-selected'));
-
-  const wrap = document.getElementById('create-form-wrap');
-  if (wrap) {
-    wrap.style.display = 'none';
-  }
-  // 恢复创建按钮文案
-  const btn = document.getElementById('create-strategy-btn');
-  if (btn) btn.textContent = '创建策略';
-  // 隐藏删除按钮
-  const delBtn = document.getElementById('delete-strategy-btn');
-  if (delBtn) delBtn.style.display = 'none';
-}
-
-/* ── 展开创建表单 ── */
-async function showCreateForm(templateId) {
-  const wrap = document.getElementById('create-form-wrap');
-
-  // 更新标题
-  const templates = window._cachedTemplates || [];
-  const tmpl = templates.find(t => t.id === templateId);
-  const titleEl = document.getElementById('create-form-title');
-  if (titleEl && tmpl) {
-    titleEl.textContent = `创建 ${tmpl.name} 实例`;
-  }
-
-  // 显示表单容器
-  wrap.style.display = 'block';
-
-  // 初始化交易对选择器(只创建一次)
-  if (!window._strategySymbolSel) {
-    const selEl = document.getElementById('strategy-symbol-selector');
-    if (selEl) {
-      window._strategySymbolSel = new SymbolSelector({
-        containerId: 'strategy-symbol-selector',
-        value: 'BTCUSDT',
-        exchangeFilter: 'new-strategy-exchange',
-      });
+    if (param.type === 'array_int' || param.type === 'array_double') {
+      input.value = Array.isArray(value) ? value.join(', ') : (value ?? '');
+      continue;
     }
+
+    if (param.type === 'json') {
+      input.value = typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2);
+      continue;
+    }
+
+    input.value = value;
+    const valueLabel = document.getElementById(`val-${param.key}`);
+    if (valueLabel) valueLabel.textContent = value;
   }
-
-  // 初始化交易所账户联动
-  try {
-    const accounts = window._connectedAccounts || await api.getExchangeAccounts();
-    window._connectedAccounts = accounts;
-    const exSelect = document.getElementById('new-strategy-exchange');
-    if (exSelect && !exSelect.dataset.initialized) {
-      const connectedExchanges = [...new Set(accounts.map(a => a.exchange).filter(Boolean))];
-      const allExchanges = [
-        { value: 'binance', label: 'Binance' },
-        { value: 'okx', label: 'OKX' },
-        { value: 'htx', label: 'HTX' },
-      ];
-      exSelect.innerHTML = allExchanges.map(ex => {
-        const connected = connectedExchanges.includes(ex.value);
-        return `<option value="${ex.value}">${ex.label}${connected ? ' ✓' : '(未连接)'}</option>`;
-      }).join('');
-      exSelect.addEventListener('change', () => filterAccountsByExchange());
-      exSelect.dataset.initialized = '1';
-    }
-    filterAccountsByExchange();
-  } catch (e) { console.warn('加载交易所账户失败:', e); }
-
-  // 加载参数滑块(或规则构建器)
-  try {
-    if (!tmpl) {
-      const allTemplates = await api.getStrategyTemplates();
-      window._cachedTemplates = allTemplates;
-      const found = allTemplates.find(t => t.id === templateId);
-      if (found) {
-        if (found.strategyType === 'rule') renderRuleBuilder();
-        else if (found.params) renderParamSliders(found.params);
-        else document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
-      }
-    } else {
-      if (tmpl.strategyType === 'rule') renderRuleBuilder();
-      else if (tmpl.params) renderParamSliders(tmpl.params);
-      else document.getElementById('param-sliders').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
-    }
-  } catch {}
-
-  // 滚动到表单位置
-  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /* ── 渲染参数滑块 ── */
@@ -646,6 +827,7 @@ function renderParamSliders(params) {
 function collectStrategyParams() {
   const out = {};
   const root = document.getElementById('param-sliders');
+  if (!root) return out;
 
   // bool: checkbox
   root.querySelectorAll('input[type="checkbox"][data-key]').forEach(el => {
@@ -675,8 +857,8 @@ function collectStrategyParams() {
     }
   });
 
-  // int / double: range slider(排除规则构建器内部的)
-  root.querySelectorAll('input[type="range"][data-key]:not(.cq-rule-builder input)').forEach(el => {
+  // int / double: range slider
+  root.querySelectorAll('input[type="range"][data-key]').forEach(el => {
     const t = el.dataset.type;
     out[el.dataset.key] = t === 'int' ? parseInt(el.value, 10) : parseFloat(el.value);
   });
@@ -684,8 +866,70 @@ function collectStrategyParams() {
   return out;
 }
 
-/* ── 创建/启动策略实例 ── */
-async function createStrategyInstance() {
+function buildCurrentWorkbenchSnapshot() {
+  if (!selectedTemplateId) return null;
+
+  const name = document.getElementById('new-strategy-name')?.value?.trim() || '';
+  const exchange = document.getElementById('new-strategy-exchange')?.value || 'binance';
+  const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
+  const accountRaw = document.getElementById('new-strategy-account')?.value;
+  const accountId = accountRaw ? parseInt(accountRaw, 10) || null : null;
+
+  let params = {};
+  try {
+    params = collectStrategyParams();
+  } catch {
+    params = {};
+  }
+
+  if (findTemplate(selectedTemplateId)?.strategyType === 'rule') {
+    params.rules = buildRulesDSL();
+  }
+
+  return {
+    templateId: selectedTemplateId,
+    editingInstanceId: window._editingInstanceId ? Number(window._editingInstanceId) : null,
+    name,
+    exchange,
+    symbol,
+    accountId,
+    params,
+  };
+}
+
+function captureWorkbenchInitialSnapshot() {
+  workbenchInitialSnapshot = buildCurrentWorkbenchSnapshot();
+}
+
+function hasUnsavedWorkbenchChanges() {
+  const formWrap = document.getElementById('create-form-wrap');
+  if (!formWrap || formWrap.style.display === 'none' || !workbenchInitialSnapshot) return false;
+  return stableStringify(buildCurrentWorkbenchSnapshot()) !== stableStringify(workbenchInitialSnapshot);
+}
+
+function isSameWorkbenchTarget(targetId) {
+  const currentDraftId = window._editingInstanceId ? `draft_${window._editingInstanceId}` : null;
+  const currentTemplateId = !window._editingInstanceId ? selectedTemplateId : null;
+  return targetId === currentDraftId || targetId === currentTemplateId;
+}
+
+async function ensureWorkbenchCanLeave(message, targetId = null) {
+  if (workbenchBusy) return false;
+  if (targetId && isSameWorkbenchTarget(targetId)) return true;
+  if (!hasUnsavedWorkbenchChanges()) return true;
+  return confirmWorkbenchLeave('放弃未保存的更改？', message || '当前工作台还有未保存的修改，继续操作会丢失这些内容。');
+}
+
+function setWorkbenchBusyState(busy) {
+  workbenchBusy = busy;
+  ['save-strategy-btn', 'start-strategy-btn', 'delete-strategy-btn', 'close-workbench-btn'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.disabled = busy;
+  });
+}
+
+async function persistWorkbenchStrategy({ startAfterSave }) {
+  if (workbenchBusy) return;
   if (!selectedTemplateId) { showToast('请先选择策略模板', 'warn'); return; }
 
   const name = document.getElementById('new-strategy-name').value.trim();
@@ -696,11 +940,6 @@ async function createStrategyInstance() {
   const accountEl = document.getElementById('new-strategy-account');
   const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
 
-  // 判断是否系统模板(快速启动模式)
-  const isSystemTemplate = selectedTemplateId !== 'rule_custom' &&
-    !window._editingInstanceId &&
-    (window._cachedTemplates || []).some(t => t.id === selectedTemplateId && t.id !== 'rule_custom');
-
   let params;
   try {
     params = collectStrategyParams();
@@ -709,8 +948,7 @@ async function createStrategyInstance() {
     return;
   }
 
-  // 规则策略:从构建器生成 rules JSON
-  const isRuleTemplate = (window._cachedTemplates || []).find(t => t.id === selectedTemplateId)?.strategyType === 'rule';
+  const isRuleTemplate = findTemplate(selectedTemplateId)?.strategyType === 'rule';
   if (isRuleTemplate) {
     const buyEmpty = _ruleBuilderState.buyRules.length === 0;
     const sellEmpty = _ruleBuilderState.sellRules.length === 0;
@@ -721,13 +959,28 @@ async function createStrategyInstance() {
     params.rules = buildRulesDSL();
   }
 
+  setWorkbenchBusyState(true);
   try {
-    let instanceId;
+    let instanceId = window._editingInstanceId ? Number(window._editingInstanceId) : null;
+    const isEditingDraft = Boolean(window._editingInstanceId);
     if (window._editingInstanceId) {
-      // 编辑模式:更新已有策略
-      await api.updateStrategy(window._editingInstanceId, { name, params });
-      instanceId = window._editingInstanceId;
-      showToast('策略已更新!', 'success');
+      const updatePayload = {
+        name,
+        exchange,
+        symbol,
+        accountId: accountId ?? null,
+        params,
+      };
+      if (!startAfterSave) {
+        updatePayload.workspaceState = 'library';
+      }
+      await api.updateStrategy(window._editingInstanceId, {
+        ...updatePayload,
+      });
+      captureWorkbenchInitialSnapshot();
+      if (!startAfterSave) {
+        showToast('策略已保存并进入仓库', 'success');
+      }
     } else {
       const result = await api.createStrategyInstance({
         name,
@@ -737,48 +990,76 @@ async function createStrategyInstance() {
         accountId,
         params,
       });
-      instanceId = parseInt(result.id);
-      showToast('策略创建成功!', 'success');
-    }
-
-    // 快速启动模式:创建后自动 start
-    if (isSystemTemplate && instanceId) {
-      try {
-        await api.startStrategy(instanceId);
-        showToast('策略已启动!', 'success');
-      } catch (e) {
-        showToast('策略已创建但启动失败: ' + e.message, 'warn');
+      instanceId = parseInt(result.id, 10);
+      if (!startAfterSave) {
+        showToast('策略已保存', 'success');
       }
     }
 
-    deselectTemplate();
-    loadStrategyPage();
+    if (startAfterSave && instanceId) {
+      try {
+        await api.startStrategy(instanceId);
+        showToast('策略已启动', 'success');
+      } catch (err) {
+        if (isEditingDraft) {
+          showToast(`启动失败，草案仍保留在工作台: ${err.message}`, 'error');
+          return;
+        }
+        deselectTemplate({ keepSelection: false, silent: true });
+        await loadStrategyPage();
+        document.getElementById('strategy-library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        showToast(`启动失败，策略已保存到仓库: ${err.message}`, 'error');
+        return;
+      }
+    }
+
+    deselectTemplate({ keepSelection: false, silent: true });
+    await loadStrategyPage();
   } catch (err) {
-    showToast('创建失败: ' + err.message, 'error');
+    showToast((startAfterSave ? '启动失败: ' : '保存失败: ') + err.message, 'error');
+  } finally {
+    setWorkbenchBusyState(false);
   }
 }
 
-/* ── 启停策略 ── */
+async function saveStrategyToLibrary() {
+  return persistWorkbenchStrategy({ startAfterSave: false });
+}
+
+async function startStrategyFromWorkbench() {
+  return persistWorkbenchStrategy({ startAfterSave: true });
+}
+
+async function createStrategyInstance() {
+  return startStrategyFromWorkbench();
+}
+
 async function toggleStrategy(instanceId, action) {
   try {
     if (action === 'start') await api.startStrategy(instanceId);
     else await api.stopStrategy(instanceId);
     showToast(`策略已${action === 'start' ? '启动' : '停止'}`, 'success');
-    loadStrategyPage();
+    await loadStrategyPage();
   } catch (err) {
     showToast('操作失败: ' + err.message, 'error');
   }
 }
 
-/* ── 删除策略 ── */
 async function deleteStrategyInst(instanceId) {
-  const inst = window._strategyInstances?.find(i => i.id === instanceId);
-  const isRunning = inst && inst.status === 'running';
+  const numericId = Number(instanceId);
+  const inst = window._strategyInstances?.find(i => Number(i.id) === numericId);
+  const isRunning = normalizeWorkspaceState(inst || {}) === 'running';
+  const isDraft = normalizeWorkspaceState(inst || {}) === 'draft';
 
   const bodyHtml = isRunning
     ? `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">该策略<strong style="color:var(--cq-color-loss);">正在运行</strong>，将先停止再删除。</p>
        <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
          <span style="font-weight:600;">⚠️ 不可逆操作</span>：删除后所有交易记录和绩效数据将永久丢失。
+       </div>`
+    : isDraft
+    ? `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">确认删除这个工作台草案？</p>
+       <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
+         <span style="font-weight:600;">⚠️ 不可逆操作</span>：删除后草案内容将永久丢失。
        </div>`
     : `<p style="color:var(--cq-text-secondary);margin-bottom:8px;">确认删除此策略？</p>
        <div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);">
@@ -793,17 +1074,20 @@ async function deleteStrategyInst(instanceId) {
 
   try {
     if (isRunning) {
-      await api.stopStrategy(instanceId);
+      await api.stopStrategy(numericId);
     }
-    await api.deleteStrategy(instanceId);
-    showToast('策略已删除', 'success');
-    loadStrategyPage();
+    await api.deleteStrategy(numericId);
+    if (Number(window._editingInstanceId) === numericId) {
+      window._editingInstanceId = null;
+      selectedTemplateId = null;
+    }
+    showToast(isDraft ? '草案已删除' : '策略已删除', 'success');
+    await loadStrategyPage();
   } catch (err) {
     showToast('删除失败: ' + err.message, 'error');
   }
 }
 
-/* ── 绩效报告弹窗 ── */
 async function showStrategyPerformance(instanceId) {
   const modal = document.getElementById('strategy-perf-modal');
   const body = document.getElementById('strategy-perf-body');
@@ -865,179 +1149,44 @@ function closeStrategyPerfModal() {
   if (modal) modal.classList.remove('is-visible');
 }
 
-/* ── 编辑策略弹窗 ── */
 async function showStrategyEdit(instanceId) {
-  const modal = document.getElementById('strategy-edit-modal');
-  const body = document.getElementById('strategy-edit-body');
-  if (!modal || !body) return;
-
-  body.innerHTML = '<div class="cq-skeleton" style="height:100px;"></div>';
-  modal.classList.add('is-visible');
-
-  try {
-    const detail = await api.getStrategyDetail(instanceId);
-    window._editingStrategyId = instanceId;
-    window._editingStrategyDetail = detail;
-
-    // 查找模板获取参数定义
-    const templates = window._cachedTemplates || await api.getStrategyTemplates();
-    const tmpl = templates.find(t => t.id === detail.templateId);
-
-    const currentParams = detail.params || {};
-
-    let paramsHtml = '';
-    if (tmpl && tmpl.params && tmpl.params.length > 0) {
-      paramsHtml = tmpl.params.map(p => {
-        const currentVal = currentParams[p.key] ?? p.default;
-        const t = p.type || 'double';
-        const desc = p.description
-          ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">${p.description}</div>`
-          : '';
-
-        if (t === 'rules') return ''; // rules 由规则构建器处理
-
-        if (t === 'bool') {
-          const checked = currentVal ? 'checked' : '';
-          return `
-          <div class="cq-param-group">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="sl-edit-${p.key}" data-key="${p.key}" data-type="bool" ${checked}>
-              <span class="cq-param-label">${p.name}</span>
-            </label>
-            ${desc}
-          </div>`;
-        }
-
-        if (t === 'array_int' || t === 'array_double') {
-          const val = Array.isArray(currentVal) ? currentVal.join(', ') : (currentVal ?? '');
-          return `
-          <div class="cq-param-group">
-            <div class="cq-param-header">
-              <span class="cq-param-label">${p.name}</span>
-            </div>
-            <input type="text" class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="${t}"
-              value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
-              style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;">
-            ${desc}
-          </div>`;
-        }
-
-        if (t === 'select') {
-          const options = Array.isArray(p.options) ? p.options : [];
-          const optsHtml = options.map(opt => {
-            const v = (opt && typeof opt === 'object') ? opt.value : opt;
-            const lbl = (opt && typeof opt === 'object') ? (opt.label ?? opt.value) : opt;
-            const sel = String(v) === String(currentVal) ? ' selected' : '';
-            return `<option value="${v}"${sel}>${lbl}</option>`;
-          }).join('');
-          return `
-          <div class="cq-param-group">
-            <div class="cq-param-header">
-              <span class="cq-param-label">${p.name}</span>
-            </div>
-            <select class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="select">
-              ${optsHtml}
-            </select>
-            ${desc}
-          </div>`;
-        }
-
-        if (t === 'json') {
-          const val = typeof currentVal === 'string' ? currentVal : JSON.stringify(currentVal);
-          return `
-          <div class="cq-param-group">
-            <div class="cq-param-header">
-              <span class="cq-param-label">${p.name}</span>
-            </div>
-            <textarea class="cq-input" id="sl-edit-${p.key}" data-key="${p.key}" data-type="json"
-              rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);">${val}</textarea>
-            ${desc}
-          </div>`;
-        }
-
-        // int / double - range slider
-        return `
-          <div class="cq-param-group">
-            <div class="cq-param-header">
-              <span class="cq-param-label">${p.name}</span>
-              <span class="cq-param-value" id="val-edit-${p.key}">${currentVal}</span>
-            </div>
-            <input type="range" class="cq-slider" id="sl-edit-${p.key}" min="${p.min || 0}" max="${p.max || 100}" value="${currentVal}" step="${p.step || 1}"
-              oninput="document.getElementById('val-edit-${p.key}').textContent=this.value">
-            ${desc}
-          </div>`;
-      }).join('');
-    } else {
-      paramsHtml = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无可编辑参数</div>';
-    }
-
-    body.innerHTML = `
-      <div style="margin-bottom:var(--cq-space-3);">
-        <label class="cq-label">策略名称</label>
-        <input type="text" class="cq-input" id="edit-strategy-name" value="${escapeHtml(detail.name)}">
-      </div>
-      <div style="border-top:1px solid var(--cq-border-subtle);padding-top:var(--cq-space-3);">
-        ${paramsHtml}
-      </div>`;
-  } catch (err) {
-    body.innerHTML = `<div class="cq-empty-state" style="padding:var(--cq-space-6);"><h3>${escapeHtml(err.message)}</h3></div>`;
-  }
+  return cloneStrategyToWorkbench(instanceId);
 }
 
 async function submitStrategyEdit() {
-  const instanceId = window._editingStrategyId;
-  if (!instanceId) return;
-
-  const name = document.getElementById('edit-strategy-name')?.value.trim();
-  const params = {};
-
-  // 收集所有类型的参数控件
-  // range slider
-  document.querySelectorAll('#strategy-edit-body input[type="range"]').forEach(sl => {
-    const key = sl.id.replace('sl-edit-', '');
-    const step = parseFloat(sl.step) || 1;
-    params[key] = step >= 1 ? parseInt(sl.value, 10) : parseFloat(sl.value);
-  });
-  // checkbox
-  document.querySelectorAll('#strategy-edit-body input[type="checkbox"][data-key]').forEach(el => {
-    params[el.dataset.key] = el.checked;
-  });
-  // text (array types)
-  document.querySelectorAll('#strategy-edit-body input[type="text"][data-key]').forEach(el => {
-    const t = el.dataset.type;
-    const parts = el.value.split(',').map(s => s.trim()).filter(s => s !== '');
-    params[el.dataset.key] = parts.map(s => t === 'array_int' ? parseInt(s, 10) : parseFloat(s));
-  });
-  // select
-  document.querySelectorAll('#strategy-edit-body select[data-key]').forEach(el => {
-    params[el.dataset.key] = el.value;
-  });
-  // textarea (json)
-  document.querySelectorAll('#strategy-edit-body textarea[data-key]').forEach(el => {
-    const txt = el.value.trim();
-    if (txt === '') { params[el.dataset.key] = null; return; }
-    try {
-      params[el.dataset.key] = JSON.parse(txt);
-    } catch (e) {
-      showToast(`参数 "${el.dataset.key}" JSON 格式错误`, 'error');
-      return;
-    }
-  });
-
-  try {
-    await api.updateStrategy(instanceId, { name, params });
-    showToast('策略已更新', 'success');
-    closeStrategyEditModal();
-    loadStrategyPage();
-  } catch (err) {
-    showToast('更新失败: ' + err.message, 'error');
-  }
+  showToast('旧编辑弹窗已下线，请在工作台中编辑策略', 'warn');
+  closeStrategyEditModal();
+  document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function closeStrategyEditModal() {
   const modal = document.getElementById('strategy-edit-modal');
   if (modal) modal.classList.remove('is-visible');
-  window._editingStrategyId = null;
+}
+
+async function cloneStrategyToWorkbench(instanceId) {
+  if (!await ensureWorkbenchCanLeave('复制为草案并打开工作台，会丢失当前未保存的修改，确定继续吗？', `clone_${instanceId}`)) return;
+  try {
+    const result = await api.cloneStrategyToDraft(instanceId);
+    const clonedId = Number(result?.id ?? result?.instanceId ?? result?.instance_id ?? 0);
+    if (clonedId) {
+      window._strategyFocusDraftId = clonedId;
+    } else {
+      window._strategyFocusSourceInstanceId = Number(instanceId);
+    }
+    selectedTemplateId = null;
+    window._editingInstanceId = null;
+    showToast('已打开工作台草案', 'success');
+    await loadStrategyPage();
+    document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    showToast(`复制草案失败: ${error.message}`, 'error');
+  }
+}
+
+async function requestCloseWorkbench() {
+  if (!await ensureWorkbenchCanLeave('关闭工作台会丢失当前未保存的修改，确定继续吗？')) return;
+  deselectTemplate();
 }
 
 /* ═══════════════════════════════════════════════════════════════

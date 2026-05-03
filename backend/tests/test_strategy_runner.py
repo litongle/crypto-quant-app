@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.exchanges.base import Kline
 from app.core.strategy_engine import Signal, StrategyConfig
 from app.core.strategy_runner import StrategyRunner, select_position_to_close
 
@@ -250,6 +251,34 @@ class TestLifecycle:
 
         await runner.start(bad_session_maker)
         assert called == []
+
+
+class TestFetchKlines:
+    async def test_normalizes_datetime_timestamp_to_milliseconds(self, runner, monkeypatch):
+        fake_klines = [
+            Kline(
+                timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                open=Decimal("100"),
+                high=Decimal("110"),
+                low=Decimal("90"),
+                close=Decimal("105"),
+                volume=Decimal("1.5"),
+                close_time=datetime(2024, 1, 1, 1, tzinfo=UTC),
+            )
+        ]
+
+        adapter = MagicMock()
+        adapter.get_klines = AsyncMock(return_value=fake_klines)
+
+        monkeypatch.setattr(
+            "app.core.exchange_adapter.get_exchange_adapter",
+            lambda **kwargs: adapter,
+        )
+
+        result = await runner._fetch_klines("binance", "BTCUSDT", 1, "1h")
+
+        assert result[0]["timestamp"] == 1_704_067_200_000
+        assert result[0]["close"] == 105.0
 
 
 # ==================== start_instance ====================

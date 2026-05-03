@@ -65,8 +65,48 @@ SUPPORTED_SYMBOLS = {
     "PEPEUSDT",  # 加几个常用合约币
 }
 
-# K线周期
-KLINE_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+# K线周期元数据与交易所能力矩阵（单一真相）
+INTERVAL_SPECS = {
+    "1m": {"label": "1 分钟", "short_label": "1m"},
+    "3m": {"label": "3 分钟", "short_label": "3m"},
+    "5m": {"label": "5 分钟", "short_label": "5m"},
+    "15m": {"label": "15 分钟", "short_label": "15m"},
+    "30m": {"label": "30 分钟", "short_label": "30m"},
+    "1h": {"label": "1 小时", "short_label": "1H"},
+    "2h": {"label": "2 小时", "short_label": "2H"},
+    "4h": {"label": "4 小时", "short_label": "4H"},
+    "6h": {"label": "6 小时", "short_label": "6H"},
+    "8h": {"label": "8 小时", "short_label": "8H"},
+    "12h": {"label": "12 小时", "short_label": "12H"},
+    "1d": {"label": "1 天", "short_label": "1D"},
+    "2d": {"label": "2 天", "short_label": "2D"},
+    "3d": {"label": "3 天", "short_label": "3D"},
+    "5d": {"label": "5 天", "short_label": "5D"},
+    "1w": {"label": "1 周", "short_label": "1W"},
+    "1M": {"label": "1 月", "short_label": "1M"},
+    "3M": {"label": "3 月", "short_label": "3M"},
+    "1y": {"label": "1 年", "short_label": "1Y"},
+}
+
+DEFAULT_FEATURED_INTERVALS = ("1m", "5m", "15m", "1h", "4h", "1d", "1w")
+DEFAULT_INTERVAL = "1h"
+
+EXCHANGE_MARKET_INTERVALS = {
+    "binance": {
+        "spot": ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"),
+        "perp": ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"),
+    },
+    "okx": {
+        "spot": ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "2d", "3d", "5d", "1w", "1M", "3M"),
+        "perp": ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "2d", "3d", "5d", "1w", "1M", "3M"),
+    },
+    "huobi": {
+        "spot": ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1y"),
+        "perp": ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"),
+    },
+}
+
+KLINE_INTERVALS = list(INTERVAL_SPECS)
 
 # 市场类型
 SUPPORTED_MARKET_TYPES = {"spot", "perp"}
@@ -78,11 +118,46 @@ class MarketService:
     def __init__(self, session: AsyncSession | None = None):
         self.session = session
 
+    @staticmethod
+    def get_supported_intervals(exchange: str, market_type: str) -> tuple[str, ...]:
+        exchange_map = EXCHANGE_MARKET_INTERVALS.get(exchange)
+        if not exchange_map:
+            raise AppException(code="UNSUPPORTED_EXCHANGE", message=f"不支持的交易所: {exchange}")
+        intervals = exchange_map.get(market_type)
+        if not intervals:
+            raise AppException(
+                code="INVALID_MARKET_TYPE",
+                message=f"不支持的市场类型: {market_type}(应为 spot 或 perp)",
+            )
+        return intervals
+
+    @classmethod
+    def get_interval_capabilities(cls, exchange: str, market_type: str) -> dict:
+        intervals = cls.get_supported_intervals(exchange, market_type)
+        featured = [interval for interval in DEFAULT_FEATURED_INTERVALS if interval in intervals]
+        default_interval = DEFAULT_INTERVAL if DEFAULT_INTERVAL in intervals else intervals[0]
+        return {
+            "exchange": exchange,
+            "market": market_type,
+            "default_interval": default_interval,
+            "featured_intervals": featured,
+            "intervals": [
+                {
+                    "value": interval,
+                    "label": INTERVAL_SPECS[interval]["label"],
+                    "shortLabel": INTERVAL_SPECS[interval]["short_label"],
+                    "featured": interval in featured,
+                }
+                for interval in intervals
+            ],
+        }
+
     async def get_ticker(
         self,
         symbol: str,
         exchange: str = "binance",
         market_type: str = "spot",
+        use_cache: bool = True,
     ) -> dict:
         """
         获取实时行情(带 Redis 缓存,PRF-05)
@@ -97,14 +172,15 @@ class MarketService:
 
         # 缓存 key 必须区分 market_type, 否则 spot/perp 价格会串
         cache_key = f"ticker:{exchange}:{market_type}:{symbol}"
-        try:
-            r = await get_redis_client()
-            if r:
-                cached = await r.get(cache_key)
-                if cached:
-                    return json.loads(cached)
-        except Exception:
-            logger.debug("Redis cache miss for %s", cache_key)
+        if use_cache:
+            try:
+                r = await get_redis_client()
+                if r:
+                    cached = await r.get(cache_key)
+                    if cached:
+                        return json.loads(cached)
+            except Exception:
+                logger.debug("Redis cache miss for %s", cache_key)
 
         try:
             client = await get_http_client()
@@ -120,12 +196,13 @@ class MarketService:
             result = self._format_ticker(data, exchange, symbol)
 
             # 写入 Redis 缓存，TTL 10秒（P1-4: 复用 Redis 客户端）
-            try:
-                r = await get_redis_client()
-                if r:
-                    await r.setex(cache_key, 10, json.dumps(result, default=str))
-            except Exception:
-                logger.debug("Redis cache write failed for %s", cache_key)
+            if use_cache:
+                try:
+                    r = await get_redis_client()
+                    if r:
+                        await r.setex(cache_key, 10, json.dumps(result, default=str))
+                except Exception:
+                    logger.debug("Redis cache write failed for %s", cache_key)
 
             return result
 
@@ -155,10 +232,11 @@ class MarketService:
         """
         symbol = symbol.upper()
         self._validate_symbol_market(symbol, market_type)
-        if interval not in KLINE_INTERVALS:
+        supported_intervals = self.get_supported_intervals(exchange, market_type)
+        if interval not in supported_intervals:
             raise AppException(
                 code="INVALID_INTERVAL",
-                message=f"不支持的周期: {interval}",
+                message=f"{exchange} {market_type} 不支持周期: {interval}",
             )
         if limit < 1 or limit > 1000:
             raise AppException(
@@ -538,18 +616,26 @@ class MarketService:
 
     @staticmethod
     def _to_okx_bar(interval: str) -> str:
-        """OKX K线周期映射: 1h→1H, 4h→4H, 1d→1D, 1w→1W, 其他保持"""
+        """OKX K线周期映射。"""
         mapping = {
             "1h": "1H",
+            "2h": "2H",
             "4h": "4H",
+            "6h": "6H",
+            "12h": "12H",
             "1d": "1D",
+            "2d": "2D",
+            "3d": "3D",
+            "5d": "5D",
             "1w": "1W",
+            "1M": "1M",
+            "3M": "3M",
         }
         return mapping.get(interval, interval)
 
     @staticmethod
     def _to_huobi_period(interval: str) -> str:
-        """K线周期映射: 1m→1min, 1h→60min, 1d→1day, ..."""
+        """HTX K线周期映射。"""
         mapping = {
             "1m": "1min",
             "5m": "5min",
@@ -559,6 +645,8 @@ class MarketService:
             "4h": "4hour",
             "1d": "1day",
             "1w": "1week",
+            "1M": "1mon",
+            "1y": "1year",
         }
         return mapping.get(interval, "60min")
 
