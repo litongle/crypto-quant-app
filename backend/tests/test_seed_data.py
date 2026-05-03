@@ -23,6 +23,18 @@ def get_param(template: dict, key: str) -> dict | None:
     )
 
 
+LIVE_TRADING_TEMPLATE_CODES = {
+    "ma_cross",
+    "rsi",
+    "bollinger",
+    "grid",
+    "martingale",
+    "rule_custom",
+    "rsi_layered",
+    "dca",
+}
+
+
 # ── 模板存在性 ───────────────────────────────────────────
 
 
@@ -50,6 +62,9 @@ class TestTemplateExistence:
     def test_rsi_layered_template_exists(self):
         """Step 1 移植的策略必须可在前端创建"""
         assert get_template("rsi_layered") is not None
+
+    def test_dca_template_exists(self):
+        assert get_template("dca") is not None
 
 
 # ── rsi_layered 参数完整性 ────────────────────────────────
@@ -144,6 +159,22 @@ class TestTemplateFactoryAlignment:
             config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
             strategy = get_strategy(strategy_type, config)
             assert strategy is not None
+
+
+class TestLiveTradingTemplateParams:
+    def test_supported_templates_expose_auto_trade(self):
+        for code in LIVE_TRADING_TEMPLATE_CODES:
+            template = get_template(code)
+            assert template is not None, f"模板缺失: {code}"
+            auto_trade = get_param(template, "auto_trade")
+            assert auto_trade is not None, f"{code} 缺少 auto_trade"
+            assert auto_trade["type"] == "bool"
+            assert auto_trade["default"] is False
+
+    def test_multi_symbol_does_not_expose_auto_trade(self):
+        template = get_template("multi_symbol")
+        assert template is not None
+        assert get_param(template, "auto_trade") is None
 
 
 # ── upsert 行为测试 ──────────────────────────────────────

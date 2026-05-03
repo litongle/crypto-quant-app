@@ -39,6 +39,14 @@ _KLINE_INTERVAL_PARAM = {
     ),
 }
 
+_AUTO_TRADE_PARAM = {
+    "key": "auto_trade",
+    "name": "自动下单(谨慎)",
+    "type": "bool",
+    "default": False,
+    "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号",
+}
+
 
 # 预定义策略模板
 STRATEGY_TEMPLATES = [
@@ -69,6 +77,7 @@ STRATEGY_TEMPLATES = [
                     "max": 200,
                     "step": 1,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         },
@@ -109,6 +118,7 @@ STRATEGY_TEMPLATES = [
                     "max": 90,
                     "step": 1,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
@@ -140,6 +150,7 @@ STRATEGY_TEMPLATES = [
                     "max": 4.0,
                     "step": 0.5,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
         },
@@ -180,6 +191,7 @@ STRATEGY_TEMPLATES = [
                     "max": 50,
                     "step": 1,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         },
@@ -220,6 +232,7 @@ STRATEGY_TEMPLATES = [
                     "max": 10,
                     "step": 1,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },
@@ -240,6 +253,7 @@ STRATEGY_TEMPLATES = [
                     "default": None,
                     "description": "JSON 规则定义，含 buy_rules/sell_rules/risk",
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
             # 前端规则构建器使用的指标元数据
@@ -616,11 +630,7 @@ STRATEGY_TEMPLATES = [
                     ),
                 },
                 {
-                    "key": "auto_trade",
-                    "name": "自动下单(谨慎)",
-                    "type": "bool",
-                    "default": False,
-                    "description": "开启后产生信号会真实下单(需绑定交易所账户),关闭则只持久化信号",
+                    **_AUTO_TRADE_PARAM,
                 },
             ],
             "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
@@ -679,6 +689,7 @@ STRATEGY_TEMPLATES = [
                     "max": 50,
                     "step": 5,
                 },
+                _AUTO_TRADE_PARAM,
             ],
             "symbols": ["BTCUSDT", "ETHUSDT"],
         },

@@ -34,6 +34,18 @@ router = APIRouter()
 
 # P1-6: 每用户最多策略实例数
 MAX_INSTANCES_PER_USER = 20
+LIVE_TRADING_TEMPLATE_CODES = frozenset(
+    {
+        "ma_cross",
+        "rsi",
+        "bollinger",
+        "grid",
+        "martingale",
+        "rule_custom",
+        "rsi_layered",
+        "dca",
+    }
+)
 
 
 # ============ 请求模型 ============
@@ -124,6 +136,7 @@ class StrategyTemplateResponse(BaseModel):
     #   其他   → 通用参数表单
     # 缺失会让 backtest.js / strategy.js 都把 rules 类型 param 当 slider 渲染。
     strategy_type: str = Field(default="", alias="strategyType")
+    live_trading_supported: bool = Field(default=False, alias="liveTradingSupported")
     params: list[ParamSchema] = Field(default_factory=list)
 
 
@@ -176,6 +189,7 @@ TEMPLATE_DISPLAY_ORDER = [
     "bollinger",
     "grid",
     "martingale",
+    "dca",
 ]
 
 _TEMPLATE_DISPLAY_RANK = {code: index for index, code in enumerate(TEMPLATE_DISPLAY_ORDER)}
@@ -228,6 +242,7 @@ def _build_predefined_templates() -> list[dict]:
                 "icon": icon_map.get(t["code"], "info"),
                 "isActive": True,
                 "strategyType": t.get("strategy_type") or t.get("code", ""),
+                "liveTradingSupported": t["code"] in LIVE_TRADING_TEMPLATE_CODES,
                 "params": params,
             }
         )
@@ -261,6 +276,9 @@ def _format_instance(inst: StrategyInstance) -> dict:
     """统一格式化策略实例响应 — P1-5: id 直接用整数，不再加 inst_ 前缀"""
     template_code = TEMPLATE_ID_TO_CODE.get(inst.template_id, str(inst.template_id))
     template_name = _TEMPLATE_NAME_BY_ID.get(template_code, "未知策略")
+    params = inst.params or {}
+    live_trading_supported = template_code in LIVE_TRADING_TEMPLATE_CODES
+    auto_trade_enabled = bool(params.get("auto_trade"))
 
     def _format_datetime(value):
         if value is None:
@@ -293,8 +311,8 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "exchange": inst.exchange,
         "symbol": inst.symbol,
         "accountId": inst.account_id,
-        "isLive": inst.account_id is not None,
-        "params": inst.params or {},  # 返回完整参数(含rules)
+        "isLive": bool(inst.account_id is not None and live_trading_supported and auto_trade_enabled),
+        "params": params,  # 返回完整参数(含rules)
         "totalPnl": float(inst.total_pnl or 0),
         "totalPnlPercent": float(inst.total_pnl_percent or 0),
         "winRate": float(inst.win_rate or 0),

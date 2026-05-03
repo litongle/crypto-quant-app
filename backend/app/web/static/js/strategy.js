@@ -68,7 +68,7 @@ function getStatusTag(status, instance = null) {
 }
 
 function getModeTag(instance) {
-  const isLive = instance.isLive || instance.accountId;
+  const isLive = Boolean(instance.isLive);
   return isLive
     ? '<span class="cq-tag cq-tag--profit" style="font-size:10px;padding:1px 6px;">实盘</span>'
     : '<span class="cq-tag cq-tag--neutral" style="font-size:10px;padding:1px 6px;">模拟</span>';
@@ -372,6 +372,8 @@ function renderLibraryCard(instance) {
         <span>${escapeHtml(instance.runtimeMessage || '请重新启动策略')}</span>`
     : (!instance.lastStartedAt && !instance.lastStoppedAt)
     ? `
+        <span>累计交易 ${totalTrades} 笔</span>
+        <span class="sep">·</span>
         <span>从未启动</span>
         <span class="sep">·</span>
         <span>创建于 ${escapeHtml(formatTimestamp(instance.createdAt))}</span>`
@@ -514,6 +516,19 @@ function showWorkbenchForm() {
   if (formWrap) formWrap.style.display = 'block';
 }
 
+function ensureTradeHintListeners() {
+  const accountSelect = document.getElementById('new-strategy-account');
+  const paramsRoot = document.getElementById('param-sliders');
+  if (accountSelect && !accountSelect.dataset.tradeHintBound) {
+    accountSelect.addEventListener('change', () => updateStrategyTradeHint());
+    accountSelect.dataset.tradeHintBound = '1';
+  }
+  if (paramsRoot && !paramsRoot.dataset.tradeHintBound) {
+    paramsRoot.addEventListener('change', () => updateStrategyTradeHint());
+    paramsRoot.dataset.tradeHintBound = '1';
+  }
+}
+
 function markTemplateSelection(templateId) {
   document.querySelectorAll('#template-list .cq-pill').forEach(pill => pill.classList.remove('is-selected'));
   if (!templateId) return;
@@ -532,10 +547,19 @@ function filterAccountsByExchange() {
   const accountSelect = document.getElementById('new-strategy-account');
   if (!exSelect || !accountSelect) return;
 
+  const template = findTemplate(selectedTemplateId);
+  if (template && !template.liveTradingSupported) {
+    accountSelect.disabled = true;
+    accountSelect.innerHTML = '<option value="">仅信号/模拟运行（该模板暂不支持自动下单）</option>';
+    updateStrategyTradeHint(template);
+    return;
+  }
+
   const selectedExchange = exSelect.value;
   const accounts = window._connectedAccounts || [];
   const filtered = accounts.filter(account => account.exchange === selectedExchange);
 
+  accountSelect.disabled = false;
   accountSelect.innerHTML = '<option value="">模拟模式(不下单)</option>'
     + filtered.map(account => `<option value="${account.id}">${escapeHtml(account.account_name || account.exchange)} (${escapeHtml(account.exchange)})</option>`).join('');
 
@@ -545,6 +569,39 @@ function filterAccountsByExchange() {
     opt.textContent = '- 该交易所暂无已连接账户 -';
     accountSelect.appendChild(opt);
   }
+
+  updateStrategyTradeHint(template);
+}
+
+function updateStrategyTradeHint(template = findTemplate(selectedTemplateId)) {
+  const hintEl = document.getElementById('strategy-live-hint');
+  if (!hintEl) return;
+
+  if (!template) {
+    hintEl.textContent = '选择已连接的交易所账户启用实盘自动下单，留空则仅产生模拟信号';
+    return;
+  }
+
+  if (!template.liveTradingSupported) {
+    hintEl.textContent = '该模板暂不支持真实自动下单，仅可做信号或模拟运行';
+    return;
+  }
+
+  let params = {};
+  try {
+    params = collectStrategyParams();
+  } catch {}
+  const autoTradeEnabled = Boolean(params.auto_trade);
+  const accountId = document.getElementById('new-strategy-account')?.value;
+  if (autoTradeEnabled && accountId) {
+    hintEl.textContent = '已开启自动下单，启动后将按策略信号执行真实下单';
+    return;
+  }
+  if (autoTradeEnabled) {
+    hintEl.textContent = '已开启自动下单，但还未绑定交易所账户，启动时会被拦截';
+    return;
+  }
+  hintEl.textContent = '默认仅产生信号；勾选参数区的自动下单并绑定账户后才会真实下单';
 }
 
 async function ensureWorkbenchFormInfra() {
@@ -674,6 +731,7 @@ async function showCreateForm(templateId, options = {}) {
 
   showWorkbenchForm();
   await ensureWorkbenchFormInfra();
+  ensureTradeHintListeners();
   const strategy = options.strategy || {};
   const titleEl = document.getElementById('create-form-title');
   const statusEl = document.getElementById('create-form-status');
@@ -706,10 +764,13 @@ async function showCreateForm(templateId, options = {}) {
   if (nameInput) nameInput.value = strategy.name || '';
   if (exchangeSelect) exchangeSelect.value = strategy.exchange || 'binance';
   filterAccountsByExchange();
-  if (accountSelect) accountSelect.value = strategy.accountId ? String(strategy.accountId) : '';
+  if (accountSelect && !accountSelect.disabled) {
+    accountSelect.value = strategy.accountId ? String(strategy.accountId) : '';
+  }
   if (window._strategySymbolSel && strategy.symbol) {
     try { window._strategySymbolSel.setValue(strategy.symbol); } catch {}
   }
+  updateStrategyTradeHint(template);
   captureWorkbenchInitialSnapshot();
 }
 

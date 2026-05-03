@@ -35,7 +35,14 @@ class TestStrategyTemplatesAPI:
             "bollinger",
             "grid",
             "martingale",
+            "dca",
         ]
+
+    async def test_template_live_trading_flags_match_capability(self, client: AsyncClient):
+        resp = await client.get("/api/v1/strategies/templates")
+        templates = {tpl["id"]: tpl for tpl in resp.json()["data"]}
+        assert templates["rsi_layered"]["liveTradingSupported"] is True
+        assert templates["dca"]["liveTradingSupported"] is True
 
 
 # ==================== 实例查询 ====================

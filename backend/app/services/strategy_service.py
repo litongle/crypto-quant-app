@@ -15,6 +15,18 @@ from app.repositories.strategy_repo import (
 )
 
 MAX_INSTANCES_PER_USER = 20
+LIVE_TRADING_TEMPLATE_CODES = frozenset(
+    {
+        "ma_cross",
+        "rsi",
+        "bollinger",
+        "grid",
+        "martingale",
+        "rule_custom",
+        "rsi_layered",
+        "dca",
+    }
+)
 
 
 class StrategyService:
@@ -137,6 +149,12 @@ class StrategyService:
                     detail="策略模板不存在",
                 )
 
+        self._validate_live_trading_settings(
+            template_code=template.code,
+            account_id=account_id,
+            params=params,
+        )
+
         # 验证 account_id（如果指定）
         if account_id:
             from sqlalchemy import select
@@ -224,6 +242,16 @@ class StrategyService:
                 detail="不能通过编辑直接把策略放入运行台，请使用启动操作",
             )
 
+        template = await self.get_template(instance.template_id)
+        if template:
+            next_params = updates.get("params", instance.params or {})
+            next_account_id = updates.get("account_id", instance.account_id)
+            self._validate_live_trading_settings(
+                template_code=template.code,
+                account_id=next_account_id,
+                params=next_params,
+            )
+
         allowed_fields = [
             "name",
             "exchange",
@@ -254,6 +282,19 @@ class StrategyService:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权操作此策略",
+            )
+
+        template_code = instance.template.code if instance.template else None
+        auto_trade_enabled = bool((instance.params or {}).get("auto_trade"))
+        self._validate_live_trading_settings(
+            template_code=template_code,
+            account_id=instance.account_id,
+            params=instance.params or {},
+        )
+        if auto_trade_enabled and not instance.account_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="开启自动下单前请先绑定交易所账户",
             )
         try:
             from app.core.strategy_runner import strategy_runner
@@ -388,3 +429,25 @@ class StrategyService:
 
         await self.instance_repo.clear_source_references(instance_id)
         return await self.instance_repo.delete(instance_id)
+
+    def _validate_live_trading_settings(
+        self,
+        *,
+        template_code: str | None,
+        account_id: int | None,
+        params: dict | None,
+    ) -> None:
+        """校验模板是否允许进入真实下单配置。"""
+        code = str(template_code or "")
+        if not code:
+            return
+
+        auto_trade_enabled = bool((params or {}).get("auto_trade"))
+        if code in LIVE_TRADING_TEMPLATE_CODES:
+            return
+
+        if account_id or auto_trade_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"策略模板 {code} 暂不支持真实自动下单",
+            )

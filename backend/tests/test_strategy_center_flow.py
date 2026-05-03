@@ -8,6 +8,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete
 
+from app.models.exchange import ExchangeAccount
 from app.models.strategy import StrategyInstance
 
 
@@ -43,6 +44,22 @@ async def _create_strategy(client: AsyncClient, auth_headers: dict) -> dict:
     )
     assert response.status_code == 201
     return response.json()["data"]
+
+
+async def _make_account(db_session, user_id: int, *, exchange: str = "binance") -> ExchangeAccount:
+    account = ExchangeAccount(
+        user_id=user_id,
+        exchange=exchange,
+        account_name="strategy-live",
+        is_active=True,
+        status="active",
+    )
+    account.set_api_key("FAKE_API_KEY_FOR_TEST_AAAAA")
+    account.set_secret_key("FAKE_SECRET_KEY_FOR_TEST_BBBBB")
+    db_session.add(account)
+    await db_session.commit()
+    await db_session.refresh(account)
+    return account
 
 
 class TestStrategyCenterFlow:
@@ -320,6 +337,75 @@ class TestStrategyCenterFlow:
         assert detail["status"] == "draft"
         assert detail["workspaceState"] == "library"
         assert detail["lastStartedAt"] is None
+
+    async def test_start_live_strategy_requires_bound_account(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.post(
+            "/api/v1/strategies/instances",
+            headers=auth_headers,
+            json={
+                "name": "RSI layered live",
+                "templateId": "rsi_layered",
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "params": {"auto_trade": True},
+            },
+        )
+        assert response.status_code == 201
+        instance_id = response.json()["data"]["id"]
+
+        start_response = await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/start",
+            headers=auth_headers,
+        )
+        assert start_response.status_code == 400
+        assert "绑定交易所账户" in start_response.json()["detail"]
+
+    async def test_live_instance_detail_requires_auto_trade_enabled(
+        self, client: AsyncClient, auth_headers, db_session, test_user
+    ):
+        account = await _make_account(db_session, test_user.id)
+        response = await client.post(
+            "/api/v1/strategies/instances",
+            headers=auth_headers,
+            json={
+                "name": "MA prebind",
+                "templateId": "ma_cross",
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "accountId": account.id,
+                "params": {"fast_period": 5, "slow_period": 20},
+            },
+        )
+        assert response.status_code == 201
+        instance_id = response.json()["data"]["id"]
+
+        detail_response = await client.get(
+            f"/api/v1/strategies/instances/{instance_id}",
+            headers=auth_headers,
+        )
+        assert detail_response.status_code == 200
+        assert detail_response.json()["data"]["isLive"] is False
+
+    async def test_create_multi_symbol_with_account_rejected(
+        self, client: AsyncClient, auth_headers, db_session, test_user
+    ):
+        account = await _make_account(db_session, test_user.id)
+        response = await client.post(
+            "/api/v1/strategies/instances",
+            headers=auth_headers,
+            json={
+                "name": "multi live",
+                "templateId": "multi_symbol",
+                "exchange": "binance",
+                "symbol": "BTCUSDT",
+                "accountId": account.id,
+                "params": {},
+            },
+        )
+        assert response.status_code == 400
+        assert "暂不支持真实自动下单" in response.json()["detail"]
 
     async def test_save_draft_to_library_updates_workspace_and_trade_config(
         self, client: AsyncClient, auth_headers
