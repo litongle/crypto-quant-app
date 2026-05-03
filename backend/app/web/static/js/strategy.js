@@ -172,8 +172,7 @@ function renderTemplatePills(templates) {
   }
 
   el.innerHTML = groups.map(group => `
-
-    <div class="cq-template-group">
+    <div class="cq-template-group${group.title === '自定义创建' ? ' cq-template-group--compact' : ''}">
       <div class="cq-template-group__header">
         <span class="cq-template-group__title">${group.title}</span>
         <span class="cq-template-group__hint">${group.hint}</span>
