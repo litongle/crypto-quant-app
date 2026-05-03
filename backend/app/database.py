@@ -132,7 +132,7 @@ async def init_db():
         alembic_cfg = AlembicConfig()
         alembic_cfg.set_main_option("script_location", "alembic")
         alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
-        command.stamp(alembic_cfg, "head")
+        await asyncio.to_thread(command.stamp, alembic_cfg, "head")
         logger.info("Alembic version stamped to head")
     except Exception:
         # Alembic not configured or stamp failed — not critical

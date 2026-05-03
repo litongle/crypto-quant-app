@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ==================== 工具 ====================
 
@@ -31,6 +31,15 @@ def _dec_to_str(v: Decimal | None) -> str | None:
     return str(v)
 
 
+def _coerce_scalar_to_str(v: Any) -> str:
+    """兼容 service 层直接返回的 Decimal / datetime / number。"""
+    if isinstance(v, datetime):
+        return _dt_to_iso(v) or ""
+    if isinstance(v, Decimal):
+        return str(v)
+    return str(v)
+
+
 # ==================== 行情 ====================
 
 
@@ -46,6 +55,21 @@ class TickerSchema(BaseModel):
     volume_24h: str
     quote_volume_24h: str
     timestamp: str  # ISO 8601
+
+    @field_validator(
+        "price",
+        "price_change",
+        "price_change_percent",
+        "high_24h",
+        "low_24h",
+        "volume_24h",
+        "quote_volume_24h",
+        "timestamp",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_scalars(cls, value: Any) -> str:
+        return _coerce_scalar_to_str(value)
 
     @classmethod
     def from_dataclass(cls, t: Any) -> "TickerSchema":
@@ -74,6 +98,11 @@ class KlineSchema(BaseModel):
     volume: str
     close_time: str
 
+    @field_validator("timestamp", "open", "high", "low", "close", "volume", "close_time", mode="before")
+    @classmethod
+    def _normalize_scalars(cls, value: Any) -> str:
+        return _coerce_scalar_to_str(value)
+
     @classmethod
     def from_dataclass(cls, k: Any) -> "KlineSchema":
         return cls(
@@ -92,6 +121,11 @@ class OrderBookEntrySchema(BaseModel):
 
     price: str
     quantity: str
+
+    @field_validator("price", "quantity", mode="before")
+    @classmethod
+    def _normalize_scalars(cls, value: Any) -> str:
+        return _coerce_scalar_to_str(value)
 
 
 class OrderBookSchema(BaseModel):

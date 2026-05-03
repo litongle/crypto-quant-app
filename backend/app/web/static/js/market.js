@@ -14,6 +14,111 @@ let marketChartType = 'candle';  // 'candle' | 'line'
 let marketLastKlines = [];        // 缓存最近一次 klines,切换图表类型时复用
 let marketWs = null;
 let marketWsReconnectTimer = null;
+let marketWsLastMessageAt = 0;
+let marketWsWatchdogTimer = null;
+let marketPollingTimer = null;
+let marketViewVersion = 0;
+let marketWsSessionId = 0;
+let marketIntervalCapabilities = null;
+const marketIntervalCapabilitiesCache = new Map();
+
+const MARKET_WS_STALE_MS = 8000;
+const MARKET_POLL_INTERVAL_MS = 3000;
+
+function getMarketContext() {
+  return {
+    version: marketViewVersion,
+    symbol: marketSymbol,
+    interval: marketInterval,
+    exchange: marketExchange,
+    marketType,
+  };
+}
+
+function isCurrentMarketContext(ctx) {
+  return !!ctx
+    && ctx.version === marketViewVersion
+    && ctx.symbol === marketSymbol
+    && ctx.interval === marketInterval
+    && ctx.exchange === marketExchange
+    && ctx.marketType === marketType;
+}
+
+function invalidateMarketContext() {
+  marketViewVersion += 1;
+  return getMarketContext();
+}
+
+function getMarketIntervalCapabilityKey(exchange = marketExchange, type = marketType) {
+  return `${exchange}:${type}`;
+}
+
+function getSupportedMarketIntervals() {
+  return (marketIntervalCapabilities?.intervals || []).map(item => item.value);
+}
+
+function renderMarketIntervalControls(capabilities = marketIntervalCapabilities) {
+  const container = document.getElementById('market-interval-controls');
+  if (!container) return;
+
+  const intervals = capabilities?.intervals || [];
+  if (intervals.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const featured = new Set(capabilities?.featured_intervals || []);
+  const featuredItems = intervals.filter(item => featured.has(item.value));
+  const moreItems = intervals.filter(item => !featured.has(item.value));
+  const moreValue = moreItems.some(item => item.value === marketInterval) ? marketInterval : '';
+
+  const featuredHtml = featuredItems.map(item => `
+    <button
+      class="cq-interval-btn${item.value === marketInterval ? ' is-active' : ''}"
+      data-interval="${item.value}"
+      onclick="changeMarketInterval('${item.value}')"
+      title="${escapeHtml(item.label)}"
+    >${escapeHtml(item.shortLabel || item.value)}</button>
+  `).join('');
+
+  const moreHtml = moreItems.length > 0
+    ? `
+      <select id="market-interval-more" class="cq-input cq-interval-select" onchange="handleMarketIntervalSelect(this.value)" title="更多周期">
+        <option value="">更多</option>
+        ${moreItems.map(item => `<option value="${item.value}"${item.value === moreValue ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
+      </select>
+    `
+    : '';
+
+  container.innerHTML = `${featuredHtml}${moreHtml}`;
+}
+
+function handleMarketIntervalSelect(interval) {
+  if (!interval) return;
+  changeMarketInterval(interval);
+}
+
+async function syncMarketIntervalCapabilities() {
+  const ctx = getMarketContext();
+  const key = getMarketIntervalCapabilityKey(ctx.exchange, ctx.marketType);
+  let capabilities = marketIntervalCapabilitiesCache.get(key);
+
+  if (!capabilities) {
+    capabilities = await api.getMarketIntervals(ctx.exchange, ctx.marketType);
+    if (!isCurrentMarketContext(ctx)) return null;
+    marketIntervalCapabilitiesCache.set(key, capabilities);
+  }
+
+  if (!isCurrentMarketContext(ctx)) return null;
+
+  marketIntervalCapabilities = capabilities;
+  const supported = new Set(getSupportedMarketIntervals());
+  if (!supported.has(marketInterval)) {
+    marketInterval = capabilities.default_interval || capabilities.defaultInterval || capabilities.intervals?.[0]?.value || '1h';
+  }
+  renderMarketIntervalControls(capabilities);
+  return capabilities;
+}
 
 async function loadMarketPage() {
   // 渲染头部行情概览卡片
@@ -23,6 +128,8 @@ async function loadMarketPage() {
   } catch {
     renderMarketOverview([]);
   }
+
+  await syncMarketIntervalCapabilities();
 
   // 加载K线图
   await loadMarketKline();
@@ -107,27 +214,51 @@ function formatTickerPrice(price) {
  * 卡在 "-- --"。WS 推消息后会再覆盖一次,无需等待。
  */
 async function refreshLivePriceNow() {
-  const liveEl = document.getElementById('market-live-price');
-  const liveChange = document.getElementById('market-live-change');
-  if (!liveEl) return;
+  const ctx = getMarketContext();
   try {
-    const t = await api.getTicker(marketSymbol, marketExchange, marketType);
+    const t = await api.getTicker(ctx.symbol, ctx.exchange, ctx.marketType, true);
+    if (!isCurrentMarketContext(ctx)) return;
+    applyTickerSnapshot(ctx.symbol, t, ctx);
+  } catch (e) {
+    // 拿不到就让 WS 兜底,什么都不做
+  }
+}
+
+function applyTickerSnapshot(symbol, ticker, ctx = null) {
+  const t = ticker || {};
+  const activeCtx = ctx || getMarketContext();
+  updateMarketOverviewMeta(new Date());
+
+  const priceEl = document.getElementById(`ticker-price-${symbol}`);
+  if (priceEl) {
     const rawPrice = t.price ?? t.lastPrice ?? t.last;
-    if (rawPrice != null) liveEl.textContent = '$' + formatTickerPrice(rawPrice);
+    if (rawPrice != null) {
+      priceEl.textContent = '$' + formatTickerPrice(rawPrice);
+      priceEl.classList.add('cq-flash');
+      setTimeout(() => priceEl.classList.remove('cq-flash'), 400);
+    }
+  }
+
+  const liveEl = document.getElementById('market-live-price');
+  if (liveEl && isCurrentMarketContext(activeCtx) && symbol === activeCtx.symbol) {
+    const rawPrice = t.price ?? t.lastPrice ?? t.last;
+    if (rawPrice != null) {
+      liveEl.textContent = '$' + formatTickerPrice(rawPrice);
+    }
     const change = t.price_change_percent ?? t.changePercent24h ?? t.changePercent ?? t.priceChangePercent ?? null;
+    const liveChange = document.getElementById('market-live-change');
     if (liveChange && change != null) {
       const numChange = Number(change);
       liveChange.textContent = `${numChange >= 0 ? '+' : ''}${numChange.toFixed(2)}%`;
       liveChange.style.color = numChange >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
     }
-  } catch (e) {
-    // 拿不到就让 WS 兜底,什么都不做
   }
 }
 
 /* ── 点击选择交易对 ── */
 function selectMarketSymbol(symbol) {
   marketSymbol = symbol;
+  invalidateMarketContext();
   // 更新卡片选中态
   document.querySelectorAll('.cq-ticker-card').forEach(c => c.classList.remove('is-active'));
   const active = document.querySelector(`.cq-ticker-card[onclick="selectMarketSymbol('${symbol}')"]`);
@@ -142,18 +273,22 @@ function selectMarketSymbol(symbol) {
 
 /* ── K线周期和交易所切换 ── */
 function changeMarketInterval(interval) {
+  const supported = new Set(getSupportedMarketIntervals());
+  if (supported.size > 0 && !supported.has(interval)) return;
   marketInterval = interval;
-  document.querySelectorAll('.cq-interval-btn').forEach(b => b.classList.remove('is-active'));
-  const active = document.querySelector(`.cq-interval-btn[data-interval="${interval}"]`);
-  if (active) active.classList.add('is-active');
+  invalidateMarketContext();
+  renderMarketIntervalControls();
   loadMarketKline();
+  startMarketWs();
 }
 
-function changeMarketExchange(exchange) {
+async function changeMarketExchange(exchange) {
   marketExchange = exchange;
+  invalidateMarketContext();
   document.querySelectorAll('.cq-exchange-btn').forEach(b => b.classList.remove('is-active'));
   const active = document.querySelector(`.cq-exchange-btn[data-exchange="${exchange}"]`);
   if (active) active.classList.add('is-active');
+  await syncMarketIntervalCapabilities();
   loadMarketKline();
   refreshLivePriceNow();
   startMarketWs();
@@ -173,13 +308,15 @@ function changeMarketChartType(type) {
 
 /* ── K线图加载 ── */
 async function loadMarketKline() {
+  const ctx = getMarketContext();
   const container = document.getElementById('market-kline-wrap');
   if (!container) return;
   disposeMarketKlineChart();
   container.innerHTML = '<div class="cq-skeleton" style="height:100%;"></div>';
 
   try {
-    const result = await api.getKline(marketSymbol, marketInterval, 200, marketExchange, marketType);
+    const result = await api.getKline(ctx.symbol, ctx.interval, 200, ctx.exchange, ctx.marketType);
+    if (!isCurrentMarketContext(ctx)) return;
     const klines = result.klines || [];
     if (klines.length === 0) {
       container.innerHTML = '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>暂无K线数据</h3></div>';
@@ -189,6 +326,7 @@ async function loadMarketKline() {
     marketLastKlines = klines;
     renderKlineChart(klines);
   } catch (err) {
+    if (!isCurrentMarketContext(ctx)) return;
     container.innerHTML = `<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>${escapeHtml(err.message)}</h3></div>`;
     marketLastKlines = [];
   }
@@ -207,6 +345,43 @@ function _normalizeKlineTime(raw) {
   if (!isFinite(n)) return null;
   // ms vs s 启发式:13 位以上视为 ms
   return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+function _marketTimeToDate(time) {
+  if (typeof time === 'number') return new Date(time * 1000);
+  if (time && typeof time === 'object' && 'year' in time && 'month' in time && 'day' in time) {
+    return new Date(Date.UTC(time.year, time.month - 1, time.day));
+  }
+  return null;
+}
+
+function _formatMarketTime(time, options) {
+  const date = _marketTimeToDate(time);
+  if (!date) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    ...options,
+  }).format(date);
+}
+
+function _formatMarketAxisLabel(time) {
+  if (['1d', '1w'].includes(marketInterval)) {
+    return _formatMarketTime(time, { month: 'numeric', day: 'numeric' });
+  }
+  return _formatMarketTime(time, { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function _formatMarketCrosshairLabel(time) {
+  if (['1d', '1w'].includes(marketInterval)) {
+    return _formatMarketTime(time, { year: 'numeric', month: 'numeric', day: 'numeric' });
+  }
+  return _formatMarketTime(time, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 function _toCandleData(klines) {
@@ -234,6 +409,128 @@ function _toCandleData(klines) {
 
 function _toLineData(candles) {
   return candles.map(c => ({ time: c.time, value: c.close }));
+}
+
+function _buildChartPointFromKline(kline) {
+  const time = _normalizeKlineTime(kline.timestamp ?? kline.openTime ?? kline.time);
+  if (time == null) return null;
+  const open = Number(kline.open);
+  const high = Number(kline.high);
+  const low = Number(kline.low);
+  const close = Number(kline.close);
+  if ([open, high, low, close].some(v => !isFinite(v))) return null;
+  return { time, open, high, low, close };
+}
+
+function _upsertLiveKline(kline) {
+  const point = _buildChartPointFromKline(kline);
+  if (!point) return null;
+
+  const next = {
+    ...kline,
+    timestamp: kline.timestamp ?? new Date(point.time * 1000).toISOString(),
+  };
+
+  const items = Array.isArray(marketLastKlines) ? [...marketLastKlines] : [];
+  const lastIdx = items.length - 1;
+  const lastPoint = lastIdx >= 0 ? _buildChartPointFromKline(items[lastIdx]) : null;
+
+  if (lastPoint && lastPoint.time === point.time) {
+    items[lastIdx] = { ...items[lastIdx], ...next };
+  } else if (!lastPoint || point.time > lastPoint.time) {
+    items.push(next);
+  } else {
+    const idx = items.findIndex(item => {
+      const currentPoint = _buildChartPointFromKline(item);
+      return currentPoint && currentPoint.time === point.time;
+    });
+    if (idx >= 0) {
+      items[idx] = { ...items[idx], ...next };
+    } else {
+      items.push(next);
+      items.sort((a, b) => (_normalizeKlineTime(a.timestamp) || 0) - (_normalizeKlineTime(b.timestamp) || 0));
+    }
+  }
+
+  marketLastKlines = items.slice(-200);
+  return point;
+}
+
+function _updateLiveKlineChart(point) {
+  if (!point || !window._klineSeries) return;
+  if (marketChartType === 'candle') {
+    window._klineSeries.update(point);
+    return;
+  }
+  window._klineSeries.update({ time: point.time, value: point.close });
+}
+
+function stopMarketPolling() {
+  if (marketPollingTimer) {
+    clearInterval(marketPollingTimer);
+    marketPollingTimer = null;
+  }
+}
+
+async function pollMarketSnapshot(ctx = getMarketContext()) {
+  const [tickerResult, klineResult] = await Promise.allSettled([
+    api.getTicker(ctx.symbol, ctx.exchange, ctx.marketType, true),
+    api.getKline(ctx.symbol, ctx.interval, 2, ctx.exchange, ctx.marketType),
+  ]);
+
+  if (!isCurrentMarketContext(ctx)) return;
+
+  if (tickerResult.status === 'fulfilled') {
+    applyTickerSnapshot(ctx.symbol, tickerResult.value, ctx);
+  }
+
+  if (klineResult.status === 'fulfilled') {
+    const klines = klineResult.value?.klines || [];
+    const latest = klines[klines.length - 1];
+    if (latest) {
+      const point = _upsertLiveKline(latest);
+      _updateLiveKlineChart(point);
+      if (latest.close != null) {
+        const liveEl = document.getElementById('market-live-price');
+        if (liveEl) {
+          liveEl.textContent = '$' + formatTickerPrice(latest.close);
+        }
+        const priceEl = document.getElementById(`ticker-price-${ctx.symbol}`);
+        if (priceEl) {
+          priceEl.textContent = '$' + formatTickerPrice(latest.close);
+        }
+      }
+      if (tickerResult.status !== 'fulfilled') {
+        updateMarketOverviewMeta(new Date());
+      }
+    }
+  }
+}
+
+function startMarketPolling(immediate = false) {
+  const ctx = getMarketContext();
+  if (marketPollingTimer) return;
+  if (immediate) {
+    pollMarketSnapshot(ctx).catch(() => {});
+  }
+  marketPollingTimer = setInterval(() => {
+    pollMarketSnapshot(ctx).catch(() => {});
+  }, MARKET_POLL_INTERVAL_MS);
+}
+
+function resetMarketWsWatchdog() {
+  if (marketWsWatchdogTimer) {
+    clearInterval(marketWsWatchdogTimer);
+  }
+  marketWsWatchdogTimer = setInterval(() => {
+    if (!marketWs || marketWs.readyState !== WebSocket.OPEN) {
+      startMarketPolling(true);
+      return;
+    }
+    if (Date.now() - marketWsLastMessageAt >= MARKET_WS_STALE_MS) {
+      startMarketPolling(true);
+    }
+  }, 2000);
 }
 
 /* ── 释放图表实例(切换 symbol/interval/页面离开时调用) ── */
@@ -281,6 +578,10 @@ function renderKlineChart(klines) {
       fontFamily: "'Geist', 'JetBrains Mono', sans-serif",
       fontSize: 11,
     },
+    localization: {
+      locale: 'zh-CN',
+      timeFormatter: time => _formatMarketCrosshairLabel(time),
+    },
     grid: {
       vertLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
       horzLines: { color: isDark ? 'rgba(139,148,158,0.10)' : 'rgba(15,23,42,0.05)' },
@@ -298,6 +599,7 @@ function renderKlineChart(klines) {
       borderColor: isDark ? 'rgba(139,148,158,0.15)' : 'rgba(15,23,42,0.10)',
       timeVisible: !['1d', '1w'].includes(marketInterval),
       secondsVisible: false,
+      tickMarkFormatter: time => _formatMarketAxisLabel(time),
     },
     handleScroll: true,
     handleScale: true,
@@ -349,6 +651,14 @@ window.addEventListener('cq:theme-change', () => {
 
 /* ── WebSocket 实时推送 ── */
 function startMarketWs() {
+  const ctx = getMarketContext();
+  const sessionId = ++marketWsSessionId;
+  stopMarketPolling();
+  if (marketWsWatchdogTimer) {
+    clearInterval(marketWsWatchdogTimer);
+    marketWsWatchdogTimer = null;
+  }
+
   // 清理旧连接（先移除 onclose 防止异步触发重连风暴）
   if (marketWs) {
     marketWs.onclose = null;
@@ -366,9 +676,10 @@ function startMarketWs() {
   const token = (typeof api !== 'undefined' && api.accessToken) || sessionStorage.getItem('access_token') || '';
   if (!token) {
     console.warn('[Market WS] 缺少 access token,跳过 WS 连接(请先登录)');
+    startMarketPolling(true);
     return;
   }
-  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${marketSymbol}&exchange=${marketExchange}&market=${marketType}`;
+  const wsUrl = `${wsBase}//${location.host}/api/v1/ws/market?symbol=${ctx.symbol}&exchange=${ctx.exchange}&market=${ctx.marketType}`;
 
   const wsProtocols = ['json', `access_token.${token}`];
 
@@ -376,26 +687,35 @@ function startMarketWs() {
     marketWs = new WebSocket(wsUrl, wsProtocols);
 
     marketWs.onopen = () => {
-      console.log('[Market WS] Connected:', marketSymbol, marketExchange);
+      if (sessionId !== marketWsSessionId || !isCurrentMarketContext(ctx)) return;
+      marketWsLastMessageAt = Date.now();
+      resetMarketWsWatchdog();
+      console.log('[Market WS] Connected:', ctx.symbol, ctx.exchange);
       // 自动订阅 ticker 频道
       marketWs.send(JSON.stringify({
         action: 'subscribe',
-        channels: ['ticker'],
-        symbols: [marketSymbol],
-        exchange: marketExchange,
-        market: marketType,
+        channels: ['ticker', 'kline'],
+        symbols: [ctx.symbol],
+        exchange: ctx.exchange,
+        market: ctx.marketType,
+        interval: ctx.interval,
       }));
     };
 
     marketWs.onmessage = (event) => {
       try {
+        if (sessionId !== marketWsSessionId || !isCurrentMarketContext(ctx)) return;
         const data = JSON.parse(event.data);
-        handleMarketWsMessage(data);
+        marketWsLastMessageAt = Date.now();
+        stopMarketPolling();
+        handleMarketWsMessage(data, ctx);
       } catch {}
     };
 
     marketWs.onclose = () => {
+      if (sessionId !== marketWsSessionId || !isCurrentMarketContext(ctx)) return;
       console.log('[Market WS] Disconnected, reconnecting in 5s...');
+      startMarketPolling(true);
       marketWsReconnectTimer = setTimeout(() => startMarketWs(), 5000);
     };
 
@@ -404,13 +724,15 @@ function startMarketWs() {
     };
   } catch (e) {
     console.warn('[Market WS] Failed to connect:', e);
+    startMarketPolling(true);
     marketWsReconnectTimer = setTimeout(() => startMarketWs(), 10000);
   }
 }
 
-function handleMarketWsMessage(msg) {
+function handleMarketWsMessage(msg, ctx = getMarketContext()) {
   // WSMessage 信封格式: { type, data: { price, ... }, symbol, exchange }
   // 需要从 msg.data 内层读取行情字段
+  if (!isCurrentMarketContext(ctx)) return;
   if (msg.type === 'ping') {
     try {
       marketWs?.send(JSON.stringify({ action: 'pong' }));
@@ -420,32 +742,18 @@ function handleMarketWsMessage(msg) {
 
   if (msg.type === 'ticker' && msg.symbol) {
     const t = msg.data || {};  // 内层行情数据
-    updateMarketOverviewMeta(new Date());
+    applyTickerSnapshot(msg.symbol, t, ctx);
+    return;
+  }
 
-    // 更新价格卡片
-    const priceEl = document.getElementById(`ticker-price-${msg.symbol}`);
-    if (priceEl) {
-      const rawPrice = t.price || t.lastPrice || t.last;
-      const newPrice = formatTickerPrice(rawPrice);
-      priceEl.textContent = '$' + newPrice;
-      // 闪烁效果
-      priceEl.classList.add('cq-flash');
-      setTimeout(() => priceEl.classList.remove('cq-flash'), 400);
-    }
+  if (msg.type === 'kline' && msg.symbol === ctx.symbol) {
+    const k = msg.data || {};
+    const point = _upsertLiveKline(k);
+    _updateLiveKlineChart(point);
 
-    // 更新实时价格显示
     const liveEl = document.getElementById('market-live-price');
-    if (liveEl && msg.symbol === marketSymbol) {
-      const rawPrice = t.price || t.lastPrice || t.last;
-      liveEl.textContent = '$' + formatTickerPrice(rawPrice);
-      // 读取涨跌幅: 兼容多种字段名 (snake_case / camelCase)
-      const change = t.price_change_percent ?? t.changePercent24h ?? t.changePercent ?? t.priceChangePercent ?? 0;
-      const liveChange = document.getElementById('market-live-change');
-      if (liveChange) {
-        const numChange = Number(change);
-        liveChange.textContent = `${numChange >= 0 ? '+' : ''}${numChange.toFixed(2)}%`;
-        liveChange.style.color = numChange >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
-      }
+    if (liveEl && k.close != null) {
+      liveEl.textContent = '$' + formatTickerPrice(k.close);
     }
   }
 }
@@ -459,11 +767,13 @@ function initMarketSymbolSelector() {
       window._marketSymbolSel = new SymbolSelector({
         containerId: 'market-symbol-selector',
         value: marketSymbol,
-        onChange: (val) => {
+        onChange: async (val) => {
           // val 形如 BTCUSDT(现货) 或 BTCUSDT.P(永续) — 拆出 market
           const parsed = (typeof splitMarket === 'function') ? splitMarket(val) : { symbol: val, market: 'spot' };
           marketSymbol = parsed.symbol;
           marketType = parsed.market;
+          invalidateMarketContext();
+          await syncMarketIntervalCapabilities();
           loadMarketKline();
           refreshLivePriceNow();
           startMarketWs();
@@ -476,6 +786,7 @@ function initMarketSymbolSelector() {
 /* 页面离开时关闭 WS + 释放 K 线图表 */
 function stopMarketWs() {
   disposeMarketKlineChart();
+  stopMarketPolling();
   if (marketWs) {
     marketWs.onclose = null;
     marketWs.onerror = null;
@@ -485,5 +796,9 @@ function stopMarketWs() {
   if (marketWsReconnectTimer) {
     clearTimeout(marketWsReconnectTimer);
     marketWsReconnectTimer = null;
+  }
+  if (marketWsWatchdogTimer) {
+    clearInterval(marketWsWatchdogTimer);
+    marketWsWatchdogTimer = null;
   }
 }

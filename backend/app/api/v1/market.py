@@ -21,12 +21,13 @@ async def get_ticker(
     session: DbSession,
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
     market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
+    fresh: bool = Query(default=False),
 ) -> APIResponse[TickerSchema]:
     """
     获取实时行情 (P2-13: 类型化响应)
     """
     service = MarketService(session)
-    data = await service.get_ticker(symbol, exchange, market_type=market)
+    data = await service.get_ticker(symbol, exchange, market_type=market, use_cache=not fresh)
     return APIResponse(data=TickerSchema.model_validate(data))
 
 
@@ -34,7 +35,7 @@ async def get_ticker(
 async def get_kline(
     symbol: str,
     session: DbSession,
-    interval: str = Query(default="1h", pattern=r"^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    interval: str = Query(default="1h", pattern=r"^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|2d|3d|5d|1w|1M|3M|1y)$"),
     limit: int = Query(default=100, ge=1, le=1000),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
     market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
@@ -53,6 +54,15 @@ async def get_kline(
             "klines": klines,
         }
     )
+
+
+@router.get("/intervals")
+async def get_market_intervals(
+    exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
+    market: str = Query(default="spot", pattern=r"^(spot|perp)$"),
+) -> APIResponse[dict]:
+    """返回交易所/市场类型支持的 K 线周期能力矩阵。"""
+    return APIResponse(data=MarketService.get_interval_capabilities(exchange, market))
 
 
 @router.get("/orderbook/{symbol}")

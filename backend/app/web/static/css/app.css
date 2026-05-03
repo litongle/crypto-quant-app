@@ -1032,7 +1032,6 @@ select.cq-input:not([multiple]) {
 }
 
 .cq-pill {
-
   display: inline-flex;
   align-items: center;
   gap: var(--cq-space-2);
@@ -1049,6 +1048,7 @@ select.cq-input:not([multiple]) {
               color var(--cq-duration-fast) var(--cq-ease-default);
   user-select: none;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .cq-pill:hover {
@@ -1091,6 +1091,9 @@ select.cq-input:not([multiple]) {
   font-size: var(--cq-text-sm);
   font-weight: 600;
   line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cq-pill__check {
@@ -1114,6 +1117,30 @@ select.cq-input:not([multiple]) {
   height: 12px;
   stroke: white;
   stroke-width: 3;
+}
+
+.cq-template-group--compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cq-space-4);
+}
+
+.cq-template-group--compact .cq-template-group__header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.cq-template-group--compact .cq-template-group__pills {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.cq-template-group--compact .cq-pill {
+  max-width: 100%;
 }
 
 /* ── Create Form Card ──────────────────────────────────────── */
@@ -1787,6 +1814,17 @@ select.cq-input:not([multiple]) {
   border-color: var(--cq-color-primary);
 }
 
+.cq-interval-select {
+  width: 92px;
+  min-width: 92px;
+  height: 28px;
+  padding: 0 28px 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--cq-font-mono);
+  border-radius: var(--cq-radius-sm);
+}
+
 /* Buy/Sell side buttons */
 .cq-side-btn {
   background: var(--cq-bg-l2);
@@ -2199,20 +2237,27 @@ select.cq-input:not([multiple]) {
 
   .login-card { padding: var(--cq-space-6) var(--cq-space-5); }
 
-  /* Strategy pills — horizontal scroll within each group on mobile */
+  /* Strategy pills — turn into reachable grid on mobile */
   .cq-template-group__header {
     flex-direction: column;
     gap: 2px;
   }
   .cq-template-group__pills {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: var(--cq-space-2);
-    scrollbar-width: none;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cq-space-2);
   }
-  .cq-template-group__pills::-webkit-scrollbar { display: none; }
-  .cq-pill { padding: 8px 14px; }
+  .cq-pill {
+    width: 100%;
+    padding: 8px 12px;
+  }
+  .cq-pill__check { margin-left: auto; }
+  .cq-template-group--compact {
+    display: block;
+  }
+  .cq-template-group--compact .cq-template-group__pills {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
 
   /* Create form — single column on mobile */
@@ -2246,6 +2291,7 @@ select.cq-input:not([multiple]) {
   .login-card { padding: var(--cq-space-5) var(--cq-space-4); border-radius: var(--cq-radius-lg); }
 
   .cq-toast { font-size: var(--cq-text-xs); padding: var(--cq-space-2) var(--cq-space-4); max-width: 85vw; }
+  .cq-template-group__pills { grid-template-columns: minmax(0, 1fr); }
 
   .account-card-inner { flex-direction: column !important; align-items: flex-start !important; gap: var(--cq-space-3) !important; }
   .account-card-actions { width: 100%; display: flex; justify-content: space-between; align-items: center; }
