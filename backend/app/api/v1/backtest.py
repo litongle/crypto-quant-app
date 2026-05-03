@@ -11,6 +11,7 @@
 import json
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -38,6 +39,7 @@ class BacktestRequest(BaseModel):
     )
     symbol: str = Field(..., description="交易对 (BTCUSDT)")
     exchange: str = Field(default="binance", description="交易所")
+    market: Literal["spot", "perp"] = Field(default="spot", description="市场类型")
     start_date: str = Field(..., alias="startDate", description="开始日期 YYYY-MM-DD")
     end_date: str = Field(default="", alias="endDate", description="结束日期 YYYY-MM-DD，默认今天")
     initial_capital: float = Field(
@@ -82,6 +84,7 @@ async def run_backtest(
         template_id=request.template_id,
         symbol=request.symbol,
         exchange=request.exchange,
+        market=request.market,
         start_date=request.start_date,
         end_date=end_date,
         initial_capital=request.initial_capital,

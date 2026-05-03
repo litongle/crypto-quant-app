@@ -198,6 +198,7 @@ class BacktestService:
         template_id: str,
         symbol: str,
         exchange: str,
+        market: str,
         start_date: str,
         end_date: str,
         initial_capital: float = 100000,
@@ -226,7 +227,14 @@ class BacktestService:
             interval, interval_label = self._select_interval(start_date, end_date)
 
         # 1. 获取K线数据（_fetch_klines 内部自带45秒超时保护）
-        klines, is_mock = await self._fetch_klines(symbol, start_date, end_date, interval=interval)
+        klines, is_mock = await self._fetch_klines(
+            symbol,
+            start_date,
+            end_date,
+            interval=interval,
+            exchange=exchange,
+            market=market,
+        )
         if len(klines) < 50:
             return {
                 "error": "回测数据不足，至少需要 50 根K线",
@@ -238,7 +246,7 @@ class BacktestService:
         if len(klines) > _MAX_KLINES:
             klines = klines[-_MAX_KLINES:]
 
-        data_source = "mock" if is_mock else "binance"
+        data_source = "mock" if is_mock else f"{exchange}-{market}"
 
         # 2. 创建策略实例
         strategy_type = _TEMPLATE_MAP.get(template_id.lower(), template_id.lower())
@@ -576,15 +584,17 @@ class BacktestService:
         start_date: str,
         end_date: str,
         interval: str = "1h",
+        exchange: str = "binance",
+        market: str = "spot",
     ) -> tuple[list[dict], bool]:
-        """获取历史K线数据（Binance 公开 API），超时由调用方控制。
+        """获取历史K线数据，超时由调用方控制。
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
         返回 (klines, is_mock)
         """
         try:
             return await asyncio.wait_for(
-                self._fetch_klines_impl(symbol, start_date, end_date, interval),
+                self._fetch_klines_impl(symbol, start_date, end_date, interval, exchange, market),
                 timeout=45.0,
             )
         except TimeoutError:
@@ -597,8 +607,10 @@ class BacktestService:
         start_date: str,
         end_date: str,
         interval: str = "1h",
+        exchange: str = "binance",
+        market: str = "spot",
     ) -> tuple[list[dict], bool]:
-        """获取历史K线数据内部实现（Binance 公开 API）
+        """获取历史K线数据内部实现。
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
         返回 (klines, is_mock)
@@ -613,7 +625,14 @@ class BacktestService:
             current_start = start_ts
 
             while current_start < end_ts and len(all_klines) < _MAX_KLINES:
-                url = "https://api.binance.com/api/v3/klines"
+                if exchange != "binance":
+                    raise ValueError(f"暂不支持 {exchange} 回测数据拉取")
+
+                url = (
+                    "https://fapi.binance.com/fapi/v1/klines"
+                    if market == "perp"
+                    else "https://api.binance.com/api/v3/klines"
+                )
                 params = {
                     "symbol": symbol.upper(),
                     "interval": interval,

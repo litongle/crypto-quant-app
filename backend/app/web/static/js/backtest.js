@@ -293,7 +293,12 @@ async function runBacktest() {
   const templateId = document.getElementById('backtest-template-select').value;
   if (!templateId) { showToast('请选择策略模板', 'warn'); return; }
 
-  const symbol = window._backtestSymbolSel ? window._backtestSymbolSel.getValue() : 'BTCUSDT';
+  const symbolValue = window._backtestSymbolSel ? window._backtestSymbolSel.getValue() : 'BTCUSDT';
+  const parsedSymbol = (typeof splitMarket === 'function')
+    ? splitMarket(symbolValue)
+    : { symbol: symbolValue, market: 'spot' };
+  const symbol = parsedSymbol.symbol;
+  const market = parsedSymbol.market || 'spot';
   const startDate = document.getElementById('backtest-start').value || (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return localDate(d); })();
   const endDate = document.getElementById('backtest-end').value || localDate();
 
@@ -360,6 +365,7 @@ async function runBacktest() {
     const result = await api.runBacktest({
       templateId,
       symbol,
+      market,
       startDate,
       endDate,
       initialCapital,
