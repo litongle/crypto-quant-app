@@ -104,7 +104,7 @@ async def test_init_db_upgrades_existing_schema_before_repair(monkeypatch, test_
                     "current_revision": "0007",
                 }
             if name == "create_all":
-                return None
+                raise AssertionError("create_all should not be called for managed existing DB")
             if name == "_repair_strategy_instances_schema":
                 return True
             raise AssertionError(f"unexpected run_sync call: {name}")
@@ -268,7 +268,7 @@ async def test_init_db_raises_when_upgrade_fails_for_managed_existing_db(
                     "current_revision": "0007",
                 }
             if name == "create_all":
-                return None
+                raise AssertionError("create_all should not be called for managed existing DB")
             raise AssertionError(f"unexpected run_sync call: {name}")
 
     class FakeBeginContext:

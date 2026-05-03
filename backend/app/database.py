@@ -352,7 +352,11 @@ async def init_db():
     schema_state: dict[str, object] = {}
     async with engine.begin() as conn:
         schema_state = await conn.run_sync(_inspect_schema_state)
-        await conn.run_sync(Base.metadata.create_all)
+        needs_create_all = not schema_state.get("has_app_tables") or not schema_state.get(
+            "has_alembic_version"
+        )
+        if needs_create_all:
+            await conn.run_sync(Base.metadata.create_all)
 
     # Fresh DB: create_all + stamp head.
     # Existing DB with alembic_version: upgrade head.
