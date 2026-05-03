@@ -141,6 +141,8 @@ class StrategyRunner:
         self._strategies: dict[int, BaseStrategy] = {}
         # instance_id → 上次信号时间（防抖：同策略 60s 内不重复发信号）
         self._last_signal_at: dict[int, datetime] = {}
+        self._last_runtime_error: dict[int, str] = {}
+        self._last_runtime_error_at: dict[int, datetime] = {}
         self._running = False
         self._session_maker = None
         # K线请求去重: (exchange, symbol, interval) → (timestamp, klines)
@@ -184,9 +186,13 @@ class StrategyRunner:
 
     async def start_instance(self, instance_id: int) -> bool:
         """启动单个策略实例"""
-        if instance_id in self._runners:
+        existing_task = self._runners.get(instance_id)
+        if existing_task and not existing_task.done():
             logger.warning("[StrategyRunner] 策略 #%d 已在运行", instance_id)
             return False
+        if existing_task and existing_task.done():
+            self._forget_instance(instance_id, existing_task)
+            logger.warning("[StrategyRunner] 策略 #%d 检测到僵尸任务，已清理后重启", instance_id)
 
         async with self._session_maker() as session:
             result = await session.execute(
@@ -218,8 +224,61 @@ class StrategyRunner:
         start_instance 从 DB 重新读取实例创建新 task，
         二者操作不同对象，无竞态。
         """
-        self.stop_instance(instance_id)
+        await self.stop_instance(instance_id)
         return await self.start_instance(instance_id)
+
+    def _forget_instance(self, instance_id: int, task: asyncio.Task | None = None) -> None:
+        current = self._runners.get(instance_id)
+        if task is None or current is task:
+            self._runners.pop(instance_id, None)
+        self._strategies.pop(instance_id, None)
+        self._last_signal_at.pop(instance_id, None)
+
+    def _handle_task_done(self, instance_id: int, task: asyncio.Task) -> None:
+        self._forget_instance(instance_id, task)
+
+        if task.cancelled():
+            return
+
+        exc = task.exception()
+        if exc is None:
+            if self._running:
+                message = "runner task exited unexpectedly"
+                self._last_runtime_error[instance_id] = message
+                self._last_runtime_error_at[instance_id] = datetime.now(UTC)
+                logger.warning("[StrategyRunner] 策略 #%d 任务异常结束", instance_id)
+                asyncio.create_task(self._mark_instance_stopped(instance_id, message))
+            return
+
+        message = str(exc)
+        self._last_runtime_error[instance_id] = message
+        self._last_runtime_error_at[instance_id] = datetime.now(UTC)
+        logger.error("[StrategyRunner] 策略 #%d 任务崩溃: %s", instance_id, exc)
+        if self._running:
+            asyncio.create_task(self._mark_instance_stopped(instance_id, message))
+
+    async def _mark_instance_stopped(self, instance_id: int, reason: str) -> None:
+        if not self._session_maker:
+            return
+        try:
+            async with self._session_maker() as session:
+                result = await session.execute(
+                    select(StrategyInstance).where(StrategyInstance.id == instance_id)
+                )
+                inst = result.scalar_one_or_none()
+                if not inst or inst.status != "running":
+                    return
+                inst.status = "stopped"
+                inst.workspace_state = "library"
+                inst.last_stopped_at = datetime.now(UTC)
+                await session.commit()
+                logger.warning(
+                    "[StrategyRunner] 策略 #%d 已自动标记为 stopped: %s",
+                    instance_id,
+                    reason,
+                )
+        except Exception as exc:
+            logger.warning("[StrategyRunner] 自动校正策略 #%d 状态失败: %s", instance_id, exc)
 
     async def _start_instance(self, inst: StrategyInstance) -> None:
         """内部：为策略实例创建运行 Task"""
@@ -271,10 +330,14 @@ class StrategyRunner:
             await self._sync_strategy_state_from_db(inst.id, inst.account_id, inst.symbol, strategy)
 
         self._strategies[inst.id] = strategy
-        self._runners[inst.id] = asyncio.create_task(
+        self._last_runtime_error.pop(inst.id, None)
+        self._last_runtime_error_at.pop(inst.id, None)
+        task = asyncio.create_task(
             self._run_loop(inst.id, strategy, config),
             name=f"strategy-runner-{inst.id}",
         )
+        task.add_done_callback(lambda done_task, inst_id=inst.id: self._handle_task_done(inst_id, done_task))
+        self._runners[inst.id] = task
         logger.info(
             "[StrategyRunner] 策略 #%d (%s/%s) 已启动",
             inst.id,
@@ -1359,12 +1422,24 @@ class StrategyRunner:
 
     def get_status(self, instance_id: int) -> dict[str, Any]:
         """获取策略运行状态"""
-        if instance_id not in self._runners:
-            return {"running": False}
-        task = self._runners[instance_id]
+        task = self._runners.get(instance_id)
+        if task is None:
+            last_error = self._last_runtime_error.get(instance_id)
+            return {
+                "running": False,
+                "runtime_active": False,
+                "runtime_healthy": last_error is None,
+                "last_error": last_error,
+                "last_error_at": self._last_runtime_error_at.get(instance_id),
+            }
         strategy = self._strategies.get(instance_id)
+        last_error = self._last_runtime_error.get(instance_id)
         return {
             "running": not task.done(),
+            "runtime_active": not task.done(),
+            "runtime_healthy": not task.done() and last_error is None,
+            "last_error": last_error,
+            "last_error_at": self._last_runtime_error_at.get(instance_id),
             "strategy_type": strategy.strategy_type if strategy else None,
             "last_signal_at": self._last_signal_at.get(instance_id, None),
         }

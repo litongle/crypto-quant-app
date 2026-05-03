@@ -255,14 +255,16 @@ class StrategyService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权操作此策略",
             )
-        if instance.status == "running":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="策略已在运行",
-            )
-
         try:
             from app.core.strategy_runner import strategy_runner
+
+            runtime_status = strategy_runner.get_status(instance_id)
+            runtime_active = bool(runtime_status.get("runtime_active"))
+            if instance.status == "running" and runtime_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="策略已在运行",
+                )
 
             started = await strategy_runner.start_instance(instance_id)
             if not started:

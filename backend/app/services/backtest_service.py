@@ -38,6 +38,8 @@ _TEMPLATE_MAP = {
     "ma_cross": "ma",
     "ma": "ma",
     "rsi": "rsi",
+    "rule_custom": "rule",
+    "rsi_layered": "rsi_layered",
     "bollinger": "bollinger",
     "grid": "grid",
     "martingale": "martingale",

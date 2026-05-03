@@ -150,8 +150,12 @@ class StrategyInstanceResponse(BaseModel):
     total_trades: int = Field(default=0, alias="totalTrades")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+    last_run_at: str | None = Field(default=None, alias="lastRunAt")
     last_started_at: str | None = Field(default=None, alias="lastStartedAt")
     last_stopped_at: str | None = Field(default=None, alias="lastStoppedAt")
+    runtime_active: bool = Field(default=False, alias="runtimeActive")
+    runtime_healthy: bool = Field(default=True, alias="runtimeHealthy")
+    runtime_message: str | None = Field(default=None, alias="runtimeMessage")
 
 
 class CreateInstanceResponse(BaseModel):
@@ -265,6 +269,19 @@ def _format_instance(inst: StrategyInstance) -> dict:
             value = value.replace(tzinfo=UTC)
         return value.isoformat().replace("+00:00", "Z")
 
+    runtime_status = {"runtime_active": False, "runtime_healthy": inst.status != "running"}
+    try:
+        from app.core.strategy_runner import strategy_runner
+
+        runtime_status = strategy_runner.get_status(inst.id)
+    except Exception:
+        pass
+
+    runtime_message = runtime_status.get("last_error")
+    if inst.status == "running" and not runtime_status.get("runtime_active", False):
+        runtime_message = runtime_message or "策略任务未活跃，请重新启动"
+        runtime_status["runtime_healthy"] = False
+
     return {
         "id": inst.id,  # 直接用整数 ID
         "name": inst.name,
@@ -284,8 +301,12 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "totalTrades": inst.total_trades or 0,
         "createdAt": _format_datetime(inst.created_at) or "",
         "updatedAt": _format_datetime(inst.updated_at) or "",
+        "lastRunAt": _format_datetime(inst.last_run_at),
         "lastStartedAt": _format_datetime(inst.last_started_at),
         "lastStoppedAt": _format_datetime(inst.last_stopped_at),
+        "runtimeActive": bool(runtime_status.get("runtime_active", False)),
+        "runtimeHealthy": bool(runtime_status.get("runtime_healthy", True)),
+        "runtimeMessage": runtime_message,
     }
 
 

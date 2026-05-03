@@ -6,9 +6,13 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from decimal import Decimal
+from math import floor
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel
+
+from app.core.indicators import calc_bollinger
 
 logger = logging.getLogger(__name__)
 
@@ -195,12 +199,229 @@ class RSIStrategy(BaseStrategy):
         return None
 
 
+class BollingerStrategy(BaseStrategy):
+    """布林带均值回归策略"""
+
+    name = "布林带策略"
+    strategy_type = "bollinger"
+
+    async def analyze(self, klines: list[dict]) -> Signal | None:
+        period = int(self.params.get("period", 20))
+        std_dev = float(self.params.get("stdDev", 2.0))
+
+        if len(klines) < period:
+            return None
+
+        closes = [float(k["close"]) for k in klines]
+        close_now = closes[-1]
+        close_prev = closes[-2]
+        upper, middle, lower, pct_b = calc_bollinger(np.array(closes), period, std_dev)
+        upper_now = float(upper[-1])
+        lower_now = float(lower[-1])
+        upper_prev = float(upper[-2])
+        lower_prev = float(lower[-2])
+
+        if close_prev > lower_prev and close_now <= lower_now:
+            return Signal(
+                action="buy",
+                confidence=0.78,
+                entry_price=Decimal(str(close_now)),
+                reason=f"Bollinger lower band touch ({close_now:.2f} <= {lower_now:.2f})",
+                metadata={
+                    "upper_band": round(upper_now, 4),
+                    "middle_band": round(float(middle[-1]), 4),
+                    "lower_band": round(lower_now, 4),
+                    "pct_b": round(float(pct_b[-1]), 2),
+                },
+            )
+
+        if close_prev < upper_prev and close_now >= upper_now:
+            return Signal(
+                action="sell",
+                confidence=0.78,
+                entry_price=Decimal(str(close_now)),
+                reason=f"Bollinger upper band touch ({close_now:.2f} >= {upper_now:.2f})",
+                metadata={
+                    "upper_band": round(upper_now, 4),
+                    "middle_band": round(float(middle[-1]), 4),
+                    "lower_band": round(lower_now, 4),
+                    "pct_b": round(float(pct_b[-1]), 2),
+                },
+            )
+
+        return None
+
+
+class GridStrategy(BaseStrategy):
+    """简化网格均值回归策略"""
+
+    name = "网格策略"
+    strategy_type = "grid"
+
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self._last_grid_index: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"last_grid_index": self._last_grid_index}
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        value = data.get("last_grid_index")
+        self._last_grid_index = int(value) if value is not None else None
+
+    async def analyze(self, klines: list[dict]) -> Signal | None:
+        grid_count = max(2, int(self.params.get("gridCount", 10)))
+        price_range_pct = max(0.5, float(self.params.get("priceRange", 10.0)))
+        window = max(grid_count * 2, 20)
+        if len(klines) < window:
+            return None
+
+        closes = [float(k["close"]) for k in klines[-window:]]
+        current_price = closes[-1]
+        anchor_price = sum(closes) / len(closes)
+        band_half_span = anchor_price * (price_range_pct / 100)
+        if band_half_span <= 0:
+            return None
+
+        grid_size = (band_half_span * 2) / grid_count
+        if grid_size <= 0:
+            return None
+
+        relative_price = max(-band_half_span, min(band_half_span, current_price - anchor_price))
+        grid_index = floor(relative_price / grid_size)
+
+        if self._last_grid_index is None:
+            self._last_grid_index = grid_index
+            return None
+
+        prev_index = self._last_grid_index
+        self._last_grid_index = grid_index
+
+        if grid_index < prev_index and grid_index <= -1:
+            return Signal(
+                action="buy",
+                confidence=0.72,
+                entry_price=Decimal(str(current_price)),
+                reason=f"Grid buy at level {grid_index}",
+                metadata={
+                    "grid_index": grid_index,
+                    "anchor_price": round(anchor_price, 4),
+                    "grid_size": round(grid_size, 4),
+                },
+            )
+
+        if grid_index > prev_index and grid_index >= 1:
+            return Signal(
+                action="sell",
+                confidence=0.72,
+                entry_price=Decimal(str(current_price)),
+                reason=f"Grid sell at level {grid_index}",
+                metadata={
+                    "grid_index": grid_index,
+                    "anchor_price": round(anchor_price, 4),
+                    "grid_size": round(grid_size, 4),
+                },
+            )
+
+        return None
+
+
+class MartingaleStrategy(BaseStrategy):
+    """简化马丁格尔策略"""
+
+    name = "马丁格尔策略"
+    strategy_type = "martingale"
+
+    def __init__(self, config: StrategyConfig):
+        super().__init__(config)
+        self._loss_streak = 0
+        self._position_entry_price: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "loss_streak": self._loss_streak,
+            "position_entry_price": self._position_entry_price,
+        }
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        self._loss_streak = int(data.get("loss_streak", 0))
+        entry = data.get("position_entry_price")
+        self._position_entry_price = float(entry) if entry is not None else None
+
+    async def analyze(self, klines: list[dict]) -> Signal | None:
+        if len(klines) < 6:
+            return None
+
+        multiplier = max(1.0, float(self.params.get("multiplier", 2.0)))
+        max_losses = max(1, int(self.params.get("maxLosses", 5)))
+        closes = [float(k["close"]) for k in klines[-6:]]
+        current_price = closes[-1]
+
+        falling_streak = closes[-1] < closes[-2] < closes[-3]
+        rising_streak = closes[-1] > closes[-2] > closes[-3]
+
+        if self._position_entry_price is None and falling_streak:
+            scale = min(multiplier**self._loss_streak, multiplier**max_losses)
+            self._position_entry_price = current_price
+            return Signal(
+                action="buy",
+                confidence=min(0.9, 0.65 + self._loss_streak * 0.05),
+                entry_price=Decimal(str(current_price)),
+                reason=f"Martingale entry after drawdown streak={self._loss_streak}",
+                metadata={
+                    "martingale_step": self._loss_streak,
+                    "position_scale": round(scale, 4),
+                },
+            )
+
+        if self._position_entry_price is None:
+            return None
+
+        take_profit_price = self._position_entry_price * 1.01
+        stop_add_price = self._position_entry_price * 0.99
+
+        if current_price >= take_profit_price or rising_streak:
+            pnl_positive = current_price >= self._position_entry_price
+            self._loss_streak = 0 if pnl_positive else min(self._loss_streak + 1, max_losses)
+            self._position_entry_price = None
+            return Signal(
+                action="sell",
+                confidence=0.75,
+                entry_price=Decimal(str(current_price)),
+                reason="Martingale exit on rebound",
+                metadata={"martingale_step": self._loss_streak},
+            )
+
+        if current_price <= stop_add_price and self._loss_streak < max_losses:
+            self._loss_streak += 1
+            self._position_entry_price = current_price
+            scale = min(multiplier**self._loss_streak, multiplier**max_losses)
+            return Signal(
+                action="buy",
+                confidence=min(0.92, 0.68 + self._loss_streak * 0.05),
+                entry_price=Decimal(str(current_price)),
+                reason=f"Martingale add step={self._loss_streak}",
+                metadata={
+                    "martingale_step": self._loss_streak,
+                    "position_scale": round(scale, 4),
+                },
+            )
+
+        return None
+
+
 def get_strategy(strategy_type: str, config: StrategyConfig) -> BaseStrategy:
     """策略工厂"""
     if strategy_type == "ma":
         return MAStrategy(config)
     elif strategy_type == "rsi":
         return RSIStrategy(config)
+    elif strategy_type == "bollinger":
+        return BollingerStrategy(config)
+    elif strategy_type == "grid":
+        return GridStrategy(config)
+    elif strategy_type == "martingale":
+        return MartingaleStrategy(config)
     elif strategy_type == "rule":
         from app.core.rule_engine import RuleStrategy
 

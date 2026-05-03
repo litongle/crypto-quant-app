@@ -216,7 +216,13 @@ class TestLifecycle:
         await runner.stop_instance(999)  # must not raise
 
     def test_get_status_not_in_runners_returns_not_running(self, runner):
-        assert runner.get_status(999) == {"running": False}
+        assert runner.get_status(999) == {
+            "running": False,
+            "runtime_active": False,
+            "runtime_healthy": True,
+            "last_error": None,
+            "last_error_at": None,
+        }
 
     def test_get_status_running_task(self, runner):
         task = MagicMock(spec=asyncio.Task)
@@ -288,6 +294,7 @@ class TestStartInstance:
     async def test_returns_false_when_already_running(self, runner):
         runner._runners = {1: MagicMock()}
         runner._session_maker = MagicMock()
+        runner._runners[1].done.return_value = False
         assert await runner.start_instance(1) is False
 
     async def test_returns_false_when_instance_not_found(self, runner):
@@ -296,6 +303,42 @@ class TestStartInstance:
         runner._running = True
 
         assert await runner.start_instance(999) is False
+
+    async def test_cleans_finished_task_before_restart(self, runner):
+        inst = MagicMock()
+        done_task = MagicMock()
+        done_task.done.return_value = True
+        runner._runners = {1: done_task}
+        runner._strategies = {1: MagicMock()}
+        runner._session_maker = _make_session_mock(scalar_result=inst)[1]
+        runner._running = True
+
+        started = []
+
+        async def fake_start_instance(inner_inst):
+            started.append(inner_inst)
+
+        runner._start_instance = fake_start_instance
+
+        assert await runner.start_instance(1) is True
+        assert started == [inst]
+        assert 1 not in runner._strategies
+
+    async def test_restart_instance_awaits_stop(self, runner):
+        calls = []
+
+        async def fake_stop(instance_id):
+            calls.append(("stop", instance_id))
+
+        async def fake_start(instance_id):
+            calls.append(("start", instance_id))
+            return True
+
+        runner.stop_instance = fake_stop
+        runner.start_instance = fake_start
+
+        assert await StrategyRunner.restart_instance(runner, 7) is True
+        assert calls == [("stop", 7), ("start", 7)]
 
 
 # ==================== _handle_signal 防抖 ====================

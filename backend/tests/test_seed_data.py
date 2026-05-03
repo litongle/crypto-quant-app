@@ -106,7 +106,7 @@ class TestRsiLayeredTemplate:
         assert p["type"] == "bool"
         assert p["default"] is False
 
-    def test_defaults_match_strategy_DEFAULTS(self):
+    def test_defaults_match_strategy_defaults(self):
         """模板默认值与 RsiLayeredStrategy.DEFAULTS 应一致(避免漂移)"""
         from app.core.strategies.rsi_layered import DEFAULTS
 
@@ -142,15 +142,8 @@ class TestTemplateFactoryAlignment:
         for tmpl in STRATEGY_TEMPLATES:
             strategy_type = tmpl["strategy_type"]
             config = StrategyConfig(symbol="BTCUSDT", exchange="binance")
-            try:
-                strategy = get_strategy(strategy_type, config)
-                assert strategy is not None
-            except ValueError:
-                # bollinger / grid / martingale 三个种子里有但工厂里没
-                # 注册 — 这是已存在状态(不是本次回归),跳过
-                if strategy_type in ("bollinger", "grid", "martingale"):
-                    continue
-                raise
+            strategy = get_strategy(strategy_type, config)
+            assert strategy is not None
 
 
 # ── upsert 行为测试 ──────────────────────────────────────
@@ -173,8 +166,8 @@ async def _build_in_memory_session():
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    return engine, Session
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    return engine, session_factory
 
 
 class TestUpsertBehavior:
@@ -182,12 +175,12 @@ class TestUpsertBehavior:
         """空表 → upsert → 所有模板插入,updated=0"""
 
         async def go():
-            engine, Session = await _build_in_memory_session()
+            engine, session_factory = await _build_in_memory_session()
             try:
-                async with Session() as s:
+                async with session_factory() as s:
                     inserted, updated = await upsert_strategy_templates(s)
                     await s.commit()
-                async with Session() as s:
+                async with session_factory() as s:
                     from sqlalchemy import select
 
                     from app.models.strategy import StrategyTemplate
@@ -207,12 +200,12 @@ class TestUpsertBehavior:
         """连续两次 upsert,第二次应该全部跳过(0 新增 0 更新)"""
 
         async def go():
-            engine, Session = await _build_in_memory_session()
+            engine, session_factory = await _build_in_memory_session()
             try:
-                async with Session() as s:
+                async with session_factory() as s:
                     await upsert_strategy_templates(s)
                     await s.commit()
-                async with Session() as s:
+                async with session_factory() as s:
                     inserted2, updated2 = await upsert_strategy_templates(s)
                     await s.commit()
                 return inserted2, updated2
@@ -227,14 +220,14 @@ class TestUpsertBehavior:
         """已有模板字段被外部改过 → upsert 应改回最新值"""
 
         async def go():
-            engine, Session = await _build_in_memory_session()
+            engine, session_factory = await _build_in_memory_session()
             try:
                 # 先 seed 一次
-                async with Session() as s:
+                async with session_factory() as s:
                     await upsert_strategy_templates(s)
                     await s.commit()
                 # 篡改 rsi_layered 模板的 name
-                async with Session() as s:
+                async with session_factory() as s:
                     from sqlalchemy import select
 
                     from app.models.strategy import StrategyTemplate
@@ -248,10 +241,10 @@ class TestUpsertBehavior:
                     t.is_active = False
                     await s.commit()
                 # 再 upsert,应该恢复
-                async with Session() as s:
+                async with session_factory() as s:
                     inserted, updated = await upsert_strategy_templates(s)
                     await s.commit()
-                async with Session() as s:
+                async with session_factory() as s:
                     from sqlalchemy import select
 
                     from app.models.strategy import StrategyTemplate
@@ -275,10 +268,10 @@ class TestUpsertBehavior:
         """DB 里有 STRATEGY_TEMPLATES 不包含的 code(用户手加) → 应保留"""
 
         async def go():
-            engine, Session = await _build_in_memory_session()
+            engine, session_factory = await _build_in_memory_session()
             try:
                 # 手动插一条非种子模板
-                async with Session() as s:
+                async with session_factory() as s:
                     from app.models.strategy import StrategyTemplate
 
                     s.add(
@@ -294,11 +287,11 @@ class TestUpsertBehavior:
                     )
                     await s.commit()
                 # upsert
-                async with Session() as s:
+                async with session_factory() as s:
                     await upsert_strategy_templates(s)
                     await s.commit()
                 # 验证手加的还在
-                async with Session() as s:
+                async with session_factory() as s:
                     from sqlalchemy import select
 
                     from app.models.strategy import StrategyTemplate
@@ -317,10 +310,10 @@ class TestUpsertBehavior:
         再 STRATEGY_TEMPLATES 含 7 个时再 upsert,应只插入 2 个。"""
 
         async def go():
-            engine, Session = await _build_in_memory_session()
+            engine, session_factory = await _build_in_memory_session()
             try:
                 # 先插 5 条(模拟旧版本)
-                async with Session() as s:
+                async with session_factory() as s:
                     from app.models.strategy import StrategyTemplate
 
                     for tmpl in STRATEGY_TEMPLATES[:5]:
@@ -337,7 +330,7 @@ class TestUpsertBehavior:
                         )
                     await s.commit()
                 # 现在 upsert(STRATEGY_TEMPLATES 是完整列表)
-                async with Session() as s:
+                async with session_factory() as s:
                     inserted, updated = await upsert_strategy_templates(s)
                     await s.commit()
                 return inserted, updated
