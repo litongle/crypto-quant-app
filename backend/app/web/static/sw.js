@@ -1,5 +1,5 @@
 // 币钱袋 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v1';
+const CACHE_NAME = 'cq-sw-v4';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -13,10 +13,18 @@ const STATIC_ASSETS = [
   '/web/static/manifest.json',
 ];
 
-// Install: pre-cache static shell
+// Install: pre-cache static shell（逐项失败不拖垮整个 install，避免偶发 302/网络导致 SW 异常）
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const url of STATIC_ASSETS) {
+        try {
+          await cache.add(url);
+        } catch {
+          /* 忽略单项预缓存失败 */
+        }
+      }
+    })
   );
   self.skipWaiting();
 });

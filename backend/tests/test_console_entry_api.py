@@ -1,0 +1,362 @@
+import base64
+import hashlib
+import hmac
+import struct
+import time
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.trade_schemas import TradingSymbolRulesSchema
+from app.models.exchange import ExchangeAccount
+
+
+def make_totp_code(
+    secret: str, timestamp: int | None = None, digits: int = 6, period: int = 30
+) -> str:
+    counter = int((timestamp or time.time()) // period)
+    key = base64.b32decode(secret, casefold=True)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(code % (10**digits)).zfill(digits)
+
+
+@pytest.mark.asyncio
+async def test_totp_setup_verify_and_login_flow(
+    client: AsyncClient,
+    auth_headers,
+    test_user,
+):
+    setup_resp = await client.post("/api/v1/auth/2fa/setup", headers=auth_headers)
+    assert setup_resp.status_code == 200, setup_resp.text
+    setup_data = setup_resp.json()["data"]
+    assert setup_data["secret"]
+    assert setup_data["uri"].startswith("otpauth://")
+
+    status_resp = await client.post("/api/v1/auth/2fa/status", headers=auth_headers)
+    assert status_resp.status_code == 200, status_resp.text
+    status_data = status_resp.json()["data"]
+    assert status_data["enabled"] is True
+    assert status_data["verified"] is False
+    assert status_data["has_2fa"] is False
+
+    code = make_totp_code(setup_data["secret"])
+    verify_resp = await client.post(
+        "/api/v1/auth/2fa/verify",
+        headers=auth_headers,
+        json={"code": code},
+    )
+    assert verify_resp.status_code == 200, verify_resp.text
+
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user.email, "password": "testpass123"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+    login_data = login_resp.json()["data"]
+    assert login_data["requires_2fa"] is True
+    assert login_data["access_token"] == ""
+
+    login_2fa_resp = await client.post(
+        "/api/v1/auth/login-2fa",
+        json={
+            "email": test_user.email,
+            "password": "testpass123",
+            "code": make_totp_code(setup_data["secret"]),
+        },
+    )
+    assert login_2fa_resp.status_code == 200, login_2fa_resp.text
+    login_2fa_data = login_2fa_resp.json()["data"]
+    assert login_2fa_data["access_token"]
+    assert login_2fa_data["refresh_token"]
+
+
+@pytest.mark.asyncio
+async def test_risk_dashboard_paper_accounts_audit_logs_and_account_detail(
+    client: AsyncClient,
+    auth_headers,
+    test_user,
+    db_session: AsyncSession,
+):
+    risk_resp = await client.get("/api/v1/asset/risk-dashboard", headers=auth_headers)
+    assert risk_resp.status_code == 200, risk_resp.text
+    risk_data = risk_resp.json()["data"]
+    assert "exposurePercent" in risk_data
+    assert "alerts" in risk_data
+
+    create_paper_resp = await client.post("/api/v1/asset/paper-account", headers=auth_headers)
+    assert create_paper_resp.status_code == 200, create_paper_resp.text
+
+    list_paper_resp = await client.get("/api/v1/asset/paper-accounts", headers=auth_headers)
+    assert list_paper_resp.status_code == 200, list_paper_resp.text
+    paper_accounts = list_paper_resp.json()["data"]
+    assert len(paper_accounts) >= 1
+    assert paper_accounts[0]["isPaper"] is True
+
+    reset_paper_resp = await client.post(
+        f"/api/v1/asset/paper-account/{paper_accounts[0]['id']}/reset",
+        headers=auth_headers,
+    )
+    assert reset_paper_resp.status_code == 200, reset_paper_resp.text
+
+    account = ExchangeAccount(
+        user_id=test_user.id,
+        exchange="binance",
+        account_name="Primary",
+        is_active=True,
+        status="active",
+        balance="1234.56",
+        frozen_balance="12.34",
+    )
+    account.set_api_key("test-api-key-123456")
+    account.set_secret_key("test-secret-key-123456")
+    db_session.add(account)
+    await db_session.commit()
+    await db_session.refresh(account)
+
+    account_detail_resp = await client.get(
+        f"/api/v1/trading/accounts/{account.id}",
+        headers=auth_headers,
+    )
+    assert account_detail_resp.status_code == 200, account_detail_resp.text
+    account_detail = account_detail_resp.json()["data"]
+    assert account_detail["accountName"] == "Primary"
+    assert account_detail["balance"].startswith("1234.56")
+    assert account_detail["isPaper"] is False
+
+    audit_resp = await client.get("/api/v1/users/audit-logs", headers=auth_headers)
+    assert audit_resp.status_code == 200, audit_resp.text
+    assert isinstance(audit_resp.json()["data"], list)
+
+
+@pytest.mark.asyncio
+async def test_market_symbols_and_orderbook_endpoints(
+    client: AsyncClient,
+    auth_headers,
+    monkeypatch,
+):
+    async def fake_get_orderbook(self, symbol, limit=20, exchange="binance", market_type="spot"):
+        assert symbol == "BTCUSDT"
+        assert exchange == "binance"
+        assert market_type == "spot"
+        return {
+            "bids": [
+                {"price": "65000.1", "quantity": "1.25"},
+                {"price": "64999.9", "quantity": "2.10"},
+            ],
+            "asks": [
+                {"price": "65000.5", "quantity": "0.85"},
+                {"price": "65001.0", "quantity": "1.40"},
+            ],
+        }
+
+    monkeypatch.setattr(
+        "app.api.v1.market.MarketService.get_orderbook",
+        fake_get_orderbook,
+    )
+
+    symbols_resp = await client.get("/api/v1/market/symbols", headers=auth_headers)
+    assert symbols_resp.status_code == 200, symbols_resp.text
+    symbols_data = symbols_resp.json()["data"]
+    assert "BTCUSDT" in symbols_data["symbols"]
+    assert symbols_data["count"] >= 1
+
+    orderbook_resp = await client.get(
+        "/api/v1/market/orderbook/BTCUSDT?exchange=binance&market=spot&limit=12",
+        headers=auth_headers,
+    )
+    assert orderbook_resp.status_code == 200, orderbook_resp.text
+    orderbook_data = orderbook_resp.json()["data"]
+    assert orderbook_data["bids"][0]["price"] == "65000.1"
+    assert orderbook_data["asks"][0]["quantity"] == "0.85"
+
+
+@pytest.mark.asyncio
+async def test_manual_trading_accepts_perp_symbol_suffix(
+    client: AsyncClient,
+    auth_headers,
+    test_user,
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    account = ExchangeAccount(
+        user_id=test_user.id,
+        exchange="okx",
+        account_name="Manual Perp",
+        is_active=True,
+        status="active",
+        balance="2000",
+        frozen_balance="0",
+    )
+    account.set_api_key("test-api-key-123456")
+    account.set_secret_key("test-secret-key-123456")
+    account.set_passphrase("test-passphrase")
+    db_session.add(account)
+    await db_session.commit()
+    await db_session.refresh(account)
+
+    async def fake_submit_order(self, order_id, user_id):
+        order = await self.order_repo.get_by_id(order_id)
+        order.status = "submitted"
+        order.exchange_order_id = "EX-MANUAL-PERP-1"
+        return order
+
+    monkeypatch.setattr(
+        "app.api.v1.orders.OrderService.submit_order",
+        fake_submit_order,
+    )
+
+    resp = await client.post(
+        "/api/v1/trading",
+        headers=auth_headers,
+        json={
+            "account_id": account.id,
+            "symbol": "BTCUSDT.P",
+            "side": "buy",
+            "order_type": "market",
+            "quantity": "0.002",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    order_data = resp.json()["data"]
+    assert order_data["symbol"] == "BTCUSDT.P"
+
+
+@pytest.mark.asyncio
+async def test_manual_trading_symbol_rules_endpoint(
+    client: AsyncClient,
+    auth_headers,
+    test_user,
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    account = ExchangeAccount(
+        user_id=test_user.id,
+        exchange="okx",
+        account_name="Rules Account",
+        is_active=True,
+        status="active",
+        balance="5000",
+        frozen_balance="0",
+    )
+    account.set_api_key("test-api-key-123456")
+    account.set_secret_key("test-secret-key-123456")
+    account.set_passphrase("test-passphrase")
+    db_session.add(account)
+    await db_session.commit()
+    await db_session.refresh(account)
+
+    async def fake_get_symbol_rules(self, *, user_id, account_id, symbol):
+        assert user_id == test_user.id
+        assert account_id == account.id
+        assert symbol == "BTCUSDT.P"
+        return TradingSymbolRulesSchema(
+            symbol="BTCUSDT.P",
+            baseSymbol="BTCUSDT",
+            exchangeSymbol="BTC-USDT-SWAP",
+            exchange="okx",
+            marketType="perp",
+            quantityUnit="cont",
+            quantityLabel="数量 (张)",
+            sideMode="contract",
+            minQty="0.01",
+            stepSize="0.01",
+            minNotional="1",
+            tickSize="0.1",
+        )
+
+    monkeypatch.setattr(
+        "app.api.v1.orders.OrderService.get_symbol_rules",
+        fake_get_symbol_rules,
+    )
+
+    resp = await client.get(
+        f"/api/v1/trading/symbol-rules?account_id={account.id}&symbol=BTCUSDT.P",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["marketType"] == "perp"
+    assert data["quantityLabel"] == "数量 (张)"
+    assert data["exchangeSymbol"] == "BTC-USDT-SWAP"
+
+
+@pytest.mark.asyncio
+async def test_trading_accounts_include_paper_and_contract_settings_endpoint(
+    client: AsyncClient,
+    auth_headers,
+    test_user,
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    paper_account = ExchangeAccount(
+        user_id=test_user.id,
+        exchange="binance",
+        account_name="Paper Manual",
+        is_active=True,
+        is_paper=True,
+        status="active",
+        balance="100000",
+        frozen_balance="0",
+        balances={"USDT": "100000"},
+        contract_settings={"BTCUSDT.P": {"leverage": 8, "margin_mode": "isolated"}},
+    )
+    paper_account.set_api_key("test-api-key-123456")
+    paper_account.set_secret_key("test-secret-key-123456")
+    db_session.add(paper_account)
+    await db_session.commit()
+    await db_session.refresh(paper_account)
+
+    accounts_resp = await client.get(
+        "/api/v1/trading/accounts?include_paper=true",
+        headers=auth_headers,
+    )
+    assert accounts_resp.status_code == 200, accounts_resp.text
+    accounts = accounts_resp.json()["data"]
+    assert any(item["id"] == paper_account.id and item["isPaper"] for item in accounts)
+
+    settings_resp = await client.get(
+        f"/api/v1/trading/accounts/{paper_account.id}/contract-settings?symbol=BTCUSDT.P",
+        headers=auth_headers,
+    )
+    assert settings_resp.status_code == 200, settings_resp.text
+    settings = settings_resp.json()["data"]
+    assert settings["leverage"] == 8
+    assert settings["margin_mode"] == "isolated"
+
+    async def fake_update_contract_settings(
+        self, *, user_id, account_id, symbol, leverage, margin_mode
+    ):
+        assert user_id == test_user.id
+        assert account_id == paper_account.id
+        assert symbol == "BTCUSDT.P"
+        assert leverage == 12
+        assert margin_mode == "cross"
+        return {
+            "account_id": account_id,
+            "symbol": symbol,
+            "leverage": leverage,
+            "margin_mode": margin_mode,
+            "is_paper": True,
+        }
+
+    monkeypatch.setattr(
+        "app.api.v1.orders.OrderService.update_contract_settings",
+        fake_update_contract_settings,
+    )
+
+    update_resp = await client.post(
+        f"/api/v1/trading/accounts/{paper_account.id}/contract-settings",
+        headers=auth_headers,
+        json={
+            "symbol": "BTCUSDT.P",
+            "leverage": 12,
+            "marginMode": "cross",
+        },
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    update_data = update_resp.json()["data"]
+    assert update_data["leverage"] == 12
+    assert update_data["margin_mode"] == "cross"

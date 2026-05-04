@@ -3,22 +3,20 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "true"
+    env_file:
+      - ./backend/.env
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       # Dev: mount source code for hot reload (venv at /opt/venv is NOT overridden)
       - ./backend:/app
       - backend_data:/app/data
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - DEBUG=${DEBUG:-true}
-      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in your environment}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in your environment}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}@postgres:5432/crypto_quant
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in your environment}@redis:6379/0
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
-    # Dev: use --reload for hot code reload
-    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-password}@redis:6379/0
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8001,http://127.0.0.1:8001,http://localhost:8000,http://127.0.0.1:8000}
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,7 +28,7 @@ services:
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-dev-postgres-password}
       - POSTGRES_DB=crypto_quant
     ports:
       - "127.0.0.1:5432:5432"
@@ -46,7 +44,7 @@ services:
   redis:
     image: redis:7-alpine
     environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?Set REDIS_PASSWORD in your environment}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-dev-redis-password}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:

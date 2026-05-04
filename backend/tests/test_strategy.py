@@ -124,7 +124,7 @@ class TestStrategyEngine:
     def test_get_strategy_invalid(self):
         """获取不存在的策略"""
         config = self._make_config()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="不支持的策略类型"):
             get_strategy("nonexistent", config)
 
 

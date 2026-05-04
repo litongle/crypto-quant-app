@@ -33,9 +33,9 @@ if not db_url:
 
 config.set_main_option("sqlalchemy.url", db_url)
 
-# Import all models so Base.metadata knows all tables
-import app.models  # noqa: F401
-from app.database import Base
+# Import all models so Base.metadata knows all tables (after URL + config; E402 intentional)
+import app.models  # noqa: F401, E402
+from app.database import Base  # noqa: E402
 
 target_metadata = Base.metadata
 

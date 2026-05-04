@@ -32,6 +32,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4,<2.0.0",
     "bcrypt>=4.0.1,<4.1.0",
     "python-multipart>=0.0.6,<0.0.7",
+    "pyotp>=2.9.0,<3.0.0",
 
     # HTTP Client
     "httpx>=0.26.0,<0.28.0",
@@ -51,6 +52,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "black>=24.4.0,<25.0.0",
     "pytest>=7.4.0,<8.0.0",
     "pytest-asyncio>=0.23.0,<0.24.0",
     "pytest-cov>=4.1.0,<5.0.0",
@@ -70,6 +72,10 @@ packages = ["app"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "PT"]

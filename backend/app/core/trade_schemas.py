@@ -28,7 +28,7 @@ def _dec_to_str(v: Decimal | None) -> str | None:
     """Decimal → 字符串（前端不丢精度）"""
     if v is None:
         return None
-    return str(v)
+    return format(v, "f")
 
 
 def _coerce_scalar_to_str(v: Any) -> str:
@@ -98,7 +98,9 @@ class KlineSchema(BaseModel):
     volume: str
     close_time: str
 
-    @field_validator("timestamp", "open", "high", "low", "close", "volume", "close_time", mode="before")
+    @field_validator(
+        "timestamp", "open", "high", "low", "close", "volume", "close_time", mode="before"
+    )
     @classmethod
     def _normalize_scalars(cls, value: Any) -> str:
         return _coerce_scalar_to_str(value)
@@ -142,6 +144,55 @@ class OrderBookSchema(BaseModel):
         )
 
 
+class TradingSymbolRulesSchema(BaseModel):
+    """手动交易表单所需的交易规则"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    symbol: str
+    base_symbol: str = Field(alias="baseSymbol")
+    exchange_symbol: str = Field(alias="exchangeSymbol")
+    exchange: str
+    market_type: Literal["spot", "perp"] = Field(alias="marketType")
+    quantity_unit: str = Field(alias="quantityUnit")
+    quantity_label: str = Field(alias="quantityLabel")
+    side_mode: Literal["spot", "contract"] = Field(alias="sideMode")
+    min_qty: str = Field(alias="minQty")
+    step_size: str = Field(alias="stepSize")
+    min_notional: str = Field(alias="minNotional")
+    tick_size: str = Field(alias="tickSize")
+
+    @classmethod
+    def from_values(
+        cls,
+        *,
+        symbol: str,
+        base_symbol: str,
+        exchange_symbol: str,
+        exchange: str,
+        market_type: Literal["spot", "perp"],
+        min_qty: Decimal,
+        step_size: Decimal,
+        min_notional: Decimal,
+        tick_size: Decimal,
+    ) -> "TradingSymbolRulesSchema":
+        is_perp = market_type == "perp"
+        return cls(
+            symbol=symbol,
+            base_symbol=base_symbol,
+            exchange_symbol=exchange_symbol,
+            exchange=exchange,
+            market_type=market_type,
+            quantity_unit="cont" if is_perp else "asset",
+            quantity_label="数量 (张)" if is_perp else "数量",
+            side_mode="contract" if is_perp else "spot",
+            min_qty=_dec_to_str(min_qty) or "0",
+            step_size=_dec_to_str(step_size) or "0",
+            min_notional=_dec_to_str(min_notional) or "0",
+            tick_size=_dec_to_str(tick_size) or "0",
+        )
+
+
 # ==================== 账户/余额 ====================
 
 
@@ -168,6 +219,7 @@ class AccountInfoSchema(BaseModel):
     is_active: bool = Field(alias="isActive")
     is_demo: bool = Field(default=False, alias="isDemo")
     is_testnet: bool = Field(default=False, alias="isTestnet")
+    is_paper: bool = Field(default=False, alias="isPaper")
     status: str
     balance: str = "0"
     frozen_balance: str = Field(default="0", alias="frozenBalance")
@@ -183,6 +235,7 @@ class AccountInfoSchema(BaseModel):
             is_active=a.is_active,
             is_demo=getattr(a, "is_demo", False),
             is_testnet=getattr(a, "is_testnet", False),
+            is_paper=getattr(a, "is_paper", False),
             status=a.status,
             balance=str(getattr(a, "balance", 0)),
             frozen_balance=str(getattr(a, "frozen_balance", 0)),
@@ -268,9 +321,9 @@ class OrderSchema(BaseModel):
             quantity=str(o.quantity),
             price=str(o.price) if o.price is not None else None,
             filled_quantity=str(getattr(o, "filled_quantity", 0)),
-            avg_fill_price=str(o.avg_fill_price)
-            if getattr(o, "avg_fill_price", None) is not None
-            else None,
+            avg_fill_price=(
+                str(o.avg_fill_price) if getattr(o, "avg_fill_price", None) is not None else None
+            ),
             order_value=str(getattr(o, "order_value", 0)),
             commission=str(getattr(o, "commission", 0)),
             pnl=str(o.pnl) if getattr(o, "pnl", None) is not None else None,

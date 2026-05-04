@@ -297,6 +297,9 @@ class BaseExchangeAdapter(ABC):
         order_type: str,
         quantity: Decimal,
         price: Decimal | None = None,
+        *,
+        position_side: str | None = None,
+        target_currency: str | None = None,
     ) -> OrderResult:
         pass
 
@@ -321,3 +324,12 @@ class BaseExchangeAdapter(ABC):
         order_type: str = "stop_loss",
     ) -> OrderResult:
         raise NotImplementedError(f"{self.__class__.__name__} 尚未实现条件单 API")
+
+    async def configure_contract(
+        self,
+        symbol: str,
+        *,
+        leverage: int,
+        margin_mode: str,
+    ) -> dict[str, Any]:
+        raise NotImplementedError(f"{self.__class__.__name__} 尚未实现合约参数设置 API")

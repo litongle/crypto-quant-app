@@ -619,6 +619,45 @@ STRATEGY_TEMPLATES = [
                     "step": 1,
                 },
                 {
+                    "key": "max_invest_percent",
+                    "name": "单笔最大资金比例(%)",
+                    "type": "double",
+                    "default": 30,
+                    "min": 1,
+                    "max": 95,
+                    "description": "与实盘 runner 一致：每笔下单最多占用当前可用余额的比例。",
+                },
+                {
+                    "key": "leverage",
+                    "name": "合约杠杆(倍)",
+                    "type": "int",
+                    "default": 20,
+                    "min": 1,
+                    "max": 125,
+                    "description": "回测永续时用于推导初始保证金率 1/杠杆（可被下方 initial_margin_rate 覆盖）。",
+                },
+                {
+                    "key": "initial_margin_rate",
+                    "name": "初始保证金率(小数)",
+                    "type": "double",
+                    "default": 0,
+                    "min": 0,
+                    "max": 1,
+                    "description": "0 表示按 1/杠杆 计算；例如 0.05=名义本金的 5% 作为初始保证金。",
+                },
+                {
+                    "key": "funding_rate_8h",
+                    "name": "资金费率(每期)",
+                    "type": "double",
+                    "default": 0,
+                    "min": -0.01,
+                    "max": 0.01,
+                    "description": (
+                        "每期(UTC 约 8h 一档)名义价值×费率；与 Binance 符号一致：正=多付空收。"
+                        "0=回测不计资金费。"
+                    ),
+                },
+                {
                     "key": "profit_taking_config",
                     "name": "分层浮动止盈",
                     "type": "json",

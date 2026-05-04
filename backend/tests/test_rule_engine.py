@@ -37,7 +37,7 @@ def _make_klines(count: int = 100, base_price: float = 50000.0, trend: str = "up
     random.seed(42)  # 固定种子，测试可重复
     klines = []
     price = base_price
-    for i in range(count):
+    for _ in range(count):
         if trend == "up":
             change = random.uniform(-0.02, 0.03)
         elif trend == "down":
@@ -93,7 +93,8 @@ class TestIndicators:
         closes = np.random.rand(100) * 50000 + 40000
         result = calc_rsi(closes, 14)
         valid = result[~np.isnan(result)]
-        assert (valid >= 0).all() and (valid <= 100).all()
+        assert (valid >= 0).all()
+        assert (valid <= 100).all()
 
     def test_macd_three_arrays(self):
         """MACD 返回三个数组"""
@@ -141,7 +142,8 @@ class TestIndicators:
         closes = (highs + lows) / 2
         result = calc_stoch_k(highs, lows, closes, 14)
         valid = result[~np.isnan(result)]
-        assert (valid >= 0).all() and (valid <= 100).all()
+        assert (valid >= 0).all()
+        assert (valid <= 100).all()
 
     def test_cci_calculated(self):
         """CCI 计算不报错"""

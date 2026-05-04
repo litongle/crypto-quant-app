@@ -30,6 +30,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
+from app.core.instrument_resolution import adapter_symbol_for_klines, resolve_execution_context
 from app.core.strategy_engine import (
     BaseStrategy,
     Signal,
@@ -40,7 +41,6 @@ from app.core.trade_schemas import WSMessage
 from app.models.strategy import StrategyInstance
 
 logger = logging.getLogger(__name__)
-
 
 # K 线周期 → 推荐轮询节奏(秒)
 # 思路:每根 K 线封盘附近触发一次 analyze,既不延迟太多也不过度频繁。
@@ -145,12 +145,12 @@ class StrategyRunner:
         self._last_runtime_error_at: dict[int, datetime] = {}
         self._running = False
         self._session_maker = None
-        # K线请求去重: (exchange, symbol, interval) → (timestamp, klines)
-        self._kline_cache: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
-        # K线请求 flight lock: (exchange, symbol, interval) → asyncio.Event
-        self._kline_locks: dict[tuple[str, str, str], asyncio.Event | None] = {}
+        # K线请求去重: (exchange, symbol, interval, is_perp) → (timestamp, klines)
+        self._kline_cache: dict[tuple[str, str, str, bool], tuple[float, list[dict]]] = {}
+        # K线请求 flight lock: (exchange, symbol, interval, is_perp) → asyncio.Event
+        self._kline_locks: dict[tuple[str, str, str, bool], asyncio.Event | None] = {}
         # 交易对最小下单量缓存（评审问题2：不再硬编码白名单）
-        self._symbol_min_qty_cache: dict[tuple[str, str], Decimal] = {}
+        self._symbol_min_qty_cache: dict[tuple[str, str, bool], Decimal] = {}
         # 余额同步防抖：account_id → last_sync_ts
         self._balance_sync_at: dict[int, float] = {}
 
@@ -284,12 +284,14 @@ class StrategyRunner:
         """内部：为策略实例创建运行 Task"""
         # 从模板的 strategy_type 创建策略引擎实例
         strategy_type = inst.template.strategy_type if inst.template else "ma"
+        base_sym, is_perp = resolve_execution_context(inst.symbol, inst.params or {})
         config = StrategyConfig(
-            symbol=inst.symbol,
+            symbol=base_sym,
             exchange=inst.exchange,
             direction=inst.direction or "both",
             params=inst.params or {},
             risk_params=inst.risk_params or {},
+            is_perp=is_perp,
         )
 
         try:
@@ -327,7 +329,7 @@ class StrategyRunner:
 
         # 评审问题9: 启动时从 DB 同步真实持仓状态，覆盖策略内部状态
         if inst.account_id and strategy_type == "rsi_layered":
-            await self._sync_strategy_state_from_db(inst.id, inst.account_id, inst.symbol, strategy)
+            await self._sync_strategy_state_from_db(inst.id, inst.account_id, base_sym, strategy)
 
         self._strategies[inst.id] = strategy
         self._last_runtime_error.pop(inst.id, None)
@@ -366,6 +368,7 @@ class StrategyRunner:
                     config.symbol,
                     kline_limit,
                     kline_interval,
+                    is_perp=config.is_perp,
                     cache_ttl_seconds=max(30, interval // 2),
                 )
 
@@ -413,6 +416,8 @@ class StrategyRunner:
         symbol: str,
         limit: int,
         interval: str = "1h",
+        *,
+        is_perp: bool = False,
         cache_ttl_seconds: int = 60,
     ) -> list[dict]:
         """获取 K 线数据，带内存缓存去重
@@ -422,7 +427,7 @@ class StrategyRunner:
         """
         import time
 
-        cache_key = (exchange, symbol, interval)
+        cache_key = (exchange, symbol, interval, is_perp)
         now = time.time()
 
         # 缓存命中 → 直接返回
@@ -456,7 +461,9 @@ class StrategyRunner:
         lock = asyncio.Event()
         self._kline_locks[cache_key] = lock
         try:
-            klines = await self._fetch_klines(exchange, symbol, limit, interval)
+            klines = await self._fetch_klines(
+                exchange, symbol, limit, interval, is_perp=is_perp
+            )
             if klines:
                 self._kline_cache[cache_key] = (now, klines)
             return klines
@@ -465,19 +472,28 @@ class StrategyRunner:
             lock.set()  # 唤醒所有等待者
 
     async def _fetch_klines(
-        self, exchange: str, symbol: str, limit: int, interval: str = "1h"
+        self,
+        exchange: str,
+        symbol: str,
+        limit: int,
+        interval: str = "1h",
+        *,
+        is_perp: bool = False,
     ) -> list[dict]:
         """从交易所获取 K 线数据(按策略配置的 kline_interval)"""
         try:
             from app.core.exchange_adapter import get_exchange_adapter
 
             # 使用公开数据不需要 API Key，传入空字符串
+            bin_fut = is_perp and exchange.lower() == "binance"
             adapter = get_exchange_adapter(
                 exchange=exchange,
                 api_key="",
                 secret_key="",
+                is_futures=bin_fut,
             )
-            klines = await adapter.get_klines(symbol, interval=interval, limit=limit)
+            req_sym = adapter_symbol_for_klines(exchange, symbol, is_perp)
+            klines = await adapter.get_klines(req_sym, interval=interval, limit=limit)
             return [
                 {
                     "open": float(k.open),
@@ -765,7 +781,8 @@ class StrategyRunner:
                 from app.services.order_service import OrderService
 
                 svc = OrderService(session)
-                account = await svc.sync_account_balance(acct_id)
+                bin_fut = config.is_perp and config.exchange.lower() == "binance"
+                account = await svc.sync_account_balance(acct_id, is_futures=bin_fut)
                 self._balance_sync_at[acct_id] = now
             except Exception as exc:
                 logger.warning(
@@ -774,7 +791,9 @@ class StrategyRunner:
                 )
 
         # 评审问题2：从交易所 API 获取真实 min_qty
-        min_qty = await self._get_symbol_min_qty(config.exchange, config.symbol)
+        min_qty = await self._get_symbol_min_qty(
+            config.exchange, config.symbol, is_perp=config.is_perp
+        )
 
         # 计算下单数量
         max_invest_pct = Decimal(str(config.params.get("max_invest_percent", 30))) / 100
@@ -971,23 +990,27 @@ class StrategyRunner:
         self,
         exchange: str,
         symbol: str,
+        *,
+        is_perp: bool = False,
     ) -> Decimal:
         """获取交易对最小下单量（评审问题2：从交易所API动态获取，带缓存）
 
         优先从缓存取，缓存未命中则调用交易所 get_exchange_info。
         交易所 API 调用失败时降级为保守默认值 0.001。
         """
-        cache_key = (exchange, symbol.upper())
+        cache_key = (exchange, symbol.upper(), is_perp)
         if cache_key in self._symbol_min_qty_cache:
             return self._symbol_min_qty_cache[cache_key]
 
         try:
             from app.core.exchange_adapter import get_exchange_adapter
 
+            bin_fut = is_perp and exchange.lower() == "binance"
             adapter = get_exchange_adapter(
                 exchange=exchange,
                 api_key="",
                 secret_key="",
+                is_futures=bin_fut,
             )
             info = await adapter.get_exchange_info(symbol)
             min_qty = info.min_qty if info.min_qty > 0 else Decimal("0.001")

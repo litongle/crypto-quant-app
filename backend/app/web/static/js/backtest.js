@@ -2,6 +2,10 @@
  * 回测页面逻辑 v2 — 使用设计令牌
  */
 async function loadBacktestPage() {
+  if (typeof preloadSymbolSelectorData === 'function') {
+    await preloadSymbolSelectorData();
+  }
+
   // 设置默认日期（动态，不过期）
   const startEl = document.getElementById('backtest-start');
   const endEl = document.getElementById('backtest-end');
@@ -27,6 +31,8 @@ async function loadBacktestPage() {
         value: 'BTCUSDT',
       });
     }
+  } else if (typeof window._backtestSymbolSel.refreshData === 'function') {
+    window._backtestSymbolSel.refreshData();
   }
 
   try {
@@ -316,6 +322,18 @@ async function runBacktest() {
   if (isNaN(initialCapital) || initialCapital <= 0) { showToast('初始资金必须大于 0', 'warn'); return; }
   if (initialCapital > 1000000000) { showToast('初始资金不能超过 10 亿', 'warn'); return; }
 
+  const awEl = document.getElementById('backtest-analysis-window');
+  const awRaw = awEl ? String(awEl.value).trim() : '';
+  let analysisWindow = undefined;
+  if (awRaw !== '') {
+    const aw = parseInt(awRaw, 10);
+    if (!Number.isFinite(aw) || aw < 0) {
+      showToast('策略K线窗口须为不小于 0 的整数', 'warn');
+      return;
+    }
+    if (aw > 0) analysisWindow = aw;
+  }
+
   // 日期跨度校验
   const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
   if (daysDiff > 3650) { showToast('回测跨度不能超过 10 年', 'warn'); return; }
@@ -362,7 +380,7 @@ async function runBacktest() {
   btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 回测运行中' + intervalHint + '...';
 
   try {
-    const result = await api.runBacktest({
+    const runPayload = {
       templateId,
       symbol,
       market,
@@ -370,10 +388,14 @@ async function runBacktest() {
       endDate,
       initialCapital,
       params,
-    });
+    };
+    if (analysisWindow !== undefined) runPayload.analysisWindow = analysisWindow;
+
+    const result = await api.runBacktest(runPayload);
 
     renderBacktestResults(result);
-    const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒)` : '';
+    const awHint = result.analysisWindow != null ? `, 窗口${result.analysisWindow}根` : ', 全量窗口';
+    const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒${awHint})` : '';
     showToast('回测完成！' + extra, 'success');
   } catch (err) {
     showToast('回测失败: ' + err.message, 'error');
@@ -392,8 +414,11 @@ function renderBacktestResults(result) {
   const el = document.getElementById('backtest-results');
 
   const metrics = result.metrics || result;
-  // 后端统一返回 camelCase
-  const totalReturn = metrics.totalReturn ?? 0;
+  // 后端统一返回 camelCase；「总收益率」用百分比字段（与历史详情一致）
+  const totalReturn =
+    metrics.totalReturnPercent != null && metrics.totalReturnPercent !== ""
+      ? Number(metrics.totalReturnPercent)
+      : Number(metrics.totalReturn ?? 0);
   const maxDrawdown = metrics.maxDrawdown ?? 0;
   const sharpeRatio = metrics.sharpeRatio ?? 0;
   const winRate = metrics.winRate ?? 0;
@@ -411,8 +436,12 @@ function renderBacktestResults(result) {
   const duration = metrics.duration ?? 0;
   const initialCapital = metrics.initialCapital ?? result.initialCapital ?? 100000;
   const finalCapital = metrics.finalCapital ?? result.finalCapital ?? 100000;
+  const analysisWindowUsed = metrics.analysisWindow ?? result.analysisWindow;
   const trades = result.trades || [];
   const warning = result.warning || null;
+  const analysisWindowLabel = analysisWindowUsed == null
+    ? '全量前缀（第1根→当前）'
+    : `最近 ${analysisWindowUsed} 根`;
 
   el.innerHTML = `
     ${warning ? `
@@ -468,6 +497,7 @@ function renderBacktestResults(result) {
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${avgLoss.toFixed(2)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
+          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${formatAxisValue(initialCapital)} → ${formatAxisValue(finalCapital)}</span></div>
         </div>
       </div>
@@ -686,10 +716,11 @@ function renderBacktestHistory(history) {
 
   historyEl.innerHTML = `
     <div class="cq-card">
-      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-3);display:flex;align-items:center;gap:var(--cq-space-2);">
+      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-2);display:flex;align-items:center;gap:var(--cq-space-2);">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         最近回测记录
       </div>
+      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-3);">点击一行加载完整图表与交易明细</div>
       <div class="cq-table-wrap">
       <table class="cq-table">
         <thead>
@@ -730,14 +761,23 @@ function renderBacktestHistory(history) {
 }
 
 async function viewBacktestDetail(id) {
+  const resultsEl = document.getElementById('backtest-results');
+  if (!resultsEl) return;
+  _disposeBacktestChart();
+  resultsEl.innerHTML =
+    '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-6);text-align:center;color:var(--cq-text-secondary);">正在加载回测详情…</div>';
   try {
     const result = await api.getBacktestResults(id);
     renderBacktestResults(result);
-    document.getElementById('backtest-results').scrollIntoView({ behavior: 'smooth' });
+    resultsEl.scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
-    showToast('加载回测详情失败', 'error');
+    showToast('加载回测详情失败: ' + (err.message || String(err)), 'error');
+    resultsEl.innerHTML =
+      '<div class="cq-card cq-empty-state"><p style="color:var(--cq-text-secondary);">无法加载该条记录，请稍后重试。</p></div>';
   }
 }
+
+window.viewBacktestDetail = viewBacktestDetail;
 
 /**
  * 渲染回测参数控件,与 strategy.js 的 renderParamSliders 同套类型支持。

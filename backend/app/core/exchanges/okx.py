@@ -80,6 +80,10 @@ class OKXAdapter(BaseExchangeAdapter):
     def _trade_mode_for_inst(cls, inst_id: str) -> str:
         return "cross" if cls._is_perpetual_inst(inst_id) else "cash"
 
+    @classmethod
+    def _default_pos_side(cls, side: str) -> str:
+        return "long" if side.lower() == "buy" else "short"
+
     @staticmethod
     def _normalize_position_side(pos_side: str, position_size: Decimal) -> tuple[str, Decimal]:
         normalized = pos_side.lower() if pos_side else "net"
@@ -158,6 +162,15 @@ class OKXAdapter(BaseExchangeAdapter):
         code = data.get("code", "")
         if code != "0":
             msg = data.get("msg", "Unknown error")
+            nested_details = []
+            for item in data.get("data", []) or []:
+                nested_code = str(item.get("sCode", "")).strip()
+                nested_msg = str(item.get("sMsg", "")).strip()
+                if nested_code and nested_code != "0":
+                    detail = f"[{nested_code}] {nested_msg}" if nested_msg else f"[{nested_code}]"
+                    nested_details.append(detail)
+            if nested_details:
+                msg = f"{msg}; " + "; ".join(nested_details)
             reject_codes = {"51001", "51002", "51006", "51400", "51503"}
             if code in reject_codes:
                 raise OrderRejectedError("OKX", f"[{code}] {msg}", detail_code=code)
@@ -317,6 +330,9 @@ class OKXAdapter(BaseExchangeAdapter):
         order_type: str,
         quantity: Decimal,
         price: Decimal | None = None,
+        *,
+        position_side: str | None = None,
+        target_currency: str | None = None,
     ) -> OrderResult:
         inst_id = self._to_inst_id(symbol)
         info = await self.get_exchange_info(symbol)
@@ -328,11 +344,17 @@ class OKXAdapter(BaseExchangeAdapter):
             "instId": inst_id,
             "tdMode": trade_mode,
             "side": side.lower(),
-            "ordType": order_type.lower()
-            if order_type.lower() in ("market", "limit", "post_only", "fok", "ioc")
-            else "limit",
+            "ordType": (
+                order_type.lower()
+                if order_type.lower() in ("market", "limit", "post_only", "fok", "ioc")
+                else "limit"
+            ),
             "sz": _format_decimal(normalized_quantity),
         }
+        if self._is_perpetual_inst(inst_id):
+            body_dict["posSide"] = position_side or self._default_pos_side(side)
+        elif order_type.lower() == "market" and side.lower() == "buy":
+            body_dict["tgtCcy"] = target_currency or "base_ccy"
         if price and order_type.lower() == "limit":
             body_dict["px"] = _format_decimal(self._prepare_price(price, info))
         body_json = json.dumps(body_dict)
@@ -497,3 +519,43 @@ class OKXAdapter(BaseExchangeAdapter):
             min_notional=_safe_decimal(i.get("minSz")) * Decimal("0.1"),
             tick_size=_safe_decimal(i.get("tickSz")),
         )
+
+    async def configure_contract(
+        self,
+        symbol: str,
+        *,
+        leverage: int,
+        margin_mode: str,
+    ) -> dict[str, Any]:
+        inst_id = self._to_inst_id(symbol)
+        if not self._is_perpetual_inst(inst_id):
+            raise NotImplementedError("OKX 现货账户不支持合约参数设置")
+
+        await self._ensure_time_synced()
+        path = "/api/v5/account/set-leverage"
+        body_dict = {
+            "instId": inst_id,
+            "lever": str(leverage),
+            "mgnMode": margin_mode,
+        }
+        body_json = json.dumps(body_dict)
+
+        async def _do():
+            headers = self._sign("POST", path, body_json)
+            client = await self.get_shared_client()
+            resp = await client.post(f"{self.BASE_URL}{path}", headers=headers, content=body_json)
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await self._request_with_retry(
+            _do,
+            max_attempts=1,
+            context=f"configure_contract({inst_id},{leverage},{margin_mode})",
+        )
+        self._check_okx_response(data)
+        return {
+            "symbol": symbol.upper(),
+            "exchange_symbol": inst_id,
+            "leverage": leverage,
+            "margin_mode": margin_mode,
+        }

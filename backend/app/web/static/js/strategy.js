@@ -605,6 +605,10 @@ function updateStrategyTradeHint(template = findTemplate(selectedTemplateId)) {
 }
 
 async function ensureWorkbenchFormInfra() {
+  if (typeof preloadSymbolSelectorData === 'function') {
+    await preloadSymbolSelectorData();
+  }
+
   if (!window._strategySymbolSel) {
     const selectorHost = document.getElementById('strategy-symbol-selector');
     if (selectorHost) {
@@ -614,6 +618,8 @@ async function ensureWorkbenchFormInfra() {
         exchangeFilter: 'new-strategy-exchange',
       });
     }
+  } else if (typeof window._strategySymbolSel.refreshData === 'function') {
+    window._strategySymbolSel.refreshData();
   }
 
   try {

@@ -1,17 +1,15 @@
 """
-模拟盘（Paper Trading）服务 - P2-9
+本地模拟盘（Paper Trading）服务
 
-不花真钱，用虚拟余额跑策略。支持：
-- 创建模拟账户（带初始虚拟余额）
-- 模拟下单（无API调用，直接更新本地状态）
-- 模拟成交（自动 fill，模拟延迟和滑点）
+负责：
+- 创建 / 重置本地模拟盘账户
+- 维护本地资产余额
+- 为手动交易页提供本地撮合所需的价格与资金更新
 """
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,191 +20,258 @@ logger = logging.getLogger(__name__)
 
 
 class PaperTradingService:
-    """模拟盘服务"""
+    """本地模拟盘服务"""
 
-    # 默认模拟配置
     DEFAULT_INITIAL_BALANCE = Decimal("100000")
-    DEFAULT_COMMISSION_RATE = Decimal("0.001")  # 0.1%
-    DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")  # 0.05% 滑点
+    DEFAULT_COMMISSION_RATE = Decimal("0.001")
+    DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")
 
-    # 余额操作锁（key=account_id，实现按账户并发控制）
     _locks: dict[int, asyncio.Lock] = {}
     _locks_lock = asyncio.Lock()
 
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
     async def _get_lock(self, account_id: int) -> asyncio.Lock:
-        """获取账户级别的锁（同一账户串行，不同账户并行）"""
         async with self._locks_lock:
             if account_id not in self._locks:
                 self._locks[account_id] = asyncio.Lock()
             return self._locks[account_id]
 
-    def __init__(self, session: AsyncSession):
-        self.session = session
+    @classmethod
+    def default_balances(cls, initial_balance: Decimal | None = None) -> dict[str, str]:
+        balance = initial_balance or cls.DEFAULT_INITIAL_BALANCE
+        return {"USDT": format(balance, "f")}
+
+    @staticmethod
+    def is_paper_account(account: ExchangeAccount | None) -> bool:
+        return bool(account and getattr(account, "is_paper", False))
+
+    @staticmethod
+    def normalize_symbol_key(symbol: str) -> str:
+        return str(symbol or "").upper()
+
+    @staticmethod
+    def get_contract_settings(account: ExchangeAccount, symbol: str) -> dict[str, str | int]:
+        settings = account.contract_settings or {}
+        key = PaperTradingService.normalize_symbol_key(symbol)
+        current = settings.get(key) or {}
+        leverage = int(current.get("leverage") or 10)
+        margin_mode = str(current.get("margin_mode") or "cross")
+        return {
+            "symbol": key,
+            "leverage": leverage,
+            "margin_mode": margin_mode,
+        }
 
     async def create_paper_account(
         self,
         user_id: int,
-        name: str = "模拟盘账户",
+        name: str = "本地模拟账户",
         initial_balance: Decimal = DEFAULT_INITIAL_BALANCE,
     ) -> ExchangeAccount:
-        """创建模拟盘账户"""
         account = ExchangeAccount(
             user_id=user_id,
             account_name=name,
-            exchange="paper",
-            balances={"USDT": str(initial_balance)},
-            is_demo=True,
-            is_testnet=True,
+            exchange="binance",
+            is_paper=True,
+            is_demo=False,
+            is_testnet=False,
             is_active=True,
             status="active",
+            balance=initial_balance,
+            frozen_balance=Decimal("0"),
+            balances=self.default_balances(initial_balance),
+            contract_settings={},
         )
+        account.set_api_key(f"paper-key-{user_id}")
+        account.set_secret_key(f"paper-secret-{user_id}")
         self.session.add(account)
         await self.session.flush()
         await self.session.refresh(account)
-        logger.info(
-            "[PaperTrading] 模拟账户创建: #%d, 初始余额 %s USDT", account.id, initial_balance
-        )
+        logger.info("[PaperTrading] 创建本地模拟账户 #%d", account.id)
         return account
 
-    async def execute_paper_trade(
+    async def get_paper_accounts(self, user_id: int) -> list[ExchangeAccount]:
+        result = await self.session.execute(
+            select(ExchangeAccount).where(
+                ExchangeAccount.user_id == user_id,
+                ExchangeAccount.is_paper,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def reset_paper_account(
         self,
         account_id: int,
-        symbol: str,
-        side: str,
-        order_type: str,
-        quantity: Decimal,
-        price: Decimal | None = None,
-        strategy_instance_id: int | None = None,
-    ) -> dict[str, Any]:
-        """执行模拟交易
-
-        Args:
-            account_id: 模拟账户ID
-            symbol: 交易对
-            side: buy/sell
-            order_type: market/limit
-            quantity: 数量
-            price: 限价单价格（市价单不用传）
-            strategy_instance_id: 关联策略实例
-
-        Returns:
-            订单信息
-        """
-        # 获取账户
+        new_balance: Decimal | None = None,
+        *,
+        user_id: int | None = None,
+    ) -> ExchangeAccount:
         result = await self.session.execute(
             select(ExchangeAccount).where(
                 ExchangeAccount.id == account_id,
-                ExchangeAccount.is_demo,
+                ExchangeAccount.is_paper,
             )
         )
         account = result.scalar_one_or_none()
         if not account:
-            raise ValueError("模拟账户不存在或不是模拟账户")
+            raise ValueError("模拟账户不存在")
+        if user_id is not None and account.user_id != user_id:
+            raise ValueError("无权重置此模拟账户")
 
-        # 获取当前价格（模拟场景下使用本地持仓价格 or 从行情获取）
+        balance = new_balance or self.DEFAULT_INITIAL_BALANCE
+        account.balance = balance
+        account.frozen_balance = Decimal("0")
+        account.balances = self.default_balances(balance)
+
+        positions_result = await self.session.execute(
+            select(Position).where(
+                Position.account_id == account_id,
+                Position.status == "open",
+            )
+        )
+        for position in positions_result.scalars().all():
+            position.status = "closed"
+
+        await self.session.flush()
+        logger.info("[PaperTrading] 重置本地模拟账户 #%d", account_id)
+        return account
+
+    async def get_execution_price(self, symbol: str, price: Decimal | None = None) -> Decimal:
         exec_price = price or await self._get_current_price(symbol)
         if exec_price is None:
             raise ValueError(f"无法获取 {symbol} 当前价格")
+        return exec_price
 
-        # 计算滑点
-        slippage = exec_price * self.DEFAULT_SLIPPAGE_PCT
+    async def apply_spot_fill(
+        self,
+        account: ExchangeAccount,
+        *,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        exec_price: Decimal,
+        commission: Decimal,
+    ) -> None:
+        base_asset, quote_asset = self._split_symbol(symbol)
+        balances = dict(account.balances or self.default_balances(account.balance))
+        quote_balance = Decimal(str(balances.get(quote_asset, "0")))
+        base_balance = Decimal(str(balances.get(base_asset, "0")))
+        order_value = exec_price * quantity
+
         if side == "buy":
-            exec_price += slippage  # 买入时价格略高
+            total_cost = order_value + commission
+            if quote_balance < total_cost:
+                raise ValueError(
+                    f"模拟余额不足: 需要 {format(total_cost, 'f')} {quote_asset}，"
+                    f" 当前只有 {format(quote_balance, 'f')} {quote_asset}"
+                )
+            quote_balance -= total_cost
+            base_balance += quantity
         else:
-            exec_price -= slippage  # 卖出时价格略低
+            if base_balance < quantity:
+                raise ValueError(
+                    f"{base_asset} 余额不足: 需要 {format(quantity, 'f')}，"
+                    f" 当前只有 {format(base_balance, 'f')}"
+                )
+            quote_balance += order_value - commission
+            base_balance -= quantity
 
-        # 计算手续费
-        commission = exec_price * quantity * self.DEFAULT_COMMISSION_RATE
+        balances[quote_asset] = format(quote_balance, "f")
+        balances[base_asset] = format(base_balance, "f")
+        account.balances = balances
+        account.balance = quote_balance
+        account.frozen_balance = Decimal("0")
 
-        # 统一提取 base_asset（支持多稳定币交易对）
-        stablecoins = ("USDT", "USDC", "BUSD", "BTC", "ETH")
-        base_asset = None
-        quote_asset = None
-
-        for sc in stablecoins:
-            if symbol.endswith(sc):
-                base_asset = symbol[: -len(sc)]
-                quote_asset = sc
-                break
-
-        if not base_asset or not quote_asset:
+    async def reserve_contract_margin(
+        self,
+        account: ExchangeAccount,
+        *,
+        symbol: str,
+        quantity: Decimal,
+        exec_price: Decimal,
+        commission: Decimal = Decimal("0"),
+    ) -> dict[str, Decimal | int | str]:
+        settings = self.get_contract_settings(account, symbol)
+        leverage = int(settings["leverage"])
+        margin_mode = str(settings["margin_mode"])
+        notional = exec_price * quantity
+        required_margin = notional / Decimal(leverage)
+        available = Decimal(str(account.balance or "0"))
+        total_hold = required_margin + commission
+        if available < total_hold:
             raise ValueError(
-                f"不支持的交易对格式: {symbol}（仅支持 USDT/USDC/BUSD/BTC/ETH 计价交易对）"
+                f"保证金不足: 需要 {format(total_hold, 'f')} USDT，"
+                f" 当前可用 {format(available, 'f')} USDT"
             )
 
-        async with await self._get_lock(account_id):
-            # 获取虚拟余额（在锁内读取，确保一致性）
-            balances = account.balances or {quote_asset: str(self.DEFAULT_INITIAL_BALANCE)}
-            quote_balance = Decimal(str(balances.get(quote_asset, "0")))
-            current_qty = Decimal(str(balances.get(base_asset, "0")))
-
-            # 计算并验证
-            order_value = exec_price * quantity
-            total_cost = order_value + commission
-
-            if side == "buy":
-                if quote_balance < total_cost:
-                    raise ValueError(
-                        f"模拟余额不足: 需要 {total_cost} {quote_asset}, 余额 {quote_balance} {quote_asset}"
-                    )
-                new_quote = quote_balance - total_cost
-                new_qty = current_qty + quantity
-            else:
-                if current_qty < quantity:
-                    raise ValueError(f"{base_asset} 余额不足: 需要 {quantity}, 余额 {current_qty}")
-                sell_value = exec_price * quantity - commission
-                new_quote = quote_balance + sell_value
-                new_qty = current_qty - quantity
-
-            # 原子更新：先算好新值，再一次性赋值
-            balances[quote_asset] = str(new_quote)
-            balances[base_asset] = str(new_qty)
-            account.balances = balances
-
-        # 创建订单记录
-        order = {
-            "account_id": account_id,
-            "symbol": symbol,
-            "side": side,
-            "order_type": order_type,
-            "quantity": str(quantity),
-            "price": str(exec_price),
-            "avg_fill_price": str(exec_price),
-            "filled_quantity": str(quantity),
-            "commission": str(commission),
-            "order_value": str(order_value),
-            "status": "filled",
-            "filled_at": datetime.now(UTC).isoformat() + "Z",
-            "strategy_instance_id": strategy_instance_id,
-            "exec_price": float(exec_price),
-            "slippage": float(slippage),
-            "commission_paid": float(commission),
+        account.balance = available - total_hold
+        account.frozen_balance = Decimal(str(account.frozen_balance or "0")) + required_margin
+        balances = dict(account.balances or self.default_balances(available))
+        balances["USDT"] = format(account.balance, "f")
+        account.balances = balances
+        return {
+            "leverage": leverage,
+            "margin_mode": margin_mode,
+            "required_margin": required_margin,
+            "notional": notional,
         }
 
-        logger.info(
-            "[PaperTrading] 模拟成交: %s %s %s @ %s, qty=%s, commission=%s",
-            symbol,
-            side,
-            order_type,
-            exec_price,
-            quantity,
-            commission,
-        )
-        return order
+    async def release_contract_margin(
+        self,
+        account: ExchangeAccount,
+        *,
+        position: Position,
+        exit_price: Decimal,
+        commission: Decimal,
+    ) -> Decimal:
+        leverage = max(int(getattr(position, "leverage", 1) or 1), 1)
+        entry_notional = position.entry_price * position.quantity
+        margin = entry_notional / Decimal(leverage)
+        if position.side == "long":
+            realized_pnl = (exit_price - position.entry_price) * position.quantity
+        else:
+            realized_pnl = (position.entry_price - exit_price) * position.quantity
+
+        released = margin + realized_pnl - commission
+        account.balance = Decimal(str(account.balance or "0")) + released
+        frozen = Decimal(str(account.frozen_balance or "0")) - margin
+        account.frozen_balance = frozen if frozen > 0 else Decimal("0")
+        balances = dict(account.balances or self.default_balances(account.balance))
+        balances["USDT"] = format(account.balance, "f")
+        account.balances = balances
+        return realized_pnl
+
+    async def upsert_contract_settings(
+        self,
+        account: ExchangeAccount,
+        *,
+        symbol: str,
+        leverage: int,
+        margin_mode: str,
+    ) -> dict[str, str | int]:
+        settings = dict(account.contract_settings or {})
+        key = self.normalize_symbol_key(symbol)
+        settings[key] = {
+            "leverage": int(leverage),
+            "margin_mode": margin_mode,
+        }
+        account.contract_settings = settings
+        await self.session.flush()
+        return self.get_contract_settings(account, symbol)
 
     async def _get_current_price(self, symbol: str) -> Decimal | None:
-        """获取当前价格（从行情服务或现有持仓）"""
         try:
             from app.services.market_service import MarketService
 
             market = MarketService()
-            ticker = await market.get_ticker(symbol)
+            ticker = await market.get_ticker(symbol.replace(".P", ""))
             if ticker and ticker.get("last"):
                 return Decimal(str(ticker["last"]))
         except Exception as exc:
             logger.debug("[PaperTrading] 获取行情失败: %s", exc)
 
-        # 降级：从已有持仓获取
         result = await self.session.execute(
             select(Position)
             .where(
@@ -216,37 +281,15 @@ class PaperTradingService:
             .order_by(Position.updated_at.desc())
             .limit(1)
         )
-        pos = result.scalar_one_or_none()
-        if pos and pos.current_price:
-            return pos.current_price
-
+        position = result.scalar_one_or_none()
+        if position and position.current_price:
+            return position.current_price
         return None
 
-    async def get_paper_accounts(self, user_id: int) -> list[ExchangeAccount]:
-        """获取用户的所有模拟账户"""
-        result = await self.session.execute(
-            select(ExchangeAccount).where(
-                ExchangeAccount.user_id == user_id,
-                ExchangeAccount.is_demo,
-            )
-        )
-        return list(result.scalars().all())
-
-    async def reset_paper_account(
-        self, account_id: int, new_balance: Decimal | None = None
-    ) -> None:
-        """重置模拟账户余额"""
-        result = await self.session.execute(
-            select(ExchangeAccount).where(
-                ExchangeAccount.id == account_id,
-                ExchangeAccount.is_demo,
-            )
-        )
-        account = result.scalar_one_or_none()
-        if not account:
-            raise ValueError("模拟账户不存在")
-
-        balance = new_balance or self.DEFAULT_INITIAL_BALANCE
-        account.balances = {"USDT": str(balance)}
-        await self.session.flush()
-        logger.info("[PaperTrading] 模拟账户 #%d 已重置, 余额 %s USDT", account_id, balance)
+    @staticmethod
+    def _split_symbol(symbol: str) -> tuple[str, str]:
+        raw = str(symbol or "").replace(".P", "").upper()
+        for quote in ("USDT", "USDC", "BUSD", "BTC", "ETH"):
+            if raw.endswith(quote):
+                return raw[: -len(quote)], quote
+        raise ValueError(f"不支持的交易对格式: {symbol}")

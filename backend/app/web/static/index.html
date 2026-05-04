@@ -16,6 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/style.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <link rel="stylesheet" href="/web/static/css/app.css">
 </head>
 <body>
@@ -71,6 +72,26 @@
       <div style="text-align:center;margin-top:var(--cq-space-4);">
         <span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">已有账号？</span>
         <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="showLogin()">登录</span>
+      </div>
+    </div>
+
+    <div id="login-2fa-form" style="display:none;">
+      <div style="margin-bottom:var(--cq-space-2);font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.6;">
+        该账户已启用双重验证，请输入动态验证码完成登录。
+      </div>
+      <div style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3);border-radius:var(--cq-radius-lg);background:var(--cq-bg-l2);color:var(--cq-text-secondary);font-size:var(--cq-text-sm);">
+        当前账户：<span id="login-2fa-email" style="font-weight:600;color:var(--cq-text-primary);">--</span>
+      </div>
+      <div style="margin-bottom:var(--cq-space-5);">
+        <label class="cq-label">6位动态验证码</label>
+        <input type="text" class="cq-input" id="login-2fa-code" placeholder="输入 6 位验证码" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+      </div>
+      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="handleLogin2fa()" id="login-2fa-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 5-3.5 8.74-7 9-3.5-.26-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg>
+        验证并登录
+      </button>
+      <div style="text-align:center;margin-top:var(--cq-space-4);">
+        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="cancelLogin2fa()">返回账号密码登录</span>
       </div>
     </div>
   </div>
@@ -139,6 +160,28 @@
       </div>
 
       <div class="sidebar-section">
+        <div class="sidebar-group-label">账户</div>
+        <div class="sidebar-nav-item" onclick="navigate('accounts')" data-page="accounts">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>
+          </span>
+          <span class="sidebar-nav-text">交易所账户</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="navigate('paper')" data-page="paper">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </span>
+          <span class="sidebar-nav-text">模拟盘账户</span>
+        </div>
+        <div class="sidebar-nav-item" onclick="navigate('security')" data-page="security">
+          <span class="sidebar-icon-container">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 11v4"/><path d="M12 8h.01"/></svg>
+          </span>
+          <span class="sidebar-nav-text">安全与审计</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
         <div class="sidebar-group-label">交易</div>
         <div class="sidebar-nav-item" onclick="navigate('market')" data-page="market">
           <span class="sidebar-icon-container">
@@ -200,6 +243,12 @@
           <h3>我的持仓</h3>
         </div>
         <div id="position-section"></div>
+      </div>
+      <div style="margin-top:var(--cq-space-6);">
+        <div class="cq-section-title">
+          <h3>风险驾驶舱</h3>
+        </div>
+        <div id="risk-dashboard-section"></div>
       </div>
     </div>
 
@@ -336,6 +385,11 @@
             <label class="cq-label">初始资金 (USDT)</label>
             <input type="number" class="cq-input" id="backtest-capital" value="100000">
           </div>
+          <div style="margin-bottom:var(--cq-space-3);">
+            <label class="cq-label">策略K线窗口（根）</label>
+            <input type="number" class="cq-input" id="backtest-analysis-window" value="" min="0" step="1" placeholder="留空 = 全量（推荐）">
+            <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">留空或 0：从第 1 根到当前 bar 全部传给策略。填正整数：仅最近 N 根，省内存、长周期指标可能不准。</div>
+          </div>
           <div id="backtest-params"></div>
           <button class="cq-btn cq-btn--primary cq-btn--full" style="margin-top:var(--cq-space-3);" onclick="runBacktest()" id="run-backtest-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -363,6 +417,24 @@
       <div id="accounts-content">
         <!-- 动态渲染 -->
       </div>
+    </div>
+
+    <!-- ===== 模拟盘账户页 ===== -->
+    <div class="page-view cq-constrained" id="page-paper">
+      <div class="page-header">
+        <h1>模拟盘账户</h1>
+        <div class="sub">使用后端模拟盘账户做零风险演练和重置</div>
+      </div>
+      <div id="paper-content"></div>
+    </div>
+
+    <!-- ===== 安全与审计页 ===== -->
+    <div class="page-view cq-constrained" id="page-security">
+      <div class="page-header">
+        <h1>安全与审计</h1>
+        <div class="sub">管理 2FA 双重验证并查询操作审计记录</div>
+      </div>
+      <div id="security-content"></div>
     </div>
 
     <!-- ===== 行情页 ===== -->
@@ -397,7 +469,22 @@
             <button class="cq-exchange-btn" data-exchange="huobi" onclick="changeMarketExchange('huobi')">HB</button>
           </div>
         </div>
-        <div id="market-kline-wrap" style="position:relative;height:380px;width:100%;"></div>
+        <div class="cq-market-layout">
+          <div class="cq-market-chart-panel">
+            <div id="market-kline-wrap" style="position:relative;height:420px;width:100%;"></div>
+          </div>
+          <section class="cq-market-orderbook" aria-label="订单簿">
+            <div class="cq-market-orderbook__header">
+              <div>
+                <h3>市场深度</h3>
+                <p>跟随当前交易对与交易所实时刷新</p>
+              </div>
+              <div id="market-orderbook-meta" class="cq-market-orderbook__meta"></div>
+            </div>
+            <div id="market-orderbook-summary" class="cq-market-orderbook__summary"></div>
+            <div id="market-orderbook-body" class="cq-market-orderbook__body"></div>
+          </section>
+        </div>
       </div>
     </div>
 
@@ -408,56 +495,131 @@
         <div class="sub">手动下单、管理持仓和订单</div>
       </div>
 
-      <div style="display:grid;grid-template-columns:clamp(280px,25%,340px) 1fr;gap:var(--cq-space-5);align-items:start;">
-        <!-- 左侧：下单表单 -->
-        <div class="cq-card" style="position:sticky;top:var(--cq-space-6);">
-          <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-4);">下单</div>
-
+      <div class="cq-trading-terminal">
+        <aside class="cq-card cq-trading-terminal__pairs">
+          <div class="cq-trading-pairs__header">
+            <div>
+              <div class="cq-trading-panel__eyebrow">交易对</div>
+              <div class="cq-trading-panel__title">终端切换器</div>
+            </div>
+            <span id="trading-pair-count" class="cq-tag cq-tag--neutral">0</span>
+          </div>
           <div style="margin-bottom:var(--cq-space-3);">
             <label class="cq-label">交易账户</label>
-            <select class="cq-input" id="trading-account-select" onchange="tradingForm.accountId=parseInt(this.value)">
+            <select class="cq-input" id="trading-account-select" onchange="handleTradingAccountChange(this.value)">
               <option value="">加载中...</option>
             </select>
           </div>
-
-          <div style="margin-bottom:var(--cq-space-3);">
-            <label class="cq-label">交易对</label>
-            <div id="trading-symbol-selector"></div>
+          <div class="cq-trading-market-switch" aria-label="市场类型切换">
+            <button class="cq-trading-market-switch__btn is-active" id="trading-market-switch-spot" type="button" aria-pressed="true" onclick="setTradingMarketFilter('spot')">现货</button>
+            <button class="cq-trading-market-switch__btn" id="trading-market-switch-perp" type="button" aria-pressed="false" onclick="setTradingMarketFilter('perp')">永续合约</button>
           </div>
-
-          <!-- 买/卖切换 -->
-          <div style="display:flex;gap:var(--cq-space-2);margin-bottom:var(--cq-space-3);">
-            <button class="cq-side-btn is-active" data-side="buy" onclick="setTradingSide('buy')" style="flex:1;">买入</button>
-            <button class="cq-side-btn" data-side="sell" onclick="setTradingSide('sell')" style="flex:1;">卖出</button>
+          <div class="cq-trading-pairs__search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="trading-pair-search" class="cq-input cq-trading-pairs__search-input" placeholder="搜索 BTC / ETH / SOL" autocomplete="off">
           </div>
+          <div id="trading-symbol-selector" class="cq-trading-pairs__list" role="listbox" aria-label="交易对列表"></div>
+        </aside>
 
-          <!-- 市价/限价切换 -->
-          <div style="display:flex;gap:var(--cq-space-2);margin-bottom:var(--cq-space-3);">
-            <button class="cq-otype-btn is-active" data-otype="market" onclick="setTradingOrderType('market')">市价</button>
-            <button class="cq-otype-btn" data-otype="limit" onclick="setTradingOrderType('limit')">限价</button>
-          </div>
+        <div class="cq-trading-terminal__center">
+          <section class="cq-card cq-trading-terminal__form">
+            <div class="cq-trading-market-card cq-trading-market-card--hero">
+              <div class="cq-trading-market-card__header">
+                <span id="trading-market-badge" class="cq-trading-market-badge is-spot">现货</span>
+                <div class="cq-trading-market-card__title-wrap">
+                  <div id="trading-market-title" class="cq-trading-market-card__title">等待选择交易对</div>
+                  <div id="trading-market-subtitle" class="cq-trading-market-card__subtitle">--</div>
+                </div>
+              </div>
+              <div id="trading-rule-summary"></div>
+              <div id="trading-market-helper" class="cq-trading-market-card__helper">
+                选择交易账户后，这里会显示该账户下交易所的最小下单量、步进和价格精度。
+              </div>
+            </div>
 
-          <div style="margin-bottom:var(--cq-space-3);">
-            <label class="cq-label">数量</label>
-            <input type="number" class="cq-input" id="trading-quantity" placeholder="0.00" step="any">
-          </div>
+            <div class="cq-trading-contract-card" id="trading-contract-settings" style="display:none;">
+              <div class="cq-trading-contract-card__header">
+                <div>
+                  <div class="cq-trading-contract-card__title">合约设置</div>
+                  <div class="cq-trading-contract-card__subtitle">杠杆与保证金模式会跟随当前账户和交易对保存</div>
+                </div>
+                <button class="cq-btn cq-btn--secondary cq-btn--sm" id="trading-contract-save-btn" onclick="saveTradingContractSettings()">保存设置</button>
+              </div>
+              <div class="cq-trading-contract-grid">
+                <div>
+                  <label class="cq-label">杠杆倍数</label>
+                  <input type="number" class="cq-input" id="trading-leverage" min="1" max="125" step="1" value="10">
+                </div>
+                <div>
+                  <label class="cq-label">保证金模式</label>
+                  <div class="cq-segmented-control">
+                    <button class="cq-margin-btn is-active" type="button" data-margin-mode="cross" aria-pressed="true" onclick="setTradingMarginMode('cross')">全仓</button>
+                    <button class="cq-margin-btn" type="button" data-margin-mode="isolated" aria-pressed="false" onclick="setTradingMarginMode('isolated')">逐仓</button>
+                  </div>
+                </div>
+              </div>
+              <div id="trading-paper-hint" class="cq-trading-contract-card__hint">保存后会把杠杆和保证金模式同步到当前交易账户对应的交易所。</div>
+            </div>
 
-          <div id="trading-price-field" style="margin-bottom:var(--cq-space-3);display:none;">
-            <label class="cq-label">价格 (USDT)</label>
-            <input type="number" class="cq-input" id="trading-price" placeholder="0.00" step="any">
-          </div>
+            <div class="cq-trading-order-entry">
+              <div class="cq-trading-order-entry__header">
+                <div class="cq-trading-panel__eyebrow">下单面板</div>
+                <div class="cq-trading-order-entry__types">
+                  <button class="cq-otype-btn is-active" type="button" data-otype="market" aria-pressed="true" onclick="setTradingOrderType('market')">市价</button>
+                  <button class="cq-otype-btn" type="button" data-otype="limit" aria-pressed="false" onclick="setTradingOrderType('limit')">限价</button>
+                </div>
+              </div>
 
-          <button class="cq-btn cq-btn--primary cq-btn--full" onclick="submitOrder()" id="trading-submit-btn">买入</button>
+              <div class="cq-trading-side-row">
+                <button class="cq-side-btn is-active" type="button" data-side="buy" aria-pressed="true" onclick="setTradingSide('buy')">买入</button>
+                <button class="cq-side-btn" type="button" data-side="sell" aria-pressed="false" onclick="setTradingSide('sell')">卖出</button>
+              </div>
+
+              <div class="cq-trading-form-grid">
+                <div>
+                  <label class="cq-label" id="trading-quantity-label">数量</label>
+                  <input type="number" class="cq-input" id="trading-quantity" placeholder="0.00" step="any">
+                </div>
+                <div id="trading-price-field" style="display:none;">
+                  <label class="cq-label" id="trading-price-label">价格 (USDT)</label>
+                  <input type="number" class="cq-input" id="trading-price" placeholder="0.00" step="any">
+                </div>
+              </div>
+
+              <button class="cq-btn cq-btn--primary cq-btn--full" onclick="submitOrder()" id="trading-submit-btn">买入</button>
+            </div>
+          </section>
+
+          <section class="cq-card cq-trading-terminal__activity">
+            <div class="cq-trading-tabs" role="tablist" aria-label="交易信息切换">
+              <button class="cq-trading-tabs__btn is-active" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="trading-tab-panel-positions" data-tab="positions" onclick="setTradingBottomTab('positions')">当前持仓</button>
+              <button class="cq-trading-tabs__btn" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="trading-tab-panel-open-orders" data-tab="open-orders" onclick="setTradingBottomTab('open-orders')">当前订单</button>
+              <button class="cq-trading-tabs__btn" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="trading-tab-panel-history" data-tab="history" onclick="setTradingBottomTab('history')">历史成交</button>
+            </div>
+            <div class="cq-trading-tabs__panel is-active" id="trading-tab-panel-positions" role="tabpanel">
+              <div id="trading-positions"></div>
+            </div>
+            <div class="cq-trading-tabs__panel" id="trading-tab-panel-open-orders" role="tabpanel" hidden>
+              <div id="trading-open-orders"></div>
+            </div>
+            <div class="cq-trading-tabs__panel" id="trading-tab-panel-history" role="tabpanel" hidden>
+              <div id="trading-orders"></div>
+            </div>
+          </section>
         </div>
 
-        <!-- 右侧：持仓 + 订单 -->
-        <div>
-          <div class="cq-section-title"><h3>我的持仓</h3></div>
-          <div id="trading-positions" style="margin-bottom:var(--cq-space-5);"></div>
-
-          <div class="cq-section-title"><h3>订单历史</h3></div>
-          <div id="trading-orders"></div>
-        </div>
+        <aside class="cq-card cq-trading-terminal__book">
+          <div class="cq-market-orderbook__header">
+            <div>
+              <div class="cq-trading-panel__eyebrow">深度</div>
+              <h3>订单簿</h3>
+              <p>当前交易对的盘口与点差</p>
+            </div>
+            <div id="trading-orderbook-meta" class="cq-market-orderbook__meta"></div>
+          </div>
+          <div id="trading-orderbook-summary" class="cq-market-orderbook__summary"></div>
+          <div id="trading-orderbook-body" class="cq-market-orderbook__body"></div>
+        </aside>
       </div>
     </div>
 
@@ -547,6 +709,18 @@
   </div>
 </div>
 
+<div class="cq-perf-modal" id="account-detail-modal">
+  <div class="cq-perf-panel" style="max-width:760px;">
+    <div class="cq-perf-panel__header">
+      <span style="font-weight:600;">账户详情</span>
+      <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="closeAccountDetailModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cq-perf-panel__body" id="account-detail-body"></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="cq-toast" id="toast"></div>
 
@@ -557,6 +731,8 @@
 <script src="/web/static/js/strategy.js"></script>
 <script src="/web/static/js/backtest.js"></script>
 <script src="/web/static/js/accounts.js"></script>
+<script src="/web/static/js/paper.js"></script>
+<script src="/web/static/js/security.js"></script>
 <script src="/web/static/js/market.js"></script>
 <script src="/web/static/js/trading.js"></script>
 <script>
@@ -608,7 +784,16 @@ window.addEventListener('resize', () => {
 });
 
 // ===== 全局导航 =====
-let _currentPage = location.hash.replace('#', '') || 'dashboard';
+const _VALID_PAGES = new Set(['dashboard', 'strategy', 'backtest', 'accounts', 'paper', 'security', 'market', 'trading']);
+
+function normalizeHashPage() {
+  let raw = (location.hash || '').replace(/^#/, '').trim();
+  raw = raw.replace(/^\/+/, '');
+  const slug = raw.split('/')[0] || '';
+  return _VALID_PAGES.has(slug) ? slug : 'dashboard';
+}
+
+let _currentPage = normalizeHashPage();
 let _suppressHashSync = false;
 
 async function canLeaveCurrentPage(nextPage) {
@@ -620,7 +805,7 @@ async function canLeaveCurrentPage(nextPage) {
 
 async function navigate(page, pushHash = true) {
   if (!await canLeaveCurrentPage(page)) {
-    if (!pushHash && location.hash.replace('#', '') !== _currentPage) {
+    if (!pushHash && normalizeHashPage() !== _currentPage) {
       _suppressHashSync = true;
       location.hash = _currentPage;
     }
@@ -644,13 +829,16 @@ async function navigate(page, pushHash = true) {
 
   closeSidebar();
 
-  // 页面离开时清理行情WS
+  // 页面离开时清理行情WS / 交易轮询
   if (page !== 'market') stopMarketWs();
+  if (page !== 'trading' && typeof stopTradingOrderbookPolling === 'function') stopTradingOrderbookPolling();
 
   if (page === 'dashboard') loadDashboard();
   else if (page === 'strategy') loadStrategyPage();
   else if (page === 'backtest') loadBacktestPage();
   else if (page === 'accounts') loadAccountsPage();
+  else if (page === 'paper') loadPaperPage();
+  else if (page === 'security') loadSecurityPage();
   else if (page === 'market') loadMarketPage();
   else if (page === 'trading') loadTradingPage();
 
@@ -663,7 +851,7 @@ window.addEventListener('hashchange', async () => {
     _suppressHashSync = false;
     return;
   }
-  const page = location.hash.replace('#', '') || 'dashboard';
+  const page = normalizeHashPage();
   await navigate(page, false);
 });
 
@@ -677,11 +865,15 @@ window.addEventListener('beforeunload', (event) => {
 
 // ===== 登录/注册 =====
 function showLogin() {
+  window._pending2faLogin = null;
   document.getElementById('login-form').style.display = 'block';
+  document.getElementById('login-2fa-form').style.display = 'none';
   document.getElementById('register-form').style.display = 'none';
 }
 function showRegister() {
+  window._pending2faLogin = null;
   document.getElementById('login-form').style.display = 'none';
+  document.getElementById('login-2fa-form').style.display = 'none';
   document.getElementById('register-form').style.display = 'block';
 }
 
@@ -695,7 +887,12 @@ async function handleLogin() {
   btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 登录中...';
 
   try {
-    await api.login(email, password);
+    const result = await api.login(email, password);
+    if (result && result.requires_2fa) {
+      showLogin2fa(email, password);
+      showToast('请输入双重验证码完成登录', 'info');
+      return;
+    }
     enterApp();
   } catch (err) {
     showToast(err.message, 'error');
@@ -733,6 +930,7 @@ async function handleLogout() {
     deselectTemplate({ keepSelection: false, silent: true });
   }
   api.logout();
+  if (typeof cancelLogin2fa === 'function') cancelLogin2fa(true);
   document.getElementById('app-page').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
   _currentPage = 'dashboard';
@@ -759,8 +957,17 @@ async function enterApp() {
     showToast('获取用户信息失败，请刷新重试', 'warn');
   }
 
-  // 从 hash 恢复上次页面，默认 Dashboard
-  const savedPage = location.hash.replace('#', '') || 'dashboard';
+  // 从 hash 恢复上次页面；非法或带前缀斜杠的 hash 纠正为 #<page>，避免白屏
+  const savedPage = normalizeHashPage();
+  const hashBody = (location.hash || '').replace(/^#/, '').trim();
+  const hashSlug = hashBody.replace(/^\/+/, '').split('/')[0] || '';
+  if (location.hash && !_VALID_PAGES.has(hashSlug)) {
+    _suppressHashSync = true;
+    location.hash = savedPage;
+  } else if (location.hash && _VALID_PAGES.has(hashSlug) && location.hash !== `#${hashSlug}`) {
+    _suppressHashSync = true;
+    location.hash = hashSlug;
+  }
   navigate(savedPage, false);
 }
 
@@ -903,6 +1110,7 @@ document.addEventListener('keydown', (e) => {
     const loginPage = document.getElementById('login-page');
     if (loginPage.style.display !== 'none') {
       if (document.getElementById('login-form').style.display !== 'none') handleLogin();
+      else if (document.getElementById('login-2fa-form').style.display !== 'none') handleLogin2fa();
       else handleRegister();
     }
   }

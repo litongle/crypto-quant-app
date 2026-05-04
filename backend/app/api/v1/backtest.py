@@ -49,6 +49,15 @@ class BacktestRequest(BaseModel):
         description="初始资金 USDT，必须大于0",
     )
     params: dict = Field(default_factory=dict, description="策略参数")
+    analysis_window: int | None = Field(
+        default=None,
+        alias="analysisWindow",
+        description=(
+            "传给策略的K线长度：省略或0=从第1根到当前bar全量前缀；"
+            "正整数=仅最近N根（省内存，长周期指标可能失真）。"
+            "也可在 params.backtest_analysis_window 中设置，本字段优先。"
+        ),
+    )
 
 
 # ============ 路由 ============
@@ -89,6 +98,7 @@ async def run_backtest(
         end_date=end_date,
         initial_capital=request.initial_capital,
         params=request.params,
+        analysis_window=request.analysis_window,
     )
 
     # 检查错误

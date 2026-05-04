@@ -108,8 +108,9 @@ async def create_paper_account(
         data={
             "id": account.id,
             "name": account.account_name,
-            "balance": 100000,
+            "balance": float(account.balance or 0),
             "exchange": "paper",
+            "isPaper": True,
         }
     )
 
@@ -129,8 +130,12 @@ async def get_paper_accounts(
             {
                 "id": a.id,
                 "name": a.account_name,
-                "exchange": a.exchange,
+                "exchange": "paper",
+                "balance": float(a.balance or 0),
+                "frozenBalance": float(a.frozen_balance or 0),
                 "isActive": a.is_active,
+                "isPaper": True,
+                "balances": a.balances or {},
             }
             for a in accounts
         ]
@@ -147,6 +152,6 @@ async def reset_paper_account(
     from app.services.paper_trading_service import PaperTradingService
 
     service = PaperTradingService(session)
-    await service.reset_paper_account(account_id)
+    await service.reset_paper_account(account_id, user_id=current_user.id)
     await session.commit()
     return APIResponse(message="模拟账户已重置")

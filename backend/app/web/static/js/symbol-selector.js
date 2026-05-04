@@ -4,7 +4,7 @@
  */
 
 // ===== 交易对数据 =====
-const SYMBOL_DATA = [
+const FALLBACK_SYMBOL_DATA = [
   // ─── 主流币 ───
   { symbol: 'BTCUSDT',  name: 'BTC/USDT',  base: 'BTC',  type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
   { symbol: 'ETHUSDT',  name: 'ETH/USDT',  base: 'ETH',  type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
@@ -38,17 +38,111 @@ const SYMBOL_DATA = [
   // F1: 后端 market_service 已支持 perp 路由
   // (binance fapi / okx SWAP instId / htx linear-swap-ex)
   // .P 后缀仅前端语义,getValue() 时拆成 (symbol, market='perp')
-  { symbol: 'BTCUSDT.P',  name: 'BTC/USDT 永续',  base: 'BTC',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'ETHUSDT.P',  name: 'ETH/USDT 永续',  base: 'ETH',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'SOLUSDT.P',  name: 'SOL/USDT 永续',  base: 'SOL',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'BTCUSDT.P',  name: 'BTC/USDT 永续',  base: 'BTC',  type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'ETHUSDT.P',  name: 'ETH/USDT 永续',  base: 'ETH',  type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'SOLUSDT.P',  name: 'SOL/USDT 永续',  base: 'SOL',  type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
   { symbol: 'BNBUSDT.P',  name: 'BNB/USDT 永续',  base: 'BNB',  type: 'perp', category: '永续合约', exchanges: ['binance'] },
-  { symbol: 'XRPUSDT.P',  name: 'XRP/USDT 永续',  base: 'XRP',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'DOGEUSDT.P', name: 'DOGE/USDT 永续', base: 'DOGE', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'ADAUSDT.P',  name: 'ADA/USDT 永续',  base: 'ADA',  type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'AVAXUSDT.P', name: 'AVAX/USDT 永续', base: 'AVAX', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
-  { symbol: 'LINKUSDT.P', name: 'LINK/USDT 永续', base: 'LINK', type: 'perp', category: '永续合约', exchanges: ['binance','okx','huobi'] },
+  { symbol: 'XRPUSDT.P',  name: 'XRP/USDT 永续',  base: 'XRP',  type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'DOGEUSDT.P', name: 'DOGE/USDT 永续', base: 'DOGE', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'ADAUSDT.P',  name: 'ADA/USDT 永续',  base: 'ADA',  type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'AVAXUSDT.P', name: 'AVAX/USDT 永续', base: 'AVAX', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
+  { symbol: 'LINKUSDT.P', name: 'LINK/USDT 永续', base: 'LINK', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
   { symbol: 'PEPEUSDT.P', name: 'PEPE/USDT 永续', base: 'PEPE', type: 'perp', category: '永续合约', exchanges: ['binance','okx'] },
 ];
+
+let SYMBOL_DATA = [...FALLBACK_SYMBOL_DATA];
+let _symbolDataPromise = null;
+let _symbolDataLoaded = false;
+
+const DEFAULT_SYMBOL_EXCHANGES = ['binance', 'okx', 'huobi'];
+
+function normalizeExchangeName(exchange) {
+  const value = String(exchange || '').trim().toLowerCase();
+  if (value === 'htx') return 'huobi';
+  return value;
+}
+
+function buildDefaultSpotSymbolMeta(symbol) {
+  const upperSymbol = String(symbol || '').trim().toUpperCase();
+  const base = upperSymbol.replace(/USDT$/, '') || upperSymbol;
+  return {
+    symbol: upperSymbol,
+    name: `${base}/USDT`,
+    base,
+    type: 'spot',
+    category: '更多交易对',
+    exchanges: [...DEFAULT_SYMBOL_EXCHANGES],
+  };
+}
+
+function cloneSymbolMeta(item) {
+  return {
+    ...item,
+    exchanges: Array.isArray(item.exchanges)
+      ? [...new Set(item.exchanges.map(normalizeExchangeName).filter(Boolean))]
+      : [...DEFAULT_SYMBOL_EXCHANGES],
+  };
+}
+
+function buildSymbolDataFromServer(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) {
+    return [...FALLBACK_SYMBOL_DATA];
+  }
+
+  const fallbackBySymbol = new Map(FALLBACK_SYMBOL_DATA.map((item) => [item.symbol, item]));
+  const fallbackOrder = new Map(FALLBACK_SYMBOL_DATA.map((item, index) => [item.symbol, index]));
+  const seen = new Set();
+  const items = [];
+
+  for (const rawSymbol of symbols) {
+    const symbol = String(rawSymbol || '').trim().toUpperCase();
+    if (!symbol || seen.has(symbol)) continue;
+    seen.add(symbol);
+
+    const fallbackSpot = fallbackBySymbol.get(symbol);
+    items.push(cloneSymbolMeta(fallbackSpot || buildDefaultSpotSymbolMeta(symbol)));
+
+    const fallbackPerp = fallbackBySymbol.get(`${symbol}.P`);
+    if (fallbackPerp) {
+      items.push(cloneSymbolMeta(fallbackPerp));
+    }
+  }
+
+  items.sort((a, b) => {
+    const aRank = fallbackOrder.has(a.symbol) ? fallbackOrder.get(a.symbol) : Number.MAX_SAFE_INTEGER;
+    const bRank = fallbackOrder.has(b.symbol) ? fallbackOrder.get(b.symbol) : Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.symbol.localeCompare(b.symbol);
+  });
+
+  return items;
+}
+
+async function preloadSymbolSelectorData(force = false) {
+  if (!force && _symbolDataLoaded) return SYMBOL_DATA;
+  if (!force && _symbolDataPromise) return _symbolDataPromise;
+  if (typeof api === 'undefined' || typeof api.getSymbols !== 'function') return SYMBOL_DATA;
+
+  _symbolDataPromise = (async () => {
+    try {
+      const response = await api.getSymbols();
+      const nextData = buildSymbolDataFromServer(response?.symbols || response);
+      if (Array.isArray(nextData) && nextData.length > 0) {
+        SYMBOL_DATA = nextData;
+        _symbolDataLoaded = true;
+      }
+    } catch {
+      // 保持本地兜底列表，页面仍可用
+    }
+    return SYMBOL_DATA;
+  })();
+
+  try {
+    return await _symbolDataPromise;
+  } finally {
+    _symbolDataPromise = null;
+  }
+}
 
 /**
  * 把前端选择器里的 "BTCUSDT.P" 拆成 { symbol, market }
@@ -88,23 +182,32 @@ class SymbolSelector {
     this.value = opts.value || 'BTCUSDT';
     this.onChange = opts.onChange || (() => {});
     this.exchangeFilterId = opts.exchangeFilter || null;
+    this.exchangeResolver = typeof opts.exchangeResolver === 'function' ? opts.exchangeResolver : null;
     this.isOpen = false;
     this.search = '';
     this.filterType = 'all'; // all | spot | perp
+    this.symbolData = SYMBOL_DATA;
+    this._containerClickHandler = null;
+    this._containerInputHandler = null;
+    this._documentClickHandler = null;
+    this._exchangeFilterHandler = null;
 
     this._build();
     this._bind();
+    preloadSymbolSelectorData().then((data) => this.refreshData(data));
   }
 
   _getFilteredSymbols() {
-    let list = SYMBOL_DATA;
+    let list = this.symbolData;
 
     // 按交易所过滤
     if (this.exchangeFilterId) {
       const el = document.getElementById(this.exchangeFilterId);
       if (el) {
-        const ex = el.value;
-        if (ex) list = list.filter(s => s.exchanges.includes(ex));
+        const ex = normalizeExchangeName(
+          this.exchangeResolver ? this.exchangeResolver(el.value, el) : el.value
+        );
+        if (ex) list = list.filter((s) => (s.exchanges || []).includes(ex));
       }
     }
 
@@ -126,7 +229,16 @@ class SymbolSelector {
   }
 
   _findSymbol(val) {
-    return SYMBOL_DATA.find(s => s.symbol === val);
+    return this.symbolData.find((s) => s.symbol === val);
+  }
+
+  refreshData(nextData = SYMBOL_DATA) {
+    if (!Array.isArray(nextData) || nextData.length === 0) return;
+    this.symbolData = nextData;
+    if (!this._findSymbol(this.value)) {
+      this.value = nextData[0].symbol;
+    }
+    this._build();
   }
 
   _build() {
@@ -222,44 +334,62 @@ class SymbolSelector {
     const container = document.getElementById(this.containerId);
     if (!container) return;
 
-    // 点击触发器
-    container.querySelector('.sym-sel__trigger').addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.toggle();
-    });
+    if (!this._containerClickHandler) {
+      this._containerClickHandler = (e) => {
+        const trigger = e.target.closest('.sym-sel__trigger');
+        if (trigger) {
+          e.stopPropagation();
+          this.toggle();
+          return;
+        }
 
-    // 搜索
-    container.querySelector('.sym-sel__search').addEventListener('input', (e) => {
-      this.search = e.target.value;
-      this._renderList();
-    });
+        const filter = e.target.closest('.sym-sel__filter');
+        if (filter) {
+          e.stopPropagation();
+          container.querySelectorAll('.sym-sel__filter').forEach((button) => button.classList.remove('active'));
+          filter.classList.add('active');
+          this.filterType = filter.dataset.type;
+          this._renderList();
+          return;
+        }
 
-    // 搜索框阻止冒泡
-    container.querySelector('.sym-sel__search').addEventListener('click', (e) => e.stopPropagation());
+        const item = e.target.closest('.sym-sel__item');
+        if (item) {
+          this.setValue(item.dataset.symbol);
+          this.close();
+          return;
+        }
 
-    // 类型过滤
-    container.querySelectorAll('.sym-sel__filter').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        container.querySelectorAll('.sym-sel__filter').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.filterType = btn.dataset.type;
+        if (e.target.closest('.sym-sel__search')) {
+          e.stopPropagation();
+        }
+      };
+      container.addEventListener('click', this._containerClickHandler);
+    }
+
+    if (!this._containerInputHandler) {
+      this._containerInputHandler = (e) => {
+        if (!e.target.classList.contains('sym-sel__search')) return;
+        this.search = e.target.value;
         this._renderList();
-      });
-    });
+      };
+      container.addEventListener('input', this._containerInputHandler);
+    }
 
-    // 选中项
-    container.querySelector('.sym-sel__list').addEventListener('click', (e) => {
-      const item = e.target.closest('.sym-sel__item');
-      if (!item) return;
-      this.setValue(item.dataset.symbol);
-      this.close();
-    });
+    if (this.exchangeFilterId && !this._exchangeFilterHandler) {
+      const exchangeFilter = document.getElementById(this.exchangeFilterId);
+      if (exchangeFilter) {
+        this._exchangeFilterHandler = () => this._renderList();
+        exchangeFilter.addEventListener('change', this._exchangeFilterHandler);
+      }
+    }
 
-    // 点击外部关闭
-    document.addEventListener('click', (e) => {
-      if (!container.contains(e.target)) this.close();
-    });
+    if (!this._documentClickHandler) {
+      this._documentClickHandler = (e) => {
+        if (!container.contains(e.target)) this.close();
+      };
+      document.addEventListener('click', this._documentClickHandler);
+    }
   }
 
   toggle() {
@@ -310,4 +440,10 @@ class SymbolSelector {
   getValue() {
     return this.value;
   }
+
+  getFilteredSymbols() {
+    return this._getFilteredSymbols();
+  }
 }
+
+window.preloadSymbolSelectorData = preloadSymbolSelectorData;

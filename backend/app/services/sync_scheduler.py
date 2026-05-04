@@ -92,12 +92,18 @@ class SyncScheduler:
             is_demo=account.is_demo,
         )
 
-        # 1. 同步余额
+        # 1. 同步余额（适配器返回 list[Balance]，与 OrderService 一致）
         try:
-            balance_info = await adapter.get_balance()
-            if balance_info:
-                account.balance = balance_info.get("free", account.balance)
-                account.frozen_balance = balance_info.get("frozen", account.frozen_balance)
+            balances = await adapter.get_balance()
+            if balances:
+                for b in balances:
+                    if b.asset.upper() == "USDT":
+                        account.balance = b.free
+                        account.frozen_balance = b.locked
+                        break
+                else:
+                    account.balance = balances[0].free
+                    account.frozen_balance = balances[0].locked
                 account.last_sync_at = datetime.now(UTC)
                 logger.debug(
                     "[SyncScheduler] 账户 #%d 余额同步: free=%s, frozen=%s",
@@ -108,7 +114,7 @@ class SyncScheduler:
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 余额同步失败: %s", account.id, exc)
 
-        # 2. 同步持仓
+        # 2. 同步持仓（适配器返回 list[PositionInfo]）
         try:
             from decimal import Decimal
 
@@ -119,11 +125,11 @@ class SyncScheduler:
             exchange_positions = await adapter.get_positions()
             if exchange_positions:
                 for ep in exchange_positions:
-                    symbol = ep.get("symbol", "")
-                    side = ep.get("side", "long")
-                    quantity = Decimal(str(ep.get("quantity", 0)))
-                    entry_price = Decimal(str(ep.get("entry_price", 0)))
-                    current_price = Decimal(str(ep.get("current_price", entry_price)))
+                    symbol = ep.symbol
+                    side = ep.side
+                    quantity = ep.quantity
+                    entry_price = ep.entry_price
+                    current_price = ep.current_price
 
                     if quantity <= 0:
                         continue
@@ -143,15 +149,16 @@ class SyncScheduler:
                         position.quantity = quantity
                         position.entry_price = entry_price
                         position.current_price = current_price
+                        position.leverage = ep.leverage or position.leverage
+                        position.unrealized_pnl = ep.unrealized_pnl
                         if entry_price and entry_price > 0:
-                            if side == "long":
-                                position.unrealized_pnl = (current_price - entry_price) * quantity
-                            else:
-                                position.unrealized_pnl = (entry_price - current_price) * quantity
                             position.unrealized_pnl_percent = (
-                                position.unrealized_pnl / (entry_price * quantity) * 100
+                                ep.unrealized_pnl / (entry_price * quantity) * Decimal("100")
                             )
                     else:
+                        upnl_pct = Decimal("0")
+                        if entry_price and entry_price > 0:
+                            upnl_pct = ep.unrealized_pnl / (entry_price * quantity) * Decimal("100")
                         new_pos = Position(
                             account_id=account.id,
                             symbol=symbol,
@@ -159,6 +166,9 @@ class SyncScheduler:
                             quantity=quantity,
                             entry_price=entry_price,
                             current_price=current_price,
+                            leverage=ep.leverage or 1,
+                            unrealized_pnl=ep.unrealized_pnl,
+                            unrealized_pnl_percent=upnl_pct,
                             status="open",
                         )
                         session.add(new_pos)

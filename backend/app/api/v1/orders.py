@@ -14,11 +14,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.instrument_resolution import resolve_execution_context
 from app.core.schemas import APIResponse
 from app.core.trade_schemas import (
     AccountInfoSchema,
     OrderSchema,
     PositionSchema,
+    TradingSymbolRulesSchema,
 )
 from app.database import get_session
 from app.models.exchange import ExchangeAccount
@@ -55,7 +57,7 @@ class CreateOrderRequest(BaseModel):
     """创建订单请求"""
 
     account_id: int = Field(gt=0, description="账户ID必须为正整数")
-    symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?$")
+    symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$")
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit"]
     quantity: Decimal = Field(gt=0, description="数量必须大于0")
@@ -84,6 +86,14 @@ class EmergencyCloseConfirm(BaseModel):
     account_id: int | None = Field(default=None, description="指定账户ID，不传则平所有账户")
 
 
+class UpdateContractSettingsRequest(BaseModel):
+    """更新合约参数请求"""
+
+    symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$")
+    leverage: int = Field(ge=1, le=125)
+    margin_mode: Literal["cross", "isolated"] = Field(alias="marginMode")
+
+
 # ============================================================
 # 交易所账户管理（静态路径优先注册，避免被 /{id} 路由拦截）
 # ============================================================
@@ -93,10 +103,11 @@ class EmergencyCloseConfirm(BaseModel):
 async def get_accounts(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    include_paper: bool = Query(default=False),
 ) -> APIResponse:
     """获取用户的交易所账户"""
     service = OrderService(session)
-    accounts = await service.get_user_accounts(current_user.id)
+    accounts = await service.get_user_accounts(current_user.id, include_paper=include_paper)
     return APIResponse(
         data=[AccountInfoSchema.from_model(a).model_dump(by_alias=True) for a in accounts]
     )
@@ -246,6 +257,60 @@ async def get_positions(
     )
 
 
+@router.get("/symbol-rules")
+async def get_trading_symbol_rules(
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    account_id: int = Query(..., gt=0),
+    symbol: str = Query(..., pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$"),
+) -> APIResponse[TradingSymbolRulesSchema]:
+    """获取手动交易表单的交易规则与市场语义。"""
+    service = OrderService(session)
+    rules = await service.get_symbol_rules(
+        user_id=current_user.id,
+        account_id=account_id,
+        symbol=symbol,
+    )
+    return APIResponse(data=rules.model_dump(by_alias=True))
+
+
+@router.get("/accounts/{account_id}/contract-settings")
+async def get_contract_settings(
+    account_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    symbol: str = Query(..., pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$"),
+) -> APIResponse:
+    """获取合约杠杆与保证金模式设置"""
+    service = OrderService(session)
+    data = await service.get_contract_settings(
+        user_id=current_user.id,
+        account_id=account_id,
+        symbol=symbol,
+    )
+    return APIResponse(data=data)
+
+
+@router.post("/accounts/{account_id}/contract-settings")
+async def update_contract_settings(
+    account_id: int,
+    request: UpdateContractSettingsRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """更新合约杠杆与保证金模式设置"""
+    service = OrderService(session)
+    data = await service.update_contract_settings(
+        user_id=current_user.id,
+        account_id=account_id,
+        symbol=request.symbol,
+        leverage=request.leverage,
+        margin_mode=request.margin_mode,
+    )
+    await session.commit()
+    return APIResponse(data=data)
+
+
 # ============================================================
 # 订单 CRUD（参数化路径放最后）
 # ============================================================
@@ -261,9 +326,12 @@ async def create_order(
     service = OrderService(session)
 
     # 格式化交易对
-    symbol = request.symbol.upper()
+    base_symbol, is_perp = resolve_execution_context(request.symbol, None)
+    symbol = base_symbol.upper()
     if not symbol.endswith(("USDT", "USDC", "BTC", "ETH")):
         symbol += "USDT"
+    if is_perp:
+        symbol = f"{symbol}.P"
 
     order = await service.create_order(
         user_id=current_user.id,

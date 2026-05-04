@@ -17,6 +17,7 @@ let marketWsReconnectTimer = null;
 let marketWsLastMessageAt = 0;
 let marketWsWatchdogTimer = null;
 let marketPollingTimer = null;
+let marketOrderbookTimer = null;
 let marketViewVersion = 0;
 let marketWsSessionId = 0;
 let marketIntervalCapabilities = null;
@@ -24,6 +25,7 @@ const marketIntervalCapabilitiesCache = new Map();
 
 const MARKET_WS_STALE_MS = 8000;
 const MARKET_POLL_INTERVAL_MS = 3000;
+const MARKET_ORDERBOOK_INTERVAL_MS = 5000;
 
 function getMarketContext() {
   return {
@@ -121,6 +123,10 @@ async function syncMarketIntervalCapabilities() {
 }
 
 async function loadMarketPage() {
+  if (typeof preloadSymbolSelectorData === 'function') {
+    await preloadSymbolSelectorData();
+  }
+
   // 渲染头部行情概览卡片
   try {
     const tickers = await api.getBatchTickers();
@@ -133,12 +139,14 @@ async function loadMarketPage() {
 
   // 加载K线图
   await loadMarketKline();
+  await loadMarketOrderbook();
 
   // 立即拉一次实时价格,避免首次进页面卡在 "-- --"
   refreshLivePriceNow();
 
   // 启动 WebSocket
   startMarketWs();
+  startMarketOrderbookPolling(false);
 
   // 初始化交易对选择器
   initMarketSymbolSelector();
@@ -265,10 +273,12 @@ function selectMarketSymbol(symbol) {
   if (active) active.classList.add('is-active');
   // 重新加载K线
   loadMarketKline();
+  loadMarketOrderbook();
   // 立即填一次价格
   refreshLivePriceNow();
   // 重连 WS
   startMarketWs();
+  startMarketOrderbookPolling(false);
 }
 
 /* ── K线周期和交易所切换 ── */
@@ -290,8 +300,10 @@ async function changeMarketExchange(exchange) {
   if (active) active.classList.add('is-active');
   await syncMarketIntervalCapabilities();
   loadMarketKline();
+  loadMarketOrderbook();
   refreshLivePriceNow();
   startMarketWs();
+  startMarketOrderbookPolling(false);
 }
 
 /* 图表类型切换:蜡烛 / 线 — 不重新拉数据,直接复用缓存 */
@@ -330,6 +342,133 @@ async function loadMarketKline() {
     container.innerHTML = `<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);"><h3>${escapeHtml(err.message)}</h3></div>`;
     marketLastKlines = [];
   }
+}
+
+function formatOrderbookValue(value, digits = 4) {
+  const number = Number(value);
+  if (!isFinite(number)) return '--';
+  if (Math.abs(number) >= 1000) {
+    return number.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  if (Math.abs(number) >= 1) return number.toFixed(Math.min(digits, 4));
+  return number.toFixed(Math.min(Math.max(digits, 4), 6));
+}
+
+function renderMarketOrderbookRows(items, side) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '<div class="cq-market-orderbook__empty">暂无盘口数据</div>';
+  }
+
+  const maxQuantity = Math.max(...items.map((item) => Number(item.quantity || 0)), 0);
+  return items.map((item) => {
+    const price = Number(item.price || 0);
+    const quantity = Number(item.quantity || 0);
+    const depthWidth = maxQuantity > 0 ? Math.max((quantity / maxQuantity) * 100, 4) : 0;
+    return `
+      <div class="cq-market-orderbook__row cq-market-orderbook__row--${side}">
+        <div class="cq-market-orderbook__depth" style="width:${depthWidth.toFixed(1)}%;"></div>
+        <span class="cq-market-orderbook__price cq-num">${formatOrderbookValue(price, 2)}</span>
+        <span class="cq-market-orderbook__qty cq-num">${formatOrderbookValue(quantity, 4)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMarketOrderbook(orderbook, ctx = getMarketContext()) {
+  const summaryEl = document.getElementById('market-orderbook-summary');
+  const bodyEl = document.getElementById('market-orderbook-body');
+  const metaEl = document.getElementById('market-orderbook-meta');
+  if (!summaryEl || !bodyEl) return;
+
+  const bids = Array.isArray(orderbook?.bids) ? [...orderbook.bids].slice(0, 12) : [];
+  const asks = Array.isArray(orderbook?.asks) ? [...orderbook.asks].slice(0, 12) : [];
+  const bestBid = Number(bids[0]?.price || 0);
+  const bestAsk = Number(asks[0]?.price || 0);
+  const spread = bestBid > 0 && bestAsk > 0 ? bestAsk - bestBid : null;
+  const spreadPct = spread != null && bestBid > 0 ? (spread / bestBid) * 100 : null;
+  const bidTotal = bids.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const askTotal = asks.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
+  summaryEl.innerHTML = `
+    <div class="cq-market-orderbook__metric">
+      <span>买一 / 卖一</span>
+      <strong class="cq-num">${bestBid ? formatOrderbookValue(bestBid, 2) : '--'} / ${bestAsk ? formatOrderbookValue(bestAsk, 2) : '--'}</strong>
+    </div>
+    <div class="cq-market-orderbook__metric">
+      <span>点差</span>
+      <strong class="cq-num">${spread == null ? '--' : formatOrderbookValue(spread, 4)}</strong>
+      <em>${spreadPct == null ? '' : `${spreadPct.toFixed(3)}%`}</em>
+    </div>
+    <div class="cq-market-orderbook__metric">
+      <span>深度合计</span>
+      <strong class="cq-num">${formatOrderbookValue(bidTotal, 4)} / ${formatOrderbookValue(askTotal, 4)}</strong>
+      <em>买 / 卖</em>
+    </div>
+  `;
+
+  bodyEl.innerHTML = `
+    <div class="cq-market-orderbook__section">
+      <div class="cq-market-orderbook__section-head">
+        <span>卖盘</span>
+        <span>价格 / 数量</span>
+      </div>
+      <div class="cq-market-orderbook__rows">${renderMarketOrderbookRows([...asks].reverse(), 'ask')}</div>
+    </div>
+    <div class="cq-market-orderbook__spread">
+      <span class="cq-tag cq-tag--neutral">${escapeHtml(ctx.exchange.toUpperCase())}</span>
+      <span class="cq-tag ${ctx.marketType === 'perp' ? 'cq-tag--warn' : 'cq-tag--info'}">${ctx.marketType === 'perp' ? '永续' : '现货'}</span>
+    </div>
+    <div class="cq-market-orderbook__section">
+      <div class="cq-market-orderbook__section-head">
+        <span>买盘</span>
+        <span>价格 / 数量</span>
+      </div>
+      <div class="cq-market-orderbook__rows">${renderMarketOrderbookRows(bids, 'bid')}</div>
+    </div>
+  `;
+
+  if (metaEl) {
+    metaEl.textContent = `订单簿已更新 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+  }
+}
+
+async function loadMarketOrderbook() {
+  const ctx = getMarketContext();
+  const bodyEl = document.getElementById('market-orderbook-body');
+  const summaryEl = document.getElementById('market-orderbook-summary');
+  if (!bodyEl || !summaryEl) return;
+
+  bodyEl.innerHTML = '<div class="cq-skeleton" style="height:240px;border-radius:12px;"></div>';
+  summaryEl.innerHTML = '';
+
+  try {
+    const orderbook = await api.getOrderbook(ctx.symbol, 12, ctx.exchange, ctx.marketType);
+    if (!isCurrentMarketContext(ctx)) return;
+    renderMarketOrderbook(orderbook, ctx);
+  } catch (err) {
+    if (!isCurrentMarketContext(ctx)) return;
+    bodyEl.innerHTML = `<div class="cq-market-orderbook__empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function stopMarketOrderbookPolling() {
+  if (marketOrderbookTimer) {
+    clearInterval(marketOrderbookTimer);
+    marketOrderbookTimer = null;
+  }
+}
+
+function startMarketOrderbookPolling(immediate = true) {
+  stopMarketOrderbookPolling();
+  if (immediate) {
+    loadMarketOrderbook().catch(() => {});
+  }
+  marketOrderbookTimer = setInterval(() => {
+    loadMarketOrderbook().catch(() => {});
+  }, MARKET_ORDERBOOK_INTERVAL_MS);
 }
 
 /* 把后端返回的 kline 转成 lightweight-charts 数据点
@@ -775,11 +914,15 @@ function initMarketSymbolSelector() {
           invalidateMarketContext();
           await syncMarketIntervalCapabilities();
           loadMarketKline();
+          loadMarketOrderbook();
           refreshLivePriceNow();
           startMarketWs();
+          startMarketOrderbookPolling(false);
         },
       });
     }
+  } else if (typeof window._marketSymbolSel.refreshData === 'function') {
+    window._marketSymbolSel.refreshData();
   }
 }
 
@@ -787,6 +930,7 @@ function initMarketSymbolSelector() {
 function stopMarketWs() {
   disposeMarketKlineChart();
   stopMarketPolling();
+  stopMarketOrderbookPolling();
   if (marketWs) {
     marketWs.onclose = null;
     marketWs.onerror = null;

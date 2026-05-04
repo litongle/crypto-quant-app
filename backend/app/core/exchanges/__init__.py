@@ -38,12 +38,15 @@ def get_exchange_adapter(
     passphrase: str | None = None,
     testnet: bool = False,
     is_demo: bool = False,
+    is_futures: bool = False,
 ) -> BaseExchangeAdapter:
     """获取交易所适配器工厂函数"""
     exchange_lower = exchange.lower()
 
     if exchange_lower == "binance":
-        return BinanceAdapter(api_key, secret_key, passphrase, testnet=testnet)
+        return BinanceAdapter(
+            api_key, secret_key, passphrase, testnet=testnet, is_futures=is_futures
+        )
     elif exchange_lower == "okx":
         return OKXAdapter(api_key, secret_key, passphrase, is_demo=is_demo)
     elif exchange_lower in ("huobi", "htx"):

@@ -38,7 +38,12 @@ async def _make_user(session, *, email: str = "svc@example.com") -> User:
 
 
 async def _make_account(
-    session, user_id: int, *, active: bool = True, exchange: str = "binance"
+    session,
+    user_id: int,
+    *,
+    active: bool = True,
+    exchange: str = "binance",
+    is_paper: bool = False,
 ) -> ExchangeAccount:
     """创建一个交易所账户，使用真实的加密 API Key（让 get_api_key/decrypt 不报错）"""
     account = ExchangeAccount(
@@ -47,9 +52,15 @@ async def _make_account(
         account_name="test-account",
         is_active=active,
         status="active",
+        is_paper=is_paper,
     )
     account.set_api_key("FAKE_API_KEY_FOR_TEST_AAAAA")
     account.set_secret_key("FAKE_SECRET_KEY_FOR_TEST_BBBBB")
+    if is_paper:
+        account.balance = Decimal("100000")
+        account.frozen_balance = Decimal("0")
+        account.balances = {"USDT": "100000"}
+        account.contract_settings = {}
     session.add(account)
     await session.flush()
     await session.refresh(account)
@@ -88,6 +99,7 @@ def _mock_adapter(create_result: OrderResult | Exception | None = None):
     adapter.cancel_order = AsyncMock()
     adapter.create_stop_order = AsyncMock()
     adapter.get_balance = AsyncMock()
+    adapter.get_order = AsyncMock()
 
     if isinstance(create_result, Exception):
         adapter.create_order.side_effect = create_result
@@ -100,7 +112,7 @@ def _mock_adapter(create_result: OrderResult | Exception | None = None):
 def _patch_adapter(service: OrderService, adapter):
     """替换 service._get_adapter"""
 
-    async def _get(_):
+    async def _get(_account, **kwargs):
         return adapter
 
     service._get_adapter = _get  # type: ignore[method-assign]
@@ -117,6 +129,20 @@ def _filled_order_result(qty: str = "0.01", price: str = "50000") -> OrderResult
         status="filled",
         filled_quantity=Decimal(qty),
         avg_fill_price=Decimal(price),
+    )
+
+
+def _pending_order_result(qty: str = "0.01") -> OrderResult:
+    return OrderResult(
+        exchange_order_id="EX-123",
+        symbol="BTCUSDT",
+        side="buy",
+        order_type="market",
+        quantity=Decimal(qty),
+        price=None,
+        status="pending",
+        filled_quantity=Decimal("0"),
+        avg_fill_price=None,
     )
 
 
@@ -234,6 +260,94 @@ class TestSubmitOrder:
         assert result.filled_at is not None
         adapter.create_order.assert_awaited_once()
 
+    async def test_submit_order_refreshes_recent_pending_order(self, db_session):
+        user = await _make_user(db_session, email="subpending@example.com")
+        account = await _make_account(db_session, user.id, exchange="okx")
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
+        )
+        adapter = _mock_adapter(create_result=_pending_order_result())
+        adapter.get_order.return_value = _filled_order_result()
+        _patch_adapter(service, adapter)
+
+        result = await service.submit_order(order.id, user.id)
+
+        assert result.status == "filled"
+        assert result.avg_fill_price == Decimal("50000")
+        assert result.filled_quantity == Decimal("0.01")
+        adapter.get_order.assert_awaited_once()
+
+    async def test_submit_order_uses_perp_suffix_for_binance_futures(self, db_session):
+        user = await _make_user(db_session, email="subperp1@example.com")
+        account = await _make_account(db_session, user.id, exchange="binance")
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT.P",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
+        )
+
+        adapter = _mock_adapter(create_result=_filled_order_result())
+        adapter_kwargs = {}
+
+        async def _get(_account, **kwargs):
+            adapter_kwargs.update(kwargs)
+            return adapter
+
+        service._get_adapter = _get  # type: ignore[method-assign]
+
+        await service.submit_order(order.id, user.id)
+        assert adapter_kwargs["is_futures"] is True
+        assert adapter.create_order.await_args.kwargs["symbol"] == "BTCUSDT"
+
+    async def test_submit_order_uses_okx_swap_inst_id_for_perp_suffix(self, db_session):
+        user = await _make_user(db_session, email="subperp2@example.com")
+        account = await _make_account(db_session, user.id, exchange="okx")
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT.P",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
+        )
+
+        adapter = _mock_adapter(create_result=_filled_order_result())
+        _patch_adapter(service, adapter)
+
+        await service.submit_order(order.id, user.id)
+        assert adapter.create_order.await_args.kwargs["symbol"] == "BTC-USDT-SWAP"
+        assert adapter.create_order.await_args.kwargs["position_side"] == "long"
+
+    async def test_submit_order_uses_base_ccy_for_okx_spot_market_buy(self, db_session):
+        user = await _make_user(db_session, email="subokxspot@example.com")
+        account = await _make_account(db_session, user.id, exchange="okx")
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("0.01"),
+        )
+
+        adapter = _mock_adapter(create_result=_filled_order_result())
+        _patch_adapter(service, adapter)
+
+        await service.submit_order(order.id, user.id)
+        assert adapter.create_order.await_args.kwargs["target_currency"] == "base_ccy"
+
     async def test_submit_order_rejected_marks_status(self, db_session):
         user = await _make_user(db_session, email="sub2@example.com")
         account = await _make_account(db_session, user.id)
@@ -328,6 +442,67 @@ class TestSubmitOrder:
         with pytest.raises(HTTPException) as exc_info:
             await service.submit_order(order.id, user_b.id)
         assert exc_info.value.status_code == 403
+
+    async def test_submit_order_fills_locally_for_paper_spot(self, db_session, monkeypatch):
+        user = await _make_user(db_session, email="subpaper1@example.com")
+        account = await _make_account(db_session, user.id, is_paper=True)
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("1"),
+        )
+
+        async def fake_price(self, symbol, price=None):
+            return Decimal("100")
+
+        monkeypatch.setattr(
+            "app.services.paper_trading_service.PaperTradingService.get_execution_price",
+            fake_price,
+        )
+
+        result = await service.submit_order(order.id, user.id)
+        await db_session.refresh(account)
+
+        assert result.status == "filled"
+        assert result.exchange_order_id == f"PAPER-{order.id}"
+        assert Decimal(str(account.balance)) < Decimal("100000")
+        assert account.balances["BTC"] == "1.00000000"
+
+    async def test_submit_order_fills_locally_for_paper_perp(self, db_session, monkeypatch):
+        user = await _make_user(db_session, email="subpaper2@example.com")
+        account = await _make_account(db_session, user.id, is_paper=True)
+        account.contract_settings = {"BTCUSDT.P": {"leverage": 5, "margin_mode": "isolated"}}
+        await db_session.commit()
+        service = OrderService(db_session)
+        order = await service.create_order(
+            user_id=user.id,
+            account_id=account.id,
+            symbol="BTCUSDT.P",
+            side="buy",
+            order_type="market",
+            quantity=Decimal("2"),
+        )
+
+        async def fake_price(self, symbol, price=None):
+            return Decimal("100")
+
+        monkeypatch.setattr(
+            "app.services.paper_trading_service.PaperTradingService.get_execution_price",
+            fake_price,
+        )
+
+        result = await service.submit_order(order.id, user.id)
+        positions = await service.get_open_positions(user.id, account.id)
+        await db_session.refresh(account)
+
+        assert result.status == "filled"
+        assert positions[0].symbol == "BTCUSDT.P"
+        assert positions[0].leverage == 5
+        assert Decimal(str(account.frozen_balance)) > Decimal("0")
 
 
 # ==================== cancel_order ====================
@@ -531,6 +706,25 @@ class TestClosePosition:
         # 平仓订单方向应当与 position 相反
         call = adapter.create_order.call_args
         assert call.kwargs["side"] == "sell"
+
+    async def test_close_okx_long_position_uses_long_pos_side(self, db_session):
+        user = await _make_user(db_session, email="cpokx1@example.com")
+        account = await _make_account(db_session, user.id, exchange="okx")
+        position = await _make_position(
+            db_session,
+            account.id,
+            symbol="BTCUSDT.P",
+            side="long",
+            quantity="1",
+        )
+        service = OrderService(db_session)
+
+        adapter = _mock_adapter(create_result=_filled_order_result(qty="1", price="50000"))
+        _patch_adapter(service, adapter)
+
+        await service.close_position(position.id, user.id)
+        call = adapter.create_order.call_args
+        assert call.kwargs["position_side"] == "long"
 
     async def test_close_already_closed_rejected(self, db_session):
         user = await _make_user(db_session, email="cp2@example.com")

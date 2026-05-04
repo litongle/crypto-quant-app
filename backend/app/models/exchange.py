@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Enum,
@@ -91,6 +92,9 @@ class ExchangeAccount(Base):
         Boolean, default=False, comment="OKX模拟盘标记(x-simulated-trading)"
     )
     is_testnet: Mapped[bool] = mapped_column(Boolean, default=False, comment="Binance测试网标记")
+    is_paper: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="本地模拟盘标记（由本系统撮合，不调用交易所）"
+    )
 
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -106,6 +110,12 @@ class ExchangeAccount(Base):
     )
     frozen_balance: Mapped[Decimal] = mapped_column(
         Numeric(20, 8), default=Decimal("0"), comment="冻结余额(USDT)"
+    )
+    balances: Mapped[dict[str, str] | None] = mapped_column(
+        JSON, nullable=True, comment="账户资产明细快照（本地模拟盘会维护各币种余额）"
+    )
+    contract_settings: Mapped[dict[str, dict[str, str | int]] | None] = mapped_column(
+        JSON, nullable=True, comment="合约交易设置（按交易对保存杠杆与保证金模式）"
     )
 
     # 同步状态

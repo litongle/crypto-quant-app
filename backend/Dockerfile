@@ -3,6 +3,8 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
+ARG INSTALL_DEV=false
+
 # Use Aliyun mirror for faster apt downloads (China-optimized)
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
@@ -19,9 +21,15 @@ COPY pyproject.toml README.md ./
 # Install dependencies with pip mirror (Aliyun) + timeout/retry for flaky networks
 RUN pip install --no-cache-dir --timeout=120 --retries=5 \
         --upgrade pip setuptools wheel hatchling && \
-    pip install --no-cache-dir --timeout=120 --retries=5 \
-        -i https://mirrors.aliyun.com/pypi/simple/ \
-        --trusted-host mirrors.aliyun.com .
+    if [ "$INSTALL_DEV" = "true" ]; then \
+        pip install --no-cache-dir --timeout=120 --retries=5 \
+            -i https://mirrors.aliyun.com/pypi/simple/ \
+            --trusted-host mirrors.aliyun.com ".[dev]"; \
+    else \
+        pip install --no-cache-dir --timeout=120 --retries=5 \
+            -i https://mirrors.aliyun.com/pypi/simple/ \
+            --trusted-host mirrors.aliyun.com .; \
+    fi
 
 # === Stage 2: Runtime image ===
 FROM python:3.12-slim

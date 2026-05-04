@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.instrument_resolution import adapter_symbol_for_okx_order, resolve_execution_context
 from app.models.exchange import ExchangeAccount
 from app.models.order import Order
 from app.repositories.trading_repo import ExchangeAccountRepository
@@ -69,7 +70,7 @@ class OrderReconciliationService:
 
             # 查询所有未完成的订单
             result = await session.execute(
-                select(Order).where(Order.status.in_(["submitted", "partial"]))
+                select(Order).where(Order.status.in_(["pending", "submitted", "partial"]))
             )
             pending_orders = result.scalars().all()
 
@@ -108,23 +109,26 @@ class OrderReconciliationService:
         """同步单个账户的订单状态"""
         from app.core.exchange_adapter import get_exchange_adapter
 
-        adapter = get_exchange_adapter(
-            exchange=account.exchange,
-            api_key=account.get_api_key(),
-            secret_key=account.get_secret_key(),
-            passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
-            testnet=account.is_testnet,
-            is_demo=account.is_demo,
-        )
-
         for order in orders:
             if not order.exchange_order_id:
                 continue
 
             try:
+                _, is_perp = resolve_execution_context(order.symbol, None)
+                adapter = get_exchange_adapter(
+                    exchange=account.exchange,
+                    api_key=account.get_api_key(),
+                    secret_key=account.get_secret_key(),
+                    passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
+                    testnet=account.is_testnet,
+                    is_demo=account.is_demo,
+                    is_futures=is_perp and (account.exchange or "").lower() == "binance",
+                )
+
                 # 查询交易所订单状态
-                exchange_order = await adapter.get_order_status(
-                    order.exchange_order_id, order.symbol
+                exchange_order = await adapter.get_order(
+                    order.exchange_order_id,
+                    self._adapter_symbol_for_order(account, order),
                 )
 
                 if not exchange_order:
@@ -137,18 +141,7 @@ class OrderReconciliationService:
 
                 # 更新本地订单状态
                 old_status = order.status
-                new_status = exchange_order.status
-
-                # 状态映射
-                status_map = {
-                    "filled": "filled",
-                    "canceled": "cancelled",
-                    "cancelled": "cancelled",
-                    "rejected": "rejected",
-                    "expired": "cancelled",
-                    "partial": "partial",
-                }
-                mapped_status = status_map.get(new_status, new_status)
+                mapped_status = self._map_exchange_status(exchange_order.status)
 
                 if mapped_status != old_status:
                     order.status = mapped_status
@@ -185,6 +178,30 @@ class OrderReconciliationService:
                     order.id,
                     exc,
                 )
+
+    @staticmethod
+    def _map_exchange_status(status_value: str | None) -> str:
+        status_key = str(status_value or "").lower()
+        status_map = {
+            "canceled": "cancelled",
+            "cancelled": "cancelled",
+            "expired": "cancelled",
+            "live": "submitted",
+            "new": "submitted",
+            "open": "submitted",
+            "partially_filled": "partial",
+            "partial-filled": "partial",
+        }
+        return status_map.get(status_key, status_key or "pending")
+
+    @staticmethod
+    def _adapter_symbol_for_order(account: ExchangeAccount, order: Order) -> str:
+        base_symbol, is_perp = resolve_execution_context(order.symbol, None)
+        normalized_base = base_symbol.upper()
+        exchange = (account.exchange or "").lower()
+        if is_perp and exchange == "okx":
+            return adapter_symbol_for_okx_order(normalized_base, True).upper()
+        return normalized_base
 
     async def _calculate_realized_pnl(self, session: AsyncSession, order: Order) -> None:
         """计算订单的已实现盈亏"""

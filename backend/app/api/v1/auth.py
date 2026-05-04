@@ -173,13 +173,17 @@ async def setup_2fa(
     """生成 TOTP 密钥和二维码 URI"""
     from app.services.totp_service import encrypt_totp_secret, generate_totp_secret
 
-    result = await generate_totp_secret(current_user.id, current_user.email)
+    db_user = await session.get(User, current_user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    result = await generate_totp_secret(db_user.id, db_user.email)
 
     # 加密存储 secret（暂未启用，等用户 verify 后才设置 totp_verified）
     encrypted = encrypt_totp_secret(result["secret"])
-    current_user.totp_secret = encrypted
-    current_user.totp_enabled = True
-    current_user.totp_verified = False
+    db_user.totp_secret = encrypted
+    db_user.totp_enabled = True
+    db_user.totp_verified = False
     await session.commit()
 
     return APIResponse(
@@ -199,16 +203,20 @@ async def verify_2fa(
     """验证并启用 2FA"""
     from app.services.totp_service import decrypt_totp_secret, verify_totp
 
-    if not current_user.totp_secret or not current_user.totp_enabled:
+    db_user = await session.get(User, current_user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if not db_user.totp_secret or not db_user.totp_enabled:
         raise HTTPException(status_code=400, detail="请先发起 2FA 设置")
-    if current_user.totp_verified:
+    if db_user.totp_verified:
         raise HTTPException(status_code=400, detail="2FA 已启用")
 
-    secret = decrypt_totp_secret(current_user.totp_secret)
+    secret = decrypt_totp_secret(db_user.totp_secret)
     if not await verify_totp(secret, request.code):
         raise HTTPException(status_code=400, detail="验证码无效")
 
-    current_user.totp_verified = True
+    db_user.totp_verified = True
     await session.commit()
 
     return APIResponse(message="2FA 已启用")
@@ -223,16 +231,20 @@ async def disable_2fa(
     """禁用 2FA（需验证当前 TOTP）"""
     from app.services.totp_service import decrypt_totp_secret, verify_totp
 
-    if not current_user.totp_secret or not current_user.has_2fa:
+    db_user = await session.get(User, current_user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if not db_user.totp_secret or not db_user.has_2fa:
         raise HTTPException(status_code=400, detail="2FA 未启用")
 
-    secret = decrypt_totp_secret(current_user.totp_secret)
+    secret = decrypt_totp_secret(db_user.totp_secret)
     if not await verify_totp(secret, request.code):
         raise HTTPException(status_code=400, detail="验证码无效")
 
-    current_user.totp_secret = None
-    current_user.totp_enabled = False
-    current_user.totp_verified = False
+    db_user.totp_secret = None
+    db_user.totp_enabled = False
+    db_user.totp_verified = False
     await session.commit()
 
     return APIResponse(message="2FA 已禁用")

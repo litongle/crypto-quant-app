@@ -17,6 +17,41 @@ class ApiClient {
     this.refreshToken = sessionStorage.getItem('refresh_token') || '';
   }
 
+  _normalizeExchangeAccount(raw) {
+    if (!raw) return raw;
+    return {
+      ...raw,
+      account_name: raw.account_name ?? raw.accountName ?? '',
+      accountName: raw.accountName ?? raw.account_name ?? '',
+      is_active: raw.is_active ?? raw.isActive ?? false,
+      isActive: raw.isActive ?? raw.is_active ?? false,
+      is_demo: raw.is_demo ?? raw.isDemo ?? false,
+      isDemo: raw.isDemo ?? raw.is_demo ?? false,
+      is_testnet: raw.is_testnet ?? raw.isTestnet ?? false,
+      isTestnet: raw.isTestnet ?? raw.is_testnet ?? false,
+      is_paper: raw.is_paper ?? raw.isPaper ?? false,
+      isPaper: raw.isPaper ?? raw.is_paper ?? false,
+      frozen_balance: raw.frozen_balance ?? raw.frozenBalance ?? '0',
+      frozenBalance: raw.frozenBalance ?? raw.frozen_balance ?? '0',
+      error_message: raw.error_message ?? raw.errorMessage ?? '',
+      errorMessage: raw.errorMessage ?? raw.error_message ?? '',
+      last_sync_at: raw.last_sync_at ?? raw.lastSyncAt ?? '',
+      lastSyncAt: raw.lastSyncAt ?? raw.last_sync_at ?? '',
+      balances: raw.balances ?? {},
+    };
+  }
+
+  _normalizePaperAccount(raw) {
+    if (!raw) return raw;
+    return {
+      ...raw,
+      isActive: raw.isActive ?? raw.is_active ?? false,
+      is_active: raw.is_active ?? raw.isActive ?? false,
+      isPaper: raw.isPaper ?? raw.is_paper ?? true,
+      balances: raw.balances ?? {},
+    };
+  }
+
   // ===== 认证 =====
   get headers() {
     const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -43,8 +78,19 @@ class ApiClient {
     }
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: `请求失败 (${res.status})` }));
-      throw new Error(err.message || err.error?.message || `请求失败 (${res.status})`);
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail;
+      let detailStr = '';
+      if (typeof detail === 'string') detailStr = detail;
+      else if (Array.isArray(detail)) {
+        detailStr = detail.map((x) => (x && x.msg) || JSON.stringify(x)).join('; ');
+      }
+      const msg =
+        err.message ||
+        err.error?.message ||
+        detailStr ||
+        `请求失败 (${res.status})`;
+      throw new Error(msg);
     }
 
     return res.json();
@@ -93,6 +139,20 @@ class ApiClient {
     }
     const json = await res.json();
     const data = json.data || json;  // APIResponse 包裹兼容
+    if (data.requires_2fa) {
+      this.logout();
+      return data;
+    }
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token;
+    sessionStorage.setItem('access_token', this.accessToken);
+    sessionStorage.setItem('refresh_token', this.refreshToken);
+    return data;
+  }
+
+  async login2fa(email, password, code) {
+    const json = await this.post('/auth/login-2fa', { email, password, code });
+    const data = json.data || json;
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
     sessionStorage.setItem('access_token', this.accessToken);
@@ -151,6 +211,25 @@ class ApiClient {
   async getEquityCurve(days = 30, exchange = 'all') {
     const json = await this.get(`/asset/equity-curve?days=${days}&exchange=${exchange}`);
     return json.data || json;
+  }
+
+  async getRiskDashboard() {
+    const json = await this.get('/asset/risk-dashboard');
+    return json.data || json;
+  }
+
+  async createPaperAccount() {
+    const json = await this.post('/asset/paper-account');
+    return this._normalizePaperAccount(json.data || json);
+  }
+
+  async getPaperAccounts() {
+    const json = await this.get('/asset/paper-accounts');
+    return (json.data || json || []).map((item) => this._normalizePaperAccount(item));
+  }
+
+  async resetPaperAccount(accountId) {
+    return this.post(`/asset/paper-account/${accountId}/reset`);
   }
 
   async getStrategyTemplates() {
@@ -238,19 +317,25 @@ class ApiClient {
   }
 
   // ===== 交易所账户管理 =====
-  async getExchangeAccounts() {
-    const json = await this.get('/trading/accounts');
-    return json.data || json || [];
+  async getExchangeAccounts({ includePaper = false } = {}) {
+    const qs = includePaper ? '?include_paper=true' : '';
+    const json = await this.get(`/trading/accounts${qs}`);
+    return (json.data || json || []).map((item) => this._normalizeExchangeAccount(item));
   }
 
   async createExchangeAccount(data) {
     const json = await this.post('/trading/accounts', data);
-    return json.data || json;
+    return this._normalizeExchangeAccount(json.data || json);
+  }
+
+  async getExchangeAccount(accountId) {
+    const json = await this.get(`/trading/accounts/${accountId}`);
+    return this._normalizeExchangeAccount(json.data || json);
   }
 
   async syncExchangeAccount(accountId) {
     const json = await this.post(`/trading/accounts/${accountId}/sync`);
-    return json.data || json;
+    return this._normalizeExchangeAccount(json.data || json);
   }
 
   async deleteExchangeAccount(accountId) {
@@ -293,6 +378,30 @@ class ApiClient {
     return json.data || json || [];
   }
 
+  async getTradingSymbolRules(accountId, symbol) {
+    const params = new URLSearchParams({
+      account_id: String(accountId),
+      symbol: String(symbol || ''),
+    });
+    const json = await this.get(`/trading/symbol-rules?${params.toString()}`);
+    return json.data || json;
+  }
+
+  async getContractSettings(accountId, symbol) {
+    const params = new URLSearchParams({ symbol: String(symbol || '') });
+    const json = await this.get(`/trading/accounts/${accountId}/contract-settings?${params.toString()}`);
+    return json.data || json;
+  }
+
+  async updateContractSettings(accountId, { symbol, leverage, marginMode }) {
+    const json = await this.post(`/trading/accounts/${accountId}/contract-settings`, {
+      symbol,
+      leverage,
+      marginMode,
+    });
+    return json.data || json;
+  }
+
   async setStopLoss(positionId, accountId, stopPrice) {
     const json = await this.post(`/trading/${positionId}/stop-loss`, {
       account_id: accountId,
@@ -326,6 +435,34 @@ class ApiClient {
   async getUserInfo() {
     const json = await this.get('/auth/me');
     return json.data || json;
+  }
+
+  async get2faStatus() {
+    const json = await this.post('/auth/2fa/status');
+    return json.data || json;
+  }
+
+  async setup2fa() {
+    const json = await this.post('/auth/2fa/setup');
+    return json.data || json;
+  }
+
+  async verify2fa(code) {
+    return this.post('/auth/2fa/verify', { code });
+  }
+
+  async disable2fa(code) {
+    return this.post('/auth/2fa/disable', { code });
+  }
+
+  async getAuditLogs({ action = '', resource = '', limit = 100, offset = 0 } = {}) {
+    const params = new URLSearchParams();
+    if (action) params.set('action', action);
+    if (resource) params.set('resource', resource);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    const json = await this.get(`/users/audit-logs?${params.toString()}`);
+    return json.data || json || [];
   }
 
   // ===== 策略详情/绩效/编辑 =====

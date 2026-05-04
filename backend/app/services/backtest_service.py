@@ -1,12 +1,15 @@
 """
 回测服务 v2 - 内存优化版
 
-核心优化：
-1. K线数据量上限 5000 根，跨度过大自动升级时间级别（1h→4h→1d）
-2. 策略分析只传滑动窗口（最近 200 根），不再全量拷贝
-3. 权益曲线实时采样，不累积全量 EquityPoint 对象
-4. 超时保护：最长 60 秒
-5. K线预转换为 float，避免循环内重复转换
+核心行为：
+1. K线数据量上限可截断，跨度过大自动升级时间级别（1h→4h→1d）——除非 params 指定 kline_interval
+2. 策略 analyze：默认传入「从序列起点到当前 bar」的完整前缀（与早期全量语义一致）；
+   可选 analysis_window / params.backtest_analysis_window 限制为最近 N 根以节省内存
+3. 权益曲线采样展示；绩效用采样点集
+4. 超时保护
+5. K线预转换为 float，避免循环内重复 Decimal 转换
+6. 永续：单笔名义与 runner 对齐 `max_invest_percent`；初始保证金率 = `initial_margin_rate`（>0）否则 `1/leverage`；
+   资金费 `funding_rate_8h` 按 UTC 00/08/16 档计数，名义×费率（正=多付空收）。现货保证金率视为 100%。
 """
 
 import asyncio
@@ -27,11 +30,85 @@ from app.core.performance import (
 )
 from app.core.strategy_engine import (
     BaseStrategy,
+    Signal,
     StrategyConfig,
     get_strategy,
 )
+from app.core.strategy_runner import CLOSE_INTENTS
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_analysis_window(raw: object) -> int | None:
+    """解析回测 K 线窗口：None/缺省/≤0 表示全量前缀；正整数表示仅最近 N 根。"""
+    if raw is None:
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    return n
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _first_binance_funding_utc_after(t: datetime) -> datetime:
+    """Binance USDT 永续常见结算锚点：UTC 00:00 / 08:00 / 16:00 后的下一档（严格晚于 t）。"""
+    t = _ensure_utc(t)
+    day0 = t.replace(hour=0, minute=0, second=0, microsecond=0)
+    for h in (0, 8, 16):
+        cand = day0.replace(hour=h)
+        if cand > t:
+            return cand
+    return day0 + timedelta(days=1)
+
+
+def _count_binance_funding_events_utc(t_lo: datetime, t_hi: datetime) -> int:
+    """统计 (t_lo, t_hi] 内落在 UTC 00/08/16 档的资金费结算次数（与按整点结算的近似一致）。"""
+    t_lo = _ensure_utc(t_lo)
+    t_hi = _ensure_utc(t_hi)
+    if t_hi <= t_lo:
+        return 0
+    n = 0
+    cur = _first_binance_funding_utc_after(t_lo)
+    while cur <= t_hi:
+        n += 1
+        cur = _first_binance_funding_utc_after(cur)
+    return n
+
+
+def _backtest_margin_and_sizing_params(params: dict) -> tuple[Decimal, Decimal, Decimal, int]:
+    """(max_invest_pct, initial_margin_rate, funding_rate_8h, leverage)
+
+    max_invest_pct: 与 strategy_runner 一致，单笔占用可用余额比例。
+    initial_margin_rate: 永续初始保证金占名义本金比例；未显式设置时用 1/杠杆。
+    funding_rate_8h: 每期资金费率（Binance 符号：正=多付空收），名义×费率每期扣/加在现金上。
+    """
+    max_pct = Decimal(str(params.get("max_invest_percent", 30))) / Decimal("100")
+    if max_pct <= 0 or max_pct > 1:
+        max_pct = Decimal("0.30")
+
+    lev = int(params.get("leverage", 20) or 20)
+    if lev < 1:
+        lev = 1
+
+    imr_raw = params.get("initial_margin_rate")
+    if imr_raw is not None and str(imr_raw).strip() != "":
+        imr = Decimal(str(imr_raw))
+        if imr <= 0 or imr > 1:
+            imr = Decimal("1") / Decimal(str(lev))
+    else:
+        imr = Decimal("1") / Decimal(str(lev))
+
+    fr = Decimal(str(params.get("funding_rate_8h", 0)))
+    return max_pct, imr, fr, lev
+
 
 # templateId → strategy_type 映射
 _TEMPLATE_MAP = {
@@ -53,9 +130,6 @@ _INTERVAL_CONFIG = [
     ("4h", 6, 800),  # 200-800天用4h
     ("1d", 1, 3650),  # 800天-10年用1d
 ]
-
-# 策略分析用滑动窗口大小
-_ANALYSIS_WINDOW = 200
 
 # 最大K线数量（可配置）
 _MAX_KLINES = 50000  # 从 5000 提升到 50000
@@ -130,6 +204,50 @@ class BacktestService:
         if not record:
             return None
 
+        # 模型未持久化 max_wins / final_capital / duration 等字段时，用 getattr + 推导
+        max_wins = getattr(record, "max_wins", None)
+        max_losses = getattr(record, "max_losses", None)
+        final_cap = getattr(record, "final_capital", None)
+        duration_days = getattr(record, "duration", None)
+
+        equity_curve: list = []
+        if record.equity_curve:
+            try:
+                equity_curve = json.loads(record.equity_curve)
+            except (json.JSONDecodeError, TypeError):
+                equity_curve = []
+
+        trades_raw: list = []
+        if record.trades:
+            try:
+                trades_raw = json.loads(record.trades)
+            except (json.JSONDecodeError, TypeError):
+                trades_raw = []
+
+        init_f = float(record.initial_capital)
+        tot_ret = float(record.total_return)
+        if final_cap is None:
+            if equity_curve:
+                last = equity_curve[-1]
+                if isinstance(last, dict) and last.get("equity") is not None:
+                    final_cap = float(last["equity"])
+                else:
+                    final_cap = init_f + tot_ret
+            else:
+                final_cap = init_f + tot_ret
+        else:
+            final_cap = float(final_cap)
+
+        if duration_days is None:
+            try:
+                from datetime import datetime as dt_mod
+
+                d0 = dt_mod.strptime(record.start_date[:10], "%Y-%m-%d")
+                d1 = dt_mod.strptime(record.end_date[:10], "%Y-%m-%d")
+                duration_days = max(1, (d1 - d0).days)
+            except (ValueError, TypeError):
+                duration_days = 0
+
         return {
             "id": record.id,
             "templateId": record.template_id,
@@ -137,9 +255,9 @@ class BacktestService:
             "exchange": record.exchange,
             "startDate": record.start_date,
             "endDate": record.end_date,
-            "initialCapital": float(record.initial_capital),
+            "initialCapital": init_f,
             "params": json.loads(record.params) if record.params else {},
-            "totalReturn": float(record.total_return),
+            "totalReturn": tot_ret,
             "totalReturnPercent": float(record.total_return_pct),
             "annualReturn": float(record.annual_return),
             "sharpeRatio": float(record.sharpe_ratio),
@@ -152,12 +270,12 @@ class BacktestService:
             "lossTrades": record.loss_trades,
             "avgProfit": float(record.avg_profit),
             "avgLoss": float(record.avg_loss),
-            "maxConsecutiveWins": record.max_wins,
-            "maxConsecutiveLosses": record.max_losses,
-            "finalCapital": float(record.final_capital),
-            "duration": record.duration,
-            "equityCurve": json.loads(record.equity_curve) if record.equity_curve else [],
-            "trades": json.loads(record.trades) if record.trades else [],
+            "maxConsecutiveWins": int(max_wins) if max_wins is not None else 0,
+            "maxConsecutiveLosses": int(max_losses) if max_losses is not None else 0,
+            "finalCapital": final_cap,
+            "duration": int(duration_days) if duration_days is not None else 0,
+            "equityCurve": equity_curve,
+            "trades": trades_raw,
             "startTime": record.start_time.isoformat() + "Z" if record.start_time else None,
             "endTime": record.end_time.isoformat() + "Z" if record.end_time else None,
         }
@@ -203,10 +321,23 @@ class BacktestService:
         end_date: str,
         initial_capital: float = 100000,
         params: dict | None = None,
+        analysis_window: int | None = None,
     ) -> dict:
-        """执行策略回测"""
-        params = params or {}
+        """执行策略回测
+
+        analysis_window:
+            None / ≤0：每根 bar 向策略传入从第 0 根到当前根的完整 K 线前缀（默认，与早期语义一致）。
+            正整数：仅传入最近 N 根（省内存，长指标会失真）。
+            亦可由 params['backtest_analysis_window'] 提供；本参数优先于后者。
+        """
+        params = dict(params or {})
         start_time = time.monotonic()
+
+        resolved_aw = _coerce_analysis_window(analysis_window)
+        if resolved_aw is None:
+            resolved_aw = _coerce_analysis_window(params.pop("backtest_analysis_window", None))
+        else:
+            params.pop("backtest_analysis_window", None)
 
         # 优先使用策略参数里指定的 kline_interval(与实盘运行对齐),
         # 否则按时间跨度自动选择,保证旧数据兼容。
@@ -272,6 +403,8 @@ class BacktestService:
                     initial_capital=Decimal(str(initial_capital)),
                     interval_label=interval_label,
                     data_source=data_source,
+                    analysis_window=resolved_aw,
+                    market=market,
                 ),
                 timeout=_BACKTEST_TIMEOUT,
             )
@@ -285,6 +418,7 @@ class BacktestService:
         result["elapsedSeconds"] = round(elapsed, 1)
         result["interval"] = interval_label
         result["klineCount"] = len(klines)
+        result["analysisWindow"] = resolved_aw
 
         return result
 
@@ -295,18 +429,25 @@ class BacktestService:
         initial_capital: Decimal,
         interval_label: str = "",
         data_source: str = "mock",
+        analysis_window: int | None = None,
+        market: str = "spot",
     ) -> dict:
         """回测引擎核心 v2 — 内存优化版
 
-        关键优化：
-        1. 策略分析只传滑动窗口 float_klines[window_start:i+1]
-        2. 预转换 float 格式，不循环内创建新 list
-        3. 权益曲线在采样点直接写入 dict，不累积 EquityPoint
-        4. 同时维护精确 EquityPoint 列表供绩效计算（采样间隔保存）
+        analysis_window 为 None 时传入 float_klines[0:i+1]；为正时传入最近 N 根。
+        market=perp 时启用合约双向语义（metadata.intent/direction 与 strategy_runner 对齐；
+        无 metadata 时：买开多、卖开空、对手方向平仓）。
+        spot 保持仅做多（卖仅平多）。
         """
         capital = initial_capital
         position: dict | None = None
         trades: list[TradeRecord] = []
+        perp = market.lower() == "perp"
+        max_invest_pct, initial_margin_rate, funding_rate_8h, leverage_used = (
+            _backtest_margin_and_sizing_params(strategy.params or {})
+        )
+        # 现货：全额本金占用（保证金率=100%）；永续：初始保证金 = 名义 × initial_margin_rate
+        order_margin_rate = initial_margin_rate if perp else Decimal("1")
         # P1-8: 按 maker/taker 分手续费，加滑点模拟
         taker_fee = Decimal("0.001")  # 0.1% taker (Binance 默认)
         slippage_pct = Decimal("0.0005")  # 0.05% 滑点
@@ -347,64 +488,217 @@ class BacktestService:
             }
         )
 
+        def do_close(exec_price: Decimal, exit_time: datetime) -> None:
+            nonlocal capital, position, trades
+            pos = position
+            if pos is None:
+                return
+            commission_exit = pos["quantity"] * exec_price * taker_fee
+            mlocked = pos.get("margin_locked") or pos.get("margin_notional") or Decimal(0)
+            if pos["side"] == "long":
+                pnl = (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
+                capital += mlocked + (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
+            else:
+                pnl = (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
+                capital += mlocked + (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
+            trades.append(
+                TradeRecord(
+                    entry_price=pos["entry_price"],
+                    exit_price=exec_price,
+                    quantity=pos["quantity"],
+                    side=pos["side"],
+                    entry_time=pos["entry_time"],
+                    exit_time=exit_time,
+                    pnl=pnl,
+                    commission=pos["commission_paid"] + commission_exit,
+                )
+            )
+            position = None
+
+        def do_open_long(exec_price: Decimal, entry_time: datetime) -> None:
+            nonlocal capital, position, trades
+            budget = capital * max_invest_pct
+            quantity = budget / exec_price
+            notional = quantity * exec_price
+            commission = notional * taker_fee
+            mlocked = notional * order_margin_rate
+            position = {
+                "side": "long",
+                "quantity": quantity,
+                "entry_price": exec_price,
+                "entry_time": entry_time,
+                "commission_paid": commission,
+                "margin_locked": mlocked,
+                "margin_notional": notional,
+            }
+            capital -= mlocked + commission
+
+        def do_open_short(exec_price: Decimal, entry_time: datetime) -> None:
+            nonlocal capital, position, trades
+            budget = capital * max_invest_pct
+            quantity = budget / exec_price
+            notional = quantity * exec_price
+            commission = notional * taker_fee
+            mlocked = notional * order_margin_rate
+            position = {
+                "side": "short",
+                "quantity": quantity,
+                "entry_price": exec_price,
+                "entry_time": entry_time,
+                "commission_paid": commission,
+                "margin_locked": mlocked,
+                "margin_notional": notional,
+            }
+            capital -= mlocked + commission
+
+        def do_add_long(exec_price: Decimal) -> None:
+            nonlocal capital, position, trades
+            pos = position
+            if pos is None or pos["side"] != "long":
+                return
+            budget = capital * max_invest_pct
+            new_qty = budget / exec_price
+            new_notional = new_qty * exec_price
+            commission = new_notional * taker_fee
+            new_mlocked = new_notional * order_margin_rate
+            old_q, old_e = pos["quantity"], pos["entry_price"]
+            total_q = old_q + new_qty
+            new_entry = (old_e * old_q + exec_price * new_qty) / total_q
+            pos["quantity"] = total_q
+            pos["entry_price"] = new_entry
+            pos["commission_paid"] += commission
+            pos["margin_locked"] = pos.get("margin_locked", Decimal(0)) + new_mlocked
+            pos["margin_notional"] = pos.get("margin_notional", old_e * old_q) + new_notional
+            capital -= new_mlocked + commission
+
+        def do_add_short(exec_price: Decimal) -> None:
+            nonlocal capital, position, trades
+            pos = position
+            if pos is None or pos["side"] != "short":
+                return
+            budget = capital * max_invest_pct
+            new_qty = budget / exec_price
+            new_notional = new_qty * exec_price
+            commission = new_notional * taker_fee
+            new_mlocked = new_notional * order_margin_rate
+            old_q, old_e = pos["quantity"], pos["entry_price"]
+            total_q = old_q + new_qty
+            new_entry = (old_e * old_q + exec_price * new_qty) / total_q
+            pos["quantity"] = total_q
+            pos["entry_price"] = new_entry
+            pos["commission_paid"] += commission
+            pos["margin_locked"] = pos.get("margin_locked", Decimal(0)) + new_mlocked
+            pos["margin_notional"] = pos.get("margin_notional", old_e * old_q) + new_notional
+            capital -= new_mlocked + commission
+
+        def process_signal(sig: Signal | None) -> None:
+            nonlocal capital, position, trades
+            if sig is None:
+                return
+            meta = sig.metadata or {}
+            intent = meta.get("intent")
+            direction_meta = meta.get("direction")
+
+            if not perp:
+                if sig.action == "buy" and position is None:
+                    ep = current_price * (Decimal("1") + slippage_pct)
+                    do_open_long(ep, current_time)
+                elif sig.action == "sell" and position is not None:
+                    ep = current_price * (Decimal("1") - slippage_pct)
+                    do_close(ep, current_time)
+                return
+
+            if intent in CLOSE_INTENTS and position is not None:
+                if direction_meta is None or position["side"] == direction_meta:
+                    if position["side"] == "long":
+                        ep = current_price * (Decimal("1") - slippage_pct)
+                    else:
+                        ep = current_price * (Decimal("1") + slippage_pct)
+                    do_close(ep, current_time)
+                return
+
+            if intent == "reverse":
+                if position is not None:
+                    if position["side"] == "long":
+                        ep = current_price * (Decimal("1") - slippage_pct)
+                    else:
+                        ep = current_price * (Decimal("1") + slippage_pct)
+                    do_close(ep, current_time)
+                tgt = meta.get("direction")
+                if tgt == "long":
+                    do_open_long(current_price * (Decimal("1") + slippage_pct), current_time)
+                elif tgt == "short":
+                    do_open_short(current_price * (Decimal("1") - slippage_pct), current_time)
+                return
+
+            if intent in ("open", "add") and direction_meta in ("long", "short"):
+                if intent == "open" and position is None:
+                    if direction_meta == "long" and sig.action == "buy":
+                        do_open_long(current_price * (Decimal("1") + slippage_pct), current_time)
+                    elif direction_meta == "short" and sig.action == "sell":
+                        do_open_short(current_price * (Decimal("1") - slippage_pct), current_time)
+                elif intent == "add" and position is not None and position["side"] == direction_meta:
+                    if direction_meta == "long" and sig.action == "buy":
+                        do_add_long(current_price * (Decimal("1") + slippage_pct))
+                    elif direction_meta == "short" and sig.action == "sell":
+                        do_add_short(current_price * (Decimal("1") - slippage_pct))
+                return
+
+            if sig.action == "buy" and position is None:
+                do_open_long(current_price * (Decimal("1") + slippage_pct), current_time)
+            elif sig.action == "sell" and position is None:
+                do_open_short(current_price * (Decimal("1") - slippage_pct), current_time)
+            elif sig.action == "buy" and position is not None and position["side"] == "short":
+                ep = current_price * (Decimal("1") + slippage_pct)
+                do_close(ep, current_time)
+            elif sig.action == "sell" and position is not None and position["side"] == "long":
+                ep = current_price * (Decimal("1") - slippage_pct)
+                do_close(ep, current_time)
+
+        def mark_equity(cp: Decimal) -> Decimal:
+            if position is None:
+                return capital
+            mlocked = position.get("margin_locked") or position.get("margin_notional")
+            if mlocked is None:
+                mlocked = position["quantity"] * position["entry_price"]
+            if position["side"] == "long":
+                unreal = position["quantity"] * (cp - position["entry_price"])
+                return capital + mlocked + unreal
+            unreal = position["quantity"] * (position["entry_price"] - cp)
+            return capital + mlocked + unreal
+
         for i in range(min_history, len(klines)):
             current_price = klines[i]["close"]
             current_time = klines[i]["timestamp"]
 
-            # 滑动窗口：只传最近 _ANALYSIS_WINDOW 根给策略
-            window_start = max(0, i - _ANALYSIS_WINDOW + 1)
-            history_slice = float_klines[window_start : i + 1]
+            if (
+                i > min_history
+                and perp
+                and funding_rate_8h != 0
+                and position is not None
+            ):
+                n_f = _count_binance_funding_events_utc(
+                    klines[i - 1]["timestamp"], current_time
+                )
+                if n_f > 0:
+                    mark = current_price
+                    notional = position["quantity"] * mark
+                    delta = notional * funding_rate_8h * Decimal(n_f)
+                    if position["side"] == "long":
+                        capital -= delta
+                    else:
+                        capital += delta
+
+            hist_end = i + 1
+            window_start = (
+                0 if analysis_window is None else max(0, hist_end - analysis_window)
+            )
+            history_slice = float_klines[window_start:hist_end]
 
             # 策略分析
             signal = await strategy.analyze(history_slice)
 
-            # 交易逻辑 — P1-8: 加入滑点和 maker/taker 费率
-            exec_price = current_price  # 实际成交价（含滑点）
-            if signal is not None:
-                if signal.action == "buy" and position is None:
-                    # 买入滑点：成交价略高于当前价
-                    exec_price = current_price * (Decimal("1") + slippage_pct)
-                    invest_amount = capital * Decimal("0.95")
-                    quantity = invest_amount / exec_price
-                    commission = invest_amount * taker_fee
-
-                    position = {
-                        "side": "long",
-                        "quantity": quantity,
-                        "entry_price": exec_price,
-                        "entry_time": current_time,
-                        "commission_paid": commission,
-                    }
-                    capital -= invest_amount + commission
-
-                elif signal.action == "sell" and position is not None:
-                    # 卖出滑点：成交价略低于当前价
-                    exec_price = current_price * (Decimal("1") - slippage_pct)
-                    close_value = position["quantity"] * exec_price
-                    commission = close_value * taker_fee
-
-                    pnl = (
-                        (exec_price - position["entry_price"]) * position["quantity"]
-                        if position["side"] == "long"
-                        else (position["entry_price"] - exec_price) * position["quantity"]
-                    )
-                    pnl -= commission
-
-                    trades.append(
-                        TradeRecord(
-                            entry_price=position["entry_price"],
-                            exit_price=exec_price,
-                            quantity=position["quantity"],
-                            side=position["side"],
-                            entry_time=position["entry_time"],
-                            exit_time=current_time,
-                            pnl=pnl,
-                            commission=position["commission_paid"] + commission,
-                        )
-                    )
-
-                    capital += close_value - commission
-                    position = None
+            process_signal(signal)
 
             # 止损止盈 — P1-8: 滑点可能触发更快/更慢
             if position is not None:
@@ -424,41 +718,14 @@ class BacktestService:
                         should_close = True
 
                 if should_close:
-                    # 止盈/止损滑点：对持仓方向不利的方向滑点
                     if position["side"] == "long":
-                        exec_price = current_price * (Decimal("1") - slippage_pct)
+                        exec_tp = current_price * (Decimal("1") - slippage_pct)
                     else:
-                        exec_price = current_price * (Decimal("1") + slippage_pct)
-                    close_value = position["quantity"] * exec_price
-                    commission = close_value * taker_fee
-
-                    pnl = (
-                        (exec_price - position["entry_price"]) * position["quantity"]
-                        if position["side"] == "long"
-                        else (position["entry_price"] - exec_price) * position["quantity"]
-                    )
-                    pnl -= commission
-
-                    trades.append(
-                        TradeRecord(
-                            entry_price=position["entry_price"],
-                            exit_price=exec_price,
-                            quantity=position["quantity"],
-                            side=position["side"],
-                            entry_time=position["entry_time"],
-                            exit_time=current_time,
-                            pnl=pnl,
-                            commission=position["commission_paid"] + commission,
-                        )
-                    )
-
-                    capital += close_value - commission
-                    position = None
+                        exec_tp = current_price * (Decimal("1") + slippage_pct)
+                    do_close(exec_tp, current_time)
 
             # 当前权益
-            current_equity = capital
-            if position is not None:
-                current_equity += position["quantity"] * current_price
+            current_equity = mark_equity(current_price)
 
             # 采样：展示权益曲线
             idx = i - min_history
@@ -486,31 +753,7 @@ class BacktestService:
                 final_price = final_price_raw * (Decimal("1") - slippage_pct)
             else:
                 final_price = final_price_raw * (Decimal("1") + slippage_pct)
-            close_value = position["quantity"] * final_price
-            commission = close_value * taker_fee
-
-            pnl = (
-                (final_price - position["entry_price"]) * position["quantity"]
-                if position["side"] == "long"
-                else (position["entry_price"] - final_price) * position["quantity"]
-            )
-            pnl -= commission
-
-            trades.append(
-                TradeRecord(
-                    entry_price=position["entry_price"],
-                    exit_price=final_price,
-                    quantity=position["quantity"],
-                    side=position["side"],
-                    entry_time=position["entry_time"],
-                    exit_time=klines[-1]["timestamp"],
-                    pnl=pnl,
-                    commission=position["commission_paid"] + commission,
-                )
-            )
-
-            capital += close_value - commission
-            position = None
+            do_close(final_price, klines[-1]["timestamp"])
 
         # 最终权益
         final_equity = capital
@@ -533,7 +776,6 @@ class BacktestService:
             equity_curve=perf_equity,
             initial_capital=initial_capital,
         )
-
         # 交易记录（最多 100 条）
         trade_records = []
         for t in trades[:100]:
@@ -573,6 +815,11 @@ class BacktestService:
             "startTime": report.start_time.isoformat() + "Z" if report.start_time else None,
             "endTime": report.end_time.isoformat() + "Z" if report.end_time else None,
             "dataSource": data_source,
+            "market": market,
+            "maxInvestPercent": float(max_invest_pct * 100),
+            "leverage": leverage_used,
+            "initialMarginRate": float(initial_margin_rate),
+            "fundingRate8h": float(funding_rate_8h),
             "warning": "⚠️ 使用模拟数据回测，结果可能失真，仅供参考"
             if data_source == "mock"
             else None,

@@ -138,11 +138,12 @@ class BinanceAdapter(BaseExchangeAdapter):
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list[Kline]:
         normalized_symbol = symbol.upper()
+        kline_path = "/fapi/v1/klines" if self.is_futures else "/api/v3/klines"
 
         async def _do():
             client = await self.get_shared_client()
             resp = await client.get(
-                f"{self.base_url}/api/v3/klines",
+                f"{self.base_url}{kline_path}",
                 params={"symbol": normalized_symbol, "interval": interval, "limit": limit},
             )
             resp.raise_for_status()
@@ -183,6 +184,38 @@ class BinanceAdapter(BaseExchangeAdapter):
         )
 
     async def get_balance(self) -> list[Balance]:
+        if self.is_futures:
+
+            async def _do_f():
+                client = await self.get_shared_client()
+                params = self._sign_params({})
+                resp = await client.get(
+                    f"{self.base_url}/fapi/v2/balance",
+                    params=params,
+                    headers=self._auth_headers(),
+                )
+                resp.raise_for_status()
+                return resp.json()
+
+            data = await self._request_with_retry(_do_f, context="get_balance_futures")
+            if isinstance(data, dict):
+                self._check_response(data)
+                return []
+            balances = []
+            for b in data:
+                free = _safe_decimal(b.get("availableBalance") or b.get("balance"))
+                wallet = _safe_decimal(b.get("walletBalance"))
+                locked = wallet - free if wallet > free else Decimal("0")
+                if free > 0 or locked > 0:
+                    balances.append(
+                        Balance(
+                            asset=b.get("asset", ""),
+                            free=free,
+                            locked=locked,
+                        )
+                    )
+            return balances
+
         async def _do():
             client = await self.get_shared_client()
             params = self._sign_params({})
@@ -256,12 +289,16 @@ class BinanceAdapter(BaseExchangeAdapter):
         order_type: str,
         quantity: Decimal,
         price: Decimal | None = None,
+        *,
+        position_side: str | None = None,
+        target_currency: str | None = None,
     ) -> OrderResult:
         if order_type.lower() == "limit" and price is None:
             raise OrderRejectedError("Binance", "限价单必须指定价格")
 
         info = await self.get_exchange_info(symbol)
         normalized_quantity = self._prepare_quantity(quantity, info)
+        order_path = "/fapi/v1/order" if self.is_futures else "/api/v3/order"
 
         async def _do():
             client = await self.get_shared_client()
@@ -278,7 +315,7 @@ class BinanceAdapter(BaseExchangeAdapter):
 
             params = self._sign_params(params)
             resp = await client.post(
-                f"{self.base_url}/api/v3/order",
+                f"{self.base_url}{order_path}",
                 params=params,
                 headers=self._auth_headers(),
             )
@@ -293,7 +330,7 @@ class BinanceAdapter(BaseExchangeAdapter):
         self._check_response(data)
 
         executed_qty = _safe_decimal(data.get("executedQty"))
-        cumm_quote = _safe_decimal(data.get("cummulativeQuoteQty"))
+        cumm_quote = _safe_decimal(data.get("cumQuote") or data.get("cummulativeQuoteQty") or "0")
 
         return OrderResult(
             exchange_order_id=str(data.get("orderId", "")),
@@ -301,15 +338,17 @@ class BinanceAdapter(BaseExchangeAdapter):
             side=data.get("side", side).lower(),
             order_type=data.get("type", order_type).lower(),
             quantity=_safe_decimal(data.get("origQty"), normalized_quantity),
-            price=_safe_decimal(data.get("price"))
-            if _safe_decimal(data.get("price")) > 0
-            else None,
+            price=(
+                _safe_decimal(data.get("price")) if _safe_decimal(data.get("price")) > 0 else None
+            ),
             status=_BINANCE_STATUS_MAP.get(data.get("status", ""), "pending"),
             filled_quantity=executed_qty,
             avg_fill_price=_safe_divide(cumm_quote, executed_qty),
         )
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
+        order_path = "/fapi/v1/order" if self.is_futures else "/api/v3/order"
+
         async def _do():
             client = await self.get_shared_client()
             params = self._sign_params(
@@ -319,7 +358,7 @@ class BinanceAdapter(BaseExchangeAdapter):
                 }
             )
             resp = await client.delete(
-                f"{self.base_url}/api/v3/order",
+                f"{self.base_url}{order_path}",
                 params=params,
                 headers=self._auth_headers(),
             )
@@ -335,6 +374,8 @@ class BinanceAdapter(BaseExchangeAdapter):
         return data.get("status") in ("CANCELED", "CANCELLED")
 
     async def get_order(self, order_id: str, symbol: str) -> OrderResult:
+        order_path = "/fapi/v1/order" if self.is_futures else "/api/v3/order"
+
         async def _do():
             client = await self.get_shared_client()
             params = self._sign_params(
@@ -344,7 +385,7 @@ class BinanceAdapter(BaseExchangeAdapter):
                 }
             )
             resp = await client.get(
-                f"{self.base_url}/api/v3/order",
+                f"{self.base_url}{order_path}",
                 params=params,
                 headers=self._auth_headers(),
             )
@@ -355,7 +396,7 @@ class BinanceAdapter(BaseExchangeAdapter):
         self._check_response(data)
 
         executed_qty = _safe_decimal(data.get("executedQty"))
-        cumm_quote = _safe_decimal(data.get("cummulativeQuoteQty"))
+        cumm_quote = _safe_decimal(data.get("cumQuote") or data.get("cummulativeQuoteQty") or "0")
 
         return OrderResult(
             exchange_order_id=str(data.get("orderId", "")),
@@ -363,9 +404,9 @@ class BinanceAdapter(BaseExchangeAdapter):
             side=data.get("side", "buy").lower(),
             order_type=data.get("type", "market").lower(),
             quantity=_safe_decimal(data.get("origQty")),
-            price=_safe_decimal(data.get("price"))
-            if _safe_decimal(data.get("price")) > 0
-            else None,
+            price=(
+                _safe_decimal(data.get("price")) if _safe_decimal(data.get("price")) > 0 else None
+            ),
             status=_BINANCE_STATUS_MAP.get(data.get("status", ""), "pending"),
             filled_quantity=executed_qty,
             avg_fill_price=_safe_divide(cumm_quote, executed_qty),
@@ -465,3 +506,69 @@ class BinanceAdapter(BaseExchangeAdapter):
             min_notional=min_notional,
             tick_size=tick_size,
         )
+
+    async def configure_contract(
+        self,
+        symbol: str,
+        *,
+        leverage: int,
+        margin_mode: str,
+    ) -> dict[str, Any]:
+        if not self.is_futures:
+            raise NotImplementedError("Binance 现货账户不支持合约参数设置")
+
+        normalized_symbol = symbol.upper()
+        margin_type = "ISOLATED" if margin_mode == "isolated" else "CROSSED"
+
+        async def _set_margin_type():
+            client = await self.get_shared_client()
+            resp = await client.post(
+                f"{self.base_url}/fapi/v1/marginType",
+                params=self._sign_params(
+                    {
+                        "symbol": normalized_symbol,
+                        "marginType": margin_type,
+                    }
+                ),
+                headers=self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        try:
+            margin_data = await self._request_with_retry(
+                _set_margin_type,
+                max_attempts=1,
+                context=f"set_margin_type({normalized_symbol},{margin_type})",
+            )
+            self._check_response(margin_data)
+        except OrderRejectedError as exc:
+            if exc.detail_code != "-4046":
+                raise
+
+        async def _set_leverage():
+            client = await self.get_shared_client()
+            resp = await client.post(
+                f"{self.base_url}/fapi/v1/leverage",
+                params=self._sign_params(
+                    {
+                        "symbol": normalized_symbol,
+                        "leverage": leverage,
+                    }
+                ),
+                headers=self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        leverage_data = await self._request_with_retry(
+            _set_leverage,
+            max_attempts=1,
+            context=f"set_leverage({normalized_symbol},{leverage})",
+        )
+        self._check_response(leverage_data)
+        return {
+            "symbol": normalized_symbol,
+            "leverage": int(leverage_data.get("leverage", leverage)),
+            "margin_mode": margin_mode,
+        }

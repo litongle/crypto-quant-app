@@ -9,15 +9,17 @@ const ICONS = {
 };
 
 async function loadDashboard() {
-  const [summary, positions, equity, instances] = await Promise.all([
+  const [summary, positions, equity, instances, risk] = await Promise.all([
     api.getAssetSummary().catch(() => null),
     api.getPortfolioPositions().catch(() => null),
     api.getEquityCurve(30).catch(() => null),
     api.getStrategyInstances('all').catch(() => []),
+    api.getRiskDashboard().catch(() => null),
   ]);
 
-  renderStatGrid({ summary, positions, equity, instances });
+  renderStatGrid({ summary, positions, equity, instances, risk });
   renderPositionTable(positions);
+  renderRiskDashboard(risk);
   if (equity && equity.points && equity.points.length > 0) {
     renderEquityCurveChart(equity);
   } else {
@@ -100,7 +102,7 @@ function _statRow({ avatarColor, icon, label, value, valueClass = '', sub = '', 
 }
 
 /* ── Stat Grid 主渲染:4 卡 × 2 行 ── */
-function renderStatGrid({ summary, positions, equity, instances }) {
+function renderStatGrid({ summary, positions, equity, instances, risk }) {
   const el = document.getElementById('asset-summary');
   if (!el) return;
 
@@ -122,8 +124,8 @@ function renderStatGrid({ summary, positions, equity, instances }) {
   const list = Array.isArray(instances) ? instances : (instances?.data ?? []);
   const totalInstances = list.length;
   const runningInstances = list.filter(s => s.status === 'running').length;
-  const maxDrawdownPct = equity?.maxDrawdown;
-  const winRate = equity?.winRate;
+  const exposurePercent = risk?.exposurePercent;
+  const riskAlerts = Array.isArray(risk?.alerts) ? risk.alerts.length : null;
 
   const cards = [
     {
@@ -195,15 +197,17 @@ function renderStatGrid({ summary, positions, equity, instances }) {
         _statRow({
           avatarColor: 'orange',
           icon: ROW_ICONS.drawdown,
-          label: '最大回撤',
-          value: maxDrawdownPct == null ? '--' : `${Number(maxDrawdownPct).toFixed(2)}%`,
-          valueClass: maxDrawdownPct == null ? '' : 'cq-stat-row__value--loss',
+          label: '总敞口占比',
+          value: exposurePercent == null ? '--' : `${Number(exposurePercent).toFixed(2)}%`,
+          valueClass: exposurePercent == null ? '' : (Number(exposurePercent) >= 80 ? 'cq-stat-row__value--loss' : ''),
         }),
         _statRow({
           avatarColor: 'blue',
           icon: ROW_ICONS.position,
-          label: '当前持仓',
-          value: positionsCount == null ? '--' : String(positionsCount),
+          label: '风险告警',
+          value: riskAlerts == null ? '--' : String(riskAlerts),
+          valueClass: Number(riskAlerts || 0) > 0 ? 'cq-stat-row__value--loss' : '',
+          sub: positionsCount == null ? '' : `持仓 ${positionsCount} 笔`,
         }),
       ],
     },
@@ -223,6 +227,86 @@ function renderStatGrid({ summary, positions, equity, instances }) {
     </div>`;
 
   el.innerHTML = emptyPromptHtml + gridHtml;
+}
+
+function renderRiskDashboard(risk) {
+  const el = document.getElementById('risk-dashboard-section');
+  if (!el) return;
+
+  if (!risk) {
+    el.innerHTML = `
+      <div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);">
+        ${ICONS.chart}
+        <h3>风控数据暂时不可用</h3>
+        <p>稍后刷新看板再试一次。</p>
+      </div>`;
+    return;
+  }
+
+  const alerts = Array.isArray(risk.alerts) ? risk.alerts : [];
+  const concentration = Array.isArray(risk.concentration) ? risk.concentration.slice(0, 5) : [];
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--cq-space-4);align-items:start;">
+      <div class="cq-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);flex-wrap:wrap;">
+          <div>
+            <div style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);">风险快照</div>
+            <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">直接使用 `/asset/risk-dashboard` 返回的敞口、集中度与告警结果。</div>
+          </div>
+          <div style="display:flex;gap:var(--cq-space-2);flex-wrap:wrap;">
+            <span class="cq-tag ${Number(risk.exposurePercent || 0) >= 80 ? 'cq-tag--loss' : 'cq-tag--neutral'}">敞口 ${Number(risk.exposurePercent || 0).toFixed(2)}%</span>
+            <span class="cq-tag ${Number(risk.unrealizedPnlPercent || 0) < 0 ? 'cq-tag--warn' : 'cq-tag--profit'}">浮盈亏 ${Number(risk.unrealizedPnlPercent || 0).toFixed(2)}%</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);">
+          <div class="cq-card cq-card--sm">
+            <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-1);">总资产</div>
+            <div class="cq-num" style="font-size:var(--cq-text-xl);font-weight:600;">$${formatNum(risk.totalBalance || 0)}</div>
+          </div>
+          <div class="cq-card cq-card--sm">
+            <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-1);">持仓价值</div>
+            <div class="cq-num" style="font-size:var(--cq-text-xl);font-weight:600;">$${formatNum(risk.totalPositionValue || 0)}</div>
+          </div>
+          <div class="cq-card cq-card--sm">
+            <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-1);">风险告警</div>
+            <div class="cq-num" style="font-size:var(--cq-text-xl);font-weight:600;color:${alerts.length ? 'var(--cq-color-loss)' : 'var(--cq-color-profit)'};">${alerts.length}</div>
+          </div>
+        </div>
+        ${alerts.length ? `
+          <div style="display:flex;flex-direction:column;gap:var(--cq-space-2);">
+            ${alerts.map((alert) => `
+              <div style="padding:var(--cq-space-3);border-radius:var(--cq-radius-lg);border:1px solid ${alert.level === 'danger' ? 'rgba(249,57,32,0.28)' : 'rgba(255,180,0,0.28)'};background:${alert.level === 'danger' ? 'rgba(249,57,32,0.08)' : 'rgba(255,180,0,0.08)'};">
+                <div style="font-size:var(--cq-text-sm);font-weight:600;color:${alert.level === 'danger' ? 'var(--cq-color-loss)' : 'var(--cq-color-warning)'};margin-bottom:4px;">${escapeHtml(alert.type || 'alert')}</div>
+                <div style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);line-height:1.6;">${escapeHtml(alert.message || '')}</div>
+              </div>`).join('')}
+          </div>` : `
+          <div class="cq-empty-state" style="padding:var(--cq-space-6) 0 0;">
+            <h3>当前没有风控告警</h3>
+            <p>仓位敞口和集中度都在安全范围内。</p>
+          </div>`}
+      </div>
+      <div class="cq-card">
+        <div style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-4);">持仓集中度</div>
+        ${concentration.length ? `
+          <div style="display:flex;flex-direction:column;gap:var(--cq-space-3);">
+            ${concentration.map((item) => `
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--cq-space-2);margin-bottom:6px;">
+                  <span style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-text-primary);">${escapeHtml(item.symbol)}</span>
+                  <span class="cq-num" style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">${Number(item.percentage || 0).toFixed(2)}%</span>
+                </div>
+                <div style="height:8px;border-radius:999px;background:var(--cq-bg-l3);overflow:hidden;">
+                  <div style="height:100%;width:${Math.min(Number(item.percentage || 0), 100)}%;background:${Number(item.percentage || 0) >= 50 ? 'var(--cq-color-loss)' : 'var(--cq-color-primary)'};"></div>
+                </div>
+              </div>`).join('')}
+          </div>` : `
+          <div class="cq-empty-state" style="padding:var(--cq-space-8) 0;">
+            <h3>暂无集中度数据</h3>
+            <p>当前没有可统计的持仓。</p>
+          </div>`}
+      </div>
+    </div>`;
 }
 
 function renderPositionTable(positions) {

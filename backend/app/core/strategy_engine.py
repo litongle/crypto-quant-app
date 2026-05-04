@@ -25,6 +25,8 @@ class StrategyConfig(BaseModel):
     direction: Literal["long", "short", "both"] = "both"
     params: dict[str, Any] = {}
     risk_params: dict[str, Any] = {}
+    #: 与前端 *.P / params.market_type 对齐，供 Runner 选永续 K 线与下单路由
+    is_perp: bool = False
 
 
 class Signal(BaseModel):

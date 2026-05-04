@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -20,6 +21,9 @@ from app.core.exceptions import (
     OrderRejectedError,
     RateLimitError,
 )
+from app.core.exchanges.base import OrderResult
+from app.core.instrument_resolution import adapter_symbol_for_okx_order, resolve_execution_context
+from app.core.trade_schemas import TradingSymbolRulesSchema
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order
 from app.repositories.strategy_repo import StrategyInstanceRepository
@@ -28,6 +32,7 @@ from app.repositories.trading_repo import (
     OrderRepository,
     PositionRepository,
 )
+from app.services.paper_trading_service import PaperTradingService
 
 if TYPE_CHECKING:
     from app.core.exchanges import OrderResult
@@ -45,25 +50,369 @@ class OrderService:
         self.order_repo = OrderRepository(session)
         self.strategy_repo = StrategyInstanceRepository(session)
 
-    async def get_user_accounts(self, user_id: int) -> list[ExchangeAccount]:
+    async def get_user_accounts(
+        self, user_id: int, *, include_paper: bool = False
+    ) -> list[ExchangeAccount]:
         """获取用户的交易所账户"""
-        return await self.account_repo.get_active_by_user(user_id)
+        accounts = await self.account_repo.get_active_by_user(user_id)
+        if include_paper:
+            return accounts
+        return [account for account in accounts if not getattr(account, "is_paper", False)]
 
-    async def _get_adapter(self, account: ExchangeAccount):
+    @staticmethod
+    def _is_paper_account(account: ExchangeAccount | None) -> bool:
+        return PaperTradingService.is_paper_account(account)
+
+    def _paper_service(self) -> PaperTradingService:
+        return PaperTradingService(self.session)
+
+    @staticmethod
+    def _contract_symbol_key(symbol: str) -> str:
+        return str(symbol or "").upper()
+
+    def _get_saved_contract_settings(
+        self, account: ExchangeAccount, symbol: str
+    ) -> dict[str, str | int]:
+        return self._paper_service().get_contract_settings(account, symbol)
+
+    @staticmethod
+    def _normalize_ui_symbol(symbol: str) -> tuple[str, str, bool]:
+        base_symbol, is_perp = resolve_execution_context(symbol, None)
+        normalized_base = base_symbol.upper()
+        if not normalized_base.endswith(("USDT", "USDC", "BTC", "ETH")):
+            normalized_base += "USDT"
+        normalized_symbol = f"{normalized_base}.P" if is_perp else normalized_base
+        return normalized_symbol, normalized_base, is_perp
+
+    @staticmethod
+    def _adapter_symbol_for_rules(exchange: str, base_symbol: str, is_perp: bool) -> str:
+        exchange_lower = (exchange or "").lower()
+        if is_perp and exchange_lower == "okx":
+            return adapter_symbol_for_okx_order(base_symbol, True).upper()
+        return base_symbol
+
+    async def _get_adapter(self, account: ExchangeAccount, *, is_futures: bool = False):
         """获取交易所适配器助手 (P1-11: 统一解密逻辑)"""
         from app.core.exchange_adapter import get_exchange_adapter
 
-        return get_exchange_adapter(
+        bin_fut = is_futures and account.exchange.lower() == "binance"
+        adapter = get_exchange_adapter(
             exchange=account.exchange,
             api_key=account.get_api_key(),
             secret_key=account.get_secret_key(),
             passphrase=account.get_passphrase() if account.encrypted_passphrase else None,
             testnet=account.is_testnet,
             is_demo=account.is_demo,
+            is_futures=bin_fut,
+        )
+        return adapter
+
+    async def _adapter_exec_context_for_order(
+        self, order: Order, account: ExchangeAccount
+    ) -> tuple[str, bool]:
+        """(交易所下单符号, Binance 是否走 U 本位合约 API)。"""
+        strategy_params = None
+        if order.strategy_instance_id:
+            inst = await self.strategy_repo.get_by_id(order.strategy_instance_id)
+            if inst:
+                strategy_params = inst.params or {}
+        sym_u, perp = resolve_execution_context(order.symbol, strategy_params)
+        ex = (account.exchange or "").lower()
+        bin_fut = perp and ex == "binance"
+        sym_u = self._adapter_symbol_for_rules(ex, sym_u, perp)
+        return sym_u, bin_fut
+
+    async def _adapter_order_request_kwargs(
+        self,
+        *,
+        order: Order,
+        account: ExchangeAccount,
+        closing_position: Position | None = None,
+    ) -> dict[str, str]:
+        strategy_params = None
+        if order.strategy_instance_id:
+            inst = await self.strategy_repo.get_by_id(order.strategy_instance_id)
+            if inst:
+                strategy_params = inst.params or {}
+        _, is_perp = resolve_execution_context(order.symbol, strategy_params)
+        exchange = (account.exchange or "").lower()
+        kwargs: dict[str, str] = {}
+
+        if exchange == "okx":
+            if is_perp:
+                if closing_position is not None:
+                    kwargs["position_side"] = closing_position.side
+                else:
+                    kwargs["position_side"] = "long" if order.side == "buy" else "short"
+            elif order.order_type == "market" and order.side == "buy":
+                kwargs["target_currency"] = "base_ccy"
+
+        return kwargs
+
+    @staticmethod
+    def _map_exchange_status(status_value: str | None) -> str:
+        status_key = str(status_value or "").lower()
+        status_map = {
+            "canceled": "cancelled",
+            "cancelled": "cancelled",
+            "expired": "cancelled",
+            "live": "submitted",
+            "new": "submitted",
+            "open": "submitted",
+            "partially_filled": "partial",
+            "partial-filled": "partial",
+        }
+        return status_map.get(status_key, status_key or "pending")
+
+    def _apply_order_result(self, order: Order, result: OrderResult) -> str:
+        if result.exchange_order_id:
+            order.exchange_order_id = result.exchange_order_id
+
+        mapped_status = self._map_exchange_status(result.status)
+        order.status = mapped_status
+
+        if result.filled_quantity > 0:
+            order.filled_quantity = result.filled_quantity
+        if result.avg_fill_price and result.avg_fill_price > 0:
+            order.avg_fill_price = result.avg_fill_price
+        if order.avg_fill_price and order.filled_quantity:
+            order.order_value = order.avg_fill_price * order.filled_quantity
+
+        if mapped_status == "filled" and not order.filled_at:
+            order.filled_at = datetime.now(UTC)
+
+        return mapped_status
+
+    async def _refresh_recent_order_status(
+        self,
+        *,
+        order: Order,
+        account: ExchangeAccount,
+        adapter,
+        adapter_symbol: str,
+        closing_position: Position | None = None,
+    ) -> Order:
+        if not order.exchange_order_id:
+            return order
+
+        pending_statuses = {"pending", "submitted", "partial"}
+        if order.status not in pending_statuses:
+            return order
+
+        for delay in (0.0, 0.8, 1.6):
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            try:
+                refreshed = await adapter.get_order(order.exchange_order_id, adapter_symbol)
+            except Exception as exc:
+                logger.debug(
+                    "[OrderService] 订单即时补查失败: order_id=%d, exchange_order_id=%s, error=%s",
+                    order.id,
+                    order.exchange_order_id,
+                    exc,
+                )
+                continue
+
+            previous_status = order.status
+            mapped_status = self._apply_order_result(order, refreshed)
+            should_sync_position = mapped_status == "filled" and previous_status != "filled"
+
+            if should_sync_position:
+                await self._sync_position_on_fill(order, account, refreshed)
+                await self.session.refresh(order)
+            else:
+                await self.session.commit()
+                await self.session.refresh(order)
+
+            logger.info(
+                "[OrderService] 订单即时补查: order_id=%d, status=%s",
+                order.id,
+                order.status,
+            )
+
+            if order.status not in pending_statuses:
+                break
+
+        return order
+
+    async def _adapter_exec_context_for_position(
+        self, position: Position, account: ExchangeAccount
+    ) -> tuple[str, bool]:
+        strategy_params = None
+        if position.strategy_instance_id:
+            inst = await self.strategy_repo.get_by_id(position.strategy_instance_id)
+            if inst:
+                strategy_params = inst.params or {}
+        sym_u, perp = resolve_execution_context(position.symbol, strategy_params)
+        ex = (account.exchange or "").lower()
+        bin_fut = perp and ex == "binance"
+        sym_u = self._adapter_symbol_for_rules(ex, sym_u, perp)
+        return sym_u, bin_fut
+
+    async def get_symbol_rules(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        symbol: str,
+    ) -> TradingSymbolRulesSchema:
+        """按账户 + 市场语义返回手动交易所需的精度/最小下单规则。"""
+        account = await self.account_repo.get_by_id(account_id)
+        if not account or account.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="账户不存在",
+            )
+        if not account.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="账户已禁用",
+            )
+
+        normalized_symbol, normalized_base, is_perp = self._normalize_ui_symbol(symbol)
+        exchange = (account.exchange or "").lower()
+        adapter_symbol = self._adapter_symbol_for_rules(exchange, normalized_base, is_perp)
+        adapter = await self._get_adapter(account, is_futures=is_perp and exchange == "binance")
+
+        try:
+            info = await adapter.get_exchange_info(adapter_symbol)
+        except NotImplementedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"{account.exchange} 暂不支持该市场的下单规则查询",
+            ) from exc
+        except ExchangeAPIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"获取交易规则失败: {exc.message}",
+            ) from exc
+        except OrderRejectedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"获取交易规则失败: {exc.message}",
+            ) from exc
+
+        return TradingSymbolRulesSchema.from_values(
+            symbol=normalized_symbol,
+            base_symbol=normalized_base,
+            exchange_symbol=adapter_symbol,
+            exchange=exchange,
+            market_type="perp" if is_perp else "spot",
+            min_qty=info.min_qty,
+            step_size=info.step_size,
+            min_notional=info.min_notional,
+            tick_size=info.tick_size,
         )
 
+    async def get_contract_settings(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        symbol: str,
+    ) -> dict[str, str | int | bool]:
+        account = await self.account_repo.get_by_id(account_id)
+        if not account or account.user_id != user_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账户不存在")
+
+        normalized_symbol, _, is_perp = self._normalize_ui_symbol(symbol)
+        if not is_perp:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只有合约交易对支持杠杆与保证金模式设置",
+            )
+
+        settings = self._get_saved_contract_settings(account, normalized_symbol)
+        return {
+            **settings,
+            "account_id": account_id,
+            "is_paper": self._is_paper_account(account),
+        }
+
+    async def update_contract_settings(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        symbol: str,
+        leverage: int,
+        margin_mode: str,
+    ) -> dict[str, str | int | bool]:
+        account = await self.account_repo.get_by_id(account_id)
+        if not account or account.user_id != user_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账户不存在")
+        if not account.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账户已禁用")
+        if leverage < 1 or leverage > 125:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="杠杆范围应为 1-125"
+            )
+        if margin_mode not in {"cross", "isolated"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="保证金模式仅支持 cross 或 isolated",
+            )
+
+        normalized_symbol, normalized_base, is_perp = self._normalize_ui_symbol(symbol)
+        if not is_perp:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只有合约交易对支持杠杆与保证金模式设置",
+            )
+
+        if self._is_paper_account(account):
+            settings = await self._paper_service().upsert_contract_settings(
+                account,
+                symbol=normalized_symbol,
+                leverage=leverage,
+                margin_mode=margin_mode,
+            )
+            return {
+                **settings,
+                "account_id": account_id,
+                "is_paper": True,
+            }
+
+        exchange = (account.exchange or "").lower()
+        adapter_symbol = self._adapter_symbol_for_rules(exchange, normalized_base, True)
+        adapter = await self._get_adapter(account, is_futures=exchange == "binance")
+        try:
+            await adapter.configure_contract(
+                adapter_symbol,
+                leverage=leverage,
+                margin_mode=margin_mode,
+            )
+        except NotImplementedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"{account.exchange} 暂不支持通过控制台设置合约参数",
+            ) from exc
+        except ExchangeAPIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"合约参数设置失败: {exc.message}",
+            ) from exc
+        except OrderRejectedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"合约参数设置被拒绝: {exc.message}",
+            ) from exc
+
+        settings = await self._paper_service().upsert_contract_settings(
+            account,
+            symbol=normalized_symbol,
+            leverage=leverage,
+            margin_mode=margin_mode,
+        )
+        return {
+            **settings,
+            "account_id": account_id,
+            "is_paper": False,
+        }
+
     async def sync_account_balance(
-        self, account_id: int, user_id: int | None = None
+        self, account_id: int, user_id: int | None = None, *, is_futures: bool = False
     ) -> ExchangeAccount:
         """从交易所同步账户真实余额
 
@@ -83,8 +432,20 @@ class OrderService:
                 detail="无权操作此账户",
             )
 
+        if self._is_paper_account(account):
+            balances = account.balances or PaperTradingService.default_balances(account.balance)
+            account.balance = Decimal(str(balances.get("USDT", account.balance or "0")))
+            account.frozen_balance = Decimal(str(account.frozen_balance or "0"))
+            account.last_sync_at = datetime.now(UTC)
+            account.status = "active"
+            account.error_message = None
+            await self.session.commit()
+            await self.session.refresh(account)
+            return account
+
         try:
-            adapter = await self._get_adapter(account)
+            bin_fut = is_futures and account.exchange.lower() == "binance"
+            adapter = await self._get_adapter(account, is_futures=bin_fut)
             balances = await adapter.get_balance()
 
             # 提取 USDT 余额
@@ -98,8 +459,6 @@ class OrderService:
                 if balances:
                     account.balance = balances[0].free
                     account.frozen_balance = balances[0].locked
-
-            from datetime import datetime
 
             account.last_sync_at = datetime.now(UTC)
             account.status = "active"
@@ -198,7 +557,13 @@ class OrderService:
         )
         return await self.order_repo.create(order)
 
-    async def submit_order(self, order_id: int, user_id: int) -> Order:
+    async def submit_order(
+        self,
+        order_id: int,
+        user_id: int,
+        *,
+        closing_position: Position | None = None,
+    ) -> Order:
         """提交订单到交易所（真实下单，带幂等性保护）"""
         order = await self.order_repo.get_by_id(order_id)
         if not order:
@@ -223,15 +588,24 @@ class OrderService:
             )
             return order
 
+        if self._is_paper_account(account):
+            return await self._submit_paper_order(order, account, closing_position=closing_position)
+
         # 调用真实交易所 API
         try:
-            adapter = await self._get_adapter(account)
+            adapter_sym, bin_fut = await self._adapter_exec_context_for_order(order, account)
+            adapter = await self._get_adapter(account, is_futures=bin_fut)
+            order_kwargs = await self._adapter_order_request_kwargs(
+                order=order,
+                account=account,
+                closing_position=closing_position,
+            )
 
             logger.info(
                 "[OrderService] 提交订单: order_id=%d, symbol=%s, side=%s, "
                 "exchange=%s, demo=%s, testnet=%s, client_order_id=%s",
                 order_id,
-                order.symbol,
+                adapter_sym,
                 order.side,
                 account.exchange,
                 account.is_demo,
@@ -240,27 +614,17 @@ class OrderService:
             )
 
             result = await adapter.create_order(
-                symbol=order.symbol,
+                symbol=adapter_sym,
                 side=order.side,
                 order_type=order.order_type,
                 quantity=order.quantity,
                 price=order.price,
+                **order_kwargs,
             )
 
             # 更新订单状态
-            order.exchange_order_id = result.exchange_order_id
-            order.status = result.status
+            self._apply_order_result(order, result)
             order.submitted_at = datetime.now(UTC)
-
-            # 市价单直接用交易所返回值更新成交
-            if result.filled_quantity > 0:
-                order.filled_quantity = result.filled_quantity
-                order.avg_fill_price = result.avg_fill_price
-                if result.avg_fill_price and result.filled_quantity:
-                    order.order_value = result.avg_fill_price * result.filled_quantity
-
-            if result.status == "filled":
-                order.filled_at = datetime.now(UTC)
 
             logger.info(
                 "[OrderService] 订单提交成功: order_id=%d, exchange_order_id=%s, status=%s",
@@ -273,8 +637,16 @@ class OrderService:
             await self.session.refresh(order)
 
             # 评审问题4: 订单成交后自动创建/更新 Position 记录
-            if result.status == "filled":
+            if order.status == "filled":
                 await self._sync_position_on_fill(order, account, result)
+            elif order.status in {"pending", "submitted", "partial"}:
+                await self._refresh_recent_order_status(
+                    order=order,
+                    account=account,
+                    adapter=adapter,
+                    adapter_symbol=adapter_sym,
+                    closing_position=closing_position,
+                )
 
             # P0-1: 大额成交通知（订单价值 > 1000 USDT）
             if order.order_value and order.order_value >= Decimal("1000"):
@@ -375,6 +747,83 @@ class OrderService:
                 detail=f"交易所下单失败: {str(e)}",
             ) from e
 
+    async def _submit_paper_order(
+        self,
+        order: Order,
+        account: ExchangeAccount,
+        *,
+        closing_position: Position | None = None,
+    ) -> Order:
+        paper = self._paper_service()
+
+        try:
+            exec_price = await paper.get_execution_price(order.symbol, order.price)
+            slippage = exec_price * paper.DEFAULT_SLIPPAGE_PCT
+            adjusted_price = exec_price + slippage if order.side == "buy" else exec_price - slippage
+            commission = adjusted_price * order.quantity * paper.DEFAULT_COMMISSION_RATE
+
+            async with await paper._get_lock(account.id):
+                if order.symbol.endswith(".P"):
+                    if closing_position is not None:
+                        realized_pnl = await paper.release_contract_margin(
+                            account,
+                            position=closing_position,
+                            exit_price=adjusted_price,
+                            commission=commission,
+                        )
+                        order.pnl = realized_pnl
+                    else:
+                        await paper.reserve_contract_margin(
+                            account,
+                            symbol=order.symbol,
+                            quantity=order.quantity,
+                            exec_price=adjusted_price,
+                            commission=commission,
+                        )
+                else:
+                    await paper.apply_spot_fill(
+                        account,
+                        symbol=order.symbol,
+                        side=order.side,
+                        quantity=order.quantity,
+                        exec_price=adjusted_price,
+                        commission=commission,
+                    )
+
+                order.exchange_order_id = f"PAPER-{order.id}"
+                order.status = "filled"
+                order.submitted_at = datetime.now(UTC)
+                order.filled_at = datetime.now(UTC)
+                order.filled_quantity = order.quantity
+                order.avg_fill_price = adjusted_price
+                order.order_value = adjusted_price * order.quantity
+                order.commission = commission
+
+            await self.session.commit()
+            await self.session.refresh(order)
+
+            if closing_position is None:
+                synthetic = OrderResult(
+                    exchange_order_id=order.exchange_order_id or f"PAPER-{order.id}",
+                    symbol=order.symbol,
+                    side=order.side,
+                    order_type=order.order_type,
+                    quantity=order.quantity,
+                    price=order.price,
+                    status="filled",
+                    filled_quantity=order.quantity,
+                    avg_fill_price=adjusted_price,
+                )
+                await self._sync_position_on_fill(order, account, synthetic)
+
+            return order
+        except ValueError as exc:
+            order.status = "rejected"
+            order.error_message = str(exc)
+            await self.session.commit()
+            await self.session.refresh(order)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     async def cancel_order(self, order_id: int, user_id: int) -> Order:
         """取消订单（真实撤单）"""
         order = await self.order_repo.get_by_id(order_id)
@@ -400,16 +849,17 @@ class OrderService:
         # 调用交易所撤单
         if order.exchange_order_id:
             try:
-                adapter = await self._get_adapter(account)
+                adapter_sym, bin_fut = await self._adapter_exec_context_for_order(order, account)
+                adapter = await self._get_adapter(account, is_futures=bin_fut)
 
                 logger.info(
                     "[OrderService] 撤单: order_id=%d, exchange_order_id=%s, symbol=%s",
                     order_id,
                     order.exchange_order_id,
-                    order.symbol,
+                    adapter_sym,
                 )
 
-                success = await adapter.cancel_order(order.exchange_order_id, order.symbol)
+                success = await adapter.cancel_order(order.exchange_order_id, adapter_sym)
                 if not success:
                     logger.warning(
                         "[OrderService] 撤单未成功: order_id=%d, exchange_order_id=%s",
@@ -536,7 +986,11 @@ class OrderService:
 
         # P1-1: 先提交到交易所，成功后再更新 position 状态
         # submit_order 内部已有异常处理，失败会抛出 HTTPException
-        await self.submit_order(order.id, user_id)
+        await self.submit_order(
+            order.id,
+            user_id,
+            closing_position=position,
+        )
 
         # 计算盈亏
         realized_pnl = Decimal("0")
@@ -661,10 +1115,11 @@ class OrderService:
         # 止损方向与持仓方向相反：多头持仓 → 卖出止损，空头持仓 → 买入止损
         sl_side = "sell" if position.side == "long" else "buy"
         try:
-            adapter = await self._get_adapter(account)
+            adapter_sym, bin_fut = await self._adapter_exec_context_for_position(position, account)
+            adapter = await self._get_adapter(account, is_futures=bin_fut)
 
             result = await adapter.create_stop_order(
-                symbol=position.symbol,
+                symbol=adapter_sym,
                 side=sl_side,
                 quantity=position.quantity,
                 stop_price=stop_price,
@@ -735,10 +1190,11 @@ class OrderService:
         # 止盈方向与持仓方向相反：多头持仓 → 卖出止盈，空头持仓 → 买入止盈
         tp_side = "sell" if position.side == "long" else "buy"
         try:
-            adapter = await self._get_adapter(account)
+            adapter_sym, bin_fut = await self._adapter_exec_context_for_position(position, account)
+            adapter = await self._get_adapter(account, is_futures=bin_fut)
 
             result = await adapter.create_stop_order(
-                symbol=position.symbol,
+                symbol=adapter_sym,
                 side=tp_side,
                 quantity=position.quantity,
                 stop_price=tp_price,
@@ -784,6 +1240,10 @@ class OrderService:
                      否则也创建 short 持仓
         """
         try:
+            leverage = 1
+            if order.symbol.endswith(".P"):
+                leverage = int(self._get_saved_contract_settings(account, order.symbol)["leverage"])
+
             if order.side == "buy":
                 # 买入 → 寻找已有同方向 open 持仓合并，或新建
                 existing = await self.position_repo.get_by_account_and_symbol(
@@ -812,6 +1272,7 @@ class OrderService:
                         merge_target.entry_price = weighted_price
                     merge_target.quantity = total_qty
                     merge_target.current_price = order.avg_fill_price or merge_target.current_price
+                    merge_target.leverage = leverage
                     merge_target.updated_at = datetime.now(UTC)
                     logger.info(
                         "[OrderService] 加仓 Position #%d: qty=%s, avg_price=%s",
@@ -828,6 +1289,7 @@ class OrderService:
                         quantity=order.filled_quantity,
                         entry_price=order.avg_fill_price or Decimal("0"),
                         current_price=order.avg_fill_price or Decimal("0"),
+                        leverage=leverage,
                         status="open",
                         strategy_instance_id=order.strategy_instance_id,
                         opened_at=datetime.now(UTC),
@@ -874,6 +1336,7 @@ class OrderService:
                         quantity=order.filled_quantity,
                         entry_price=order.avg_fill_price or Decimal("0"),
                         current_price=order.avg_fill_price or Decimal("0"),
+                        leverage=leverage,
                         status="open",
                         strategy_instance_id=order.strategy_instance_id,
                         opened_at=datetime.now(UTC),

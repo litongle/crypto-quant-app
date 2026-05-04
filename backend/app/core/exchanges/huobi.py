@@ -353,6 +353,9 @@ class HuobiAdapter(BaseExchangeAdapter):
         order_type: str,
         quantity: Decimal,
         price: Decimal | None = None,
+        *,
+        position_side: str | None = None,
+        target_currency: str | None = None,
     ) -> OrderResult:
         info = await self.get_exchange_info(symbol)
         normalized_quantity = self._prepare_quantity(quantity, info)
@@ -512,16 +515,10 @@ class HuobiAdapter(BaseExchangeAdapter):
         for s in data.get("data", []):
             if s.get("sc").lower() == symbol_lower:
                 amount_step = _precision_to_step(
-                    s.get("ap")
-                    or s.get("amount-precision")
-                    or s.get("tap")
-                    or s.get("toa")
+                    s.get("ap") or s.get("amount-precision") or s.get("tap") or s.get("toa")
                 )
                 price_step = _precision_to_step(
-                    s.get("pp")
-                    or s.get("price-precision")
-                    or s.get("tpp")
-                    or s.get("tp")
+                    s.get("pp") or s.get("price-precision") or s.get("tpp") or s.get("tp")
                 )
                 return SymbolInfo(
                     symbol=symbol.upper(),
