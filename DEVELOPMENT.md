@@ -229,7 +229,6 @@ ExchangeAccount 1:N → Position
 | 安全 Decimal | `_safe_decimal()` / `_safe_divide()` 防数值异常 |
 | OKX 特殊处理 | Passphrase 空值警告 + 服务器时间同步 |
 | Huobi 缓存 | accountId TTL 5分钟 + 失败清理 |
-| 止损止盈 | `create_stop_order()` 三家实现 + 降级机制 |
 
 ### 策略执行流程
 
@@ -238,7 +237,7 @@ StrategyRunner.start() → asyncio.Task 循环:
   → MarketService.get_klines() 获取K线
   → Strategy.analyze(klines) 生成 Signal
   → _persist_signal() 信号入库
-  → _auto_trade() 自动下单（查账户→create_order→submit_order）
+  → _auto_trade() 自动执行（查账户→create_order→submit_order）
   → _broadcast_signal() WS 推送信号
   → 60s 防抖等待
 ```
@@ -272,7 +271,6 @@ StrategyRunner.start() → asyncio.Task 循环:
 | ~~🔴 P0~~ | ~~零测试覆盖率~~ | ✅ 40+ 用例 |
 | ~~🔴 P0~~ | ~~生产环境默认密钥~~ | ✅ validate_production_secrets() |
 | ~~🟠 P1~~ | ~~自动下单未实现~~ | ✅ StrategyRunner→OrderService |
-| ~~🟠 P1~~ | ~~止损止盈只存数据库~~ | ✅ create_stop_order() + 降级 |
 | 🟠 P1 | 数据库迁移（Alembic） | ❌ |
 | 🟡 P2 | 移动端 API 全量对接 | ❌ |
 | 🟡 P2 | 策略信号 WS 前端订阅 | ❌ |

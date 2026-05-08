@@ -189,12 +189,6 @@
           </span>
           <span class="sidebar-nav-text">实时行情</span>
         </div>
-        <div class="sidebar-nav-item" onclick="navigate('trading')" data-page="trading">
-          <span class="sidebar-icon-container">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </span>
-          <span class="sidebar-nav-text">手动交易</span>
-        </div>
       </div>
     </nav>
 
@@ -488,167 +482,6 @@
       </div>
     </div>
 
-    <!-- ===== 交易页 ===== -->
-    <div class="page-view" id="page-trading">
-      <div class="page-header">
-        <h1>交易</h1>
-        <div class="sub">手动下单、管理持仓和订单</div>
-      </div>
-
-      <div class="cq-trading-terminal">
-        <aside class="cq-card cq-trading-terminal__pairs">
-          <div class="cq-trading-pairs__header">
-            <div>
-              <div class="cq-trading-panel__eyebrow">交易对</div>
-              <div class="cq-trading-panel__title">终端切换器</div>
-            </div>
-            <span id="trading-pair-count" class="cq-tag cq-tag--neutral">0</span>
-          </div>
-          <div style="margin-bottom:var(--cq-space-3);">
-            <label class="cq-label">交易账户</label>
-            <select class="cq-input" id="trading-account-select" onchange="handleTradingAccountChange(this.value)">
-              <option value="">加载中...</option>
-            </select>
-          </div>
-          <div class="cq-trading-market-switch" aria-label="市场类型切换">
-            <button class="cq-trading-market-switch__btn is-active" id="trading-market-switch-spot" type="button" aria-pressed="true" onclick="setTradingMarketFilter('spot')">现货</button>
-            <button class="cq-trading-market-switch__btn" id="trading-market-switch-perp" type="button" aria-pressed="false" onclick="setTradingMarketFilter('perp')">永续合约</button>
-          </div>
-          <div class="cq-trading-pairs__search">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="trading-pair-search" class="cq-input cq-trading-pairs__search-input" placeholder="搜索 BTC / ETH / SOL" autocomplete="off">
-          </div>
-          <div id="trading-symbol-selector" class="cq-trading-pairs__list" role="listbox" aria-label="交易对列表"></div>
-        </aside>
-
-        <div class="cq-trading-terminal__center">
-          <section class="cq-card cq-trading-terminal__form">
-            <div class="cq-trading-market-card cq-trading-market-card--hero">
-              <div class="cq-trading-market-card__header">
-                <span id="trading-market-badge" class="cq-trading-market-badge is-spot">现货</span>
-                <div class="cq-trading-market-card__title-wrap">
-                  <div id="trading-market-title" class="cq-trading-market-card__title">等待选择交易对</div>
-                  <div id="trading-market-subtitle" class="cq-trading-market-card__subtitle">--</div>
-                </div>
-              </div>
-              <div id="trading-rule-summary"></div>
-              <div id="trading-market-helper" class="cq-trading-market-card__helper">
-                选择交易账户后，这里会显示该账户下交易所的最小下单量、步进和价格精度。
-              </div>
-            </div>
-
-            <div class="cq-trading-contract-card" id="trading-contract-settings" style="display:none;">
-              <div class="cq-trading-contract-card__header">
-                <div>
-                  <div class="cq-trading-contract-card__title">合约设置</div>
-                  <div class="cq-trading-contract-card__subtitle">杠杆与保证金模式会跟随当前账户和交易对保存</div>
-                </div>
-                <button class="cq-btn cq-btn--secondary cq-btn--sm" id="trading-contract-save-btn" onclick="saveTradingContractSettings()">保存设置</button>
-              </div>
-              <div class="cq-trading-contract-grid">
-                <div>
-                  <label class="cq-label">杠杆倍数</label>
-                  <input type="number" class="cq-input" id="trading-leverage" min="1" max="125" step="1" value="10">
-                </div>
-                <div>
-                  <label class="cq-label">保证金模式</label>
-                  <div class="cq-segmented-control">
-                    <button class="cq-margin-btn is-active" type="button" data-margin-mode="cross" aria-pressed="true" onclick="setTradingMarginMode('cross')">全仓</button>
-                    <button class="cq-margin-btn" type="button" data-margin-mode="isolated" aria-pressed="false" onclick="setTradingMarginMode('isolated')">逐仓</button>
-                  </div>
-                </div>
-              </div>
-              <div id="trading-paper-hint" class="cq-trading-contract-card__hint">保存后会把杠杆和保证金模式同步到当前交易账户对应的交易所。</div>
-            </div>
-
-            <div class="cq-trading-order-entry">
-              <div class="cq-trading-order-entry__header">
-                <div class="cq-trading-panel__eyebrow">下单面板</div>
-                <div class="cq-trading-order-entry__types">
-                  <button class="cq-otype-btn is-active" type="button" data-otype="market" aria-pressed="true" onclick="setTradingOrderType('market')">市价</button>
-                  <button class="cq-otype-btn" type="button" data-otype="limit" aria-pressed="false" onclick="setTradingOrderType('limit')">限价</button>
-                </div>
-              </div>
-
-              <div class="cq-trading-side-row">
-                <button class="cq-side-btn is-active" type="button" data-side="buy" aria-pressed="true" onclick="setTradingSide('buy')">买入</button>
-                <button class="cq-side-btn" type="button" data-side="sell" aria-pressed="false" onclick="setTradingSide('sell')">卖出</button>
-              </div>
-
-              <div class="cq-trading-form-grid">
-                <div>
-                  <label class="cq-label" id="trading-quantity-label">数量</label>
-                  <input type="number" class="cq-input" id="trading-quantity" placeholder="0.00" step="any">
-                </div>
-                <div id="trading-price-field" style="display:none;">
-                  <label class="cq-label" id="trading-price-label">价格 (USDT)</label>
-                  <input type="number" class="cq-input" id="trading-price" placeholder="0.00" step="any">
-                </div>
-              </div>
-
-              <button class="cq-btn cq-btn--primary cq-btn--full" onclick="submitOrder()" id="trading-submit-btn">买入</button>
-            </div>
-          </section>
-
-          <section class="cq-card cq-trading-terminal__activity">
-            <div class="cq-trading-tabs" role="tablist" aria-label="交易信息切换">
-              <button class="cq-trading-tabs__btn is-active" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="trading-tab-panel-positions" data-tab="positions" onclick="setTradingBottomTab('positions')">当前持仓</button>
-              <button class="cq-trading-tabs__btn" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="trading-tab-panel-open-orders" data-tab="open-orders" onclick="setTradingBottomTab('open-orders')">当前订单</button>
-              <button class="cq-trading-tabs__btn" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="trading-tab-panel-history" data-tab="history" onclick="setTradingBottomTab('history')">历史成交</button>
-            </div>
-            <div class="cq-trading-tabs__panel is-active" id="trading-tab-panel-positions" role="tabpanel">
-              <div id="trading-positions"></div>
-            </div>
-            <div class="cq-trading-tabs__panel" id="trading-tab-panel-open-orders" role="tabpanel" hidden>
-              <div id="trading-open-orders"></div>
-            </div>
-            <div class="cq-trading-tabs__panel" id="trading-tab-panel-history" role="tabpanel" hidden>
-              <div id="trading-orders"></div>
-            </div>
-          </section>
-        </div>
-
-        <aside class="cq-card cq-trading-terminal__book">
-          <div class="cq-market-orderbook__header">
-            <div>
-              <div class="cq-trading-panel__eyebrow">深度</div>
-              <h3>订单簿</h3>
-              <p>当前交易对的盘口与点差</p>
-            </div>
-            <div id="trading-orderbook-meta" class="cq-market-orderbook__meta"></div>
-          </div>
-          <div id="trading-orderbook-summary" class="cq-market-orderbook__summary"></div>
-          <div id="trading-orderbook-body" class="cq-market-orderbook__body"></div>
-        </aside>
-      </div>
-    </div>
-
-    <!-- 止损止盈弹窗 -->
-    <div class="cq-dialog-overlay" id="sltp-dialog">
-      <div class="cq-dialog">
-        <div class="cq-dialog__header">
-          <span style="font-weight:600;">设置止损 / 止盈</span>
-          <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="closeSlTpDialog()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="cq-dialog__body">
-          <div style="margin-bottom:var(--cq-space-3);">
-            <label class="cq-label">止损价格 (USDT)</label>
-            <input type="number" class="cq-input" id="sltp-stop-price" placeholder="留空则不设置" step="any">
-          </div>
-          <div style="margin-bottom:var(--cq-space-4);">
-            <label class="cq-label">止盈价格 (USDT)</label>
-            <input type="number" class="cq-input" id="sltp-take-price" placeholder="留空则不设置" step="any">
-          </div>
-        </div>
-        <div class="cq-dialog__footer">
-          <button class="cq-btn cq-btn--secondary" onclick="closeSlTpDialog()">取消</button>
-          <button class="cq-btn cq-btn--primary" onclick="submitSlTp()">确认</button>
-        </div>
-      </div>
-    </div>
-
     <!-- 策略绩效弹窗 -->
     <div class="cq-perf-modal" id="strategy-perf-modal">
       <div class="cq-perf-panel">
@@ -734,7 +567,6 @@
 <script src="/web/static/js/paper.js"></script>
 <script src="/web/static/js/security.js"></script>
 <script src="/web/static/js/market.js"></script>
-<script src="/web/static/js/trading.js"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;

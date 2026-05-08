@@ -1,5 +1,5 @@
 // 币钱袋 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v4';
+const CACHE_NAME = 'cq-sw-v5';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -9,7 +9,6 @@ const STATIC_ASSETS = [
   '/web/static/js/backtest.js',
   '/web/static/js/accounts.js',
   '/web/static/js/market.js',
-  '/web/static/js/trading.js',
   '/web/static/manifest.json',
 ];
 
