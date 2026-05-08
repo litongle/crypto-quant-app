@@ -12,6 +12,7 @@ from app.core.strategy_runner import StrategyRunner
 def reset_runner_singleton():
     """每个测试前重置单例内部状态"""
     r = StrategyRunner()
+    r._auto_pause = StrategyRunner._auto_pause.__get__(r, StrategyRunner)
     r._running = False
     r._session_maker = None
     r._watchdog_task = None
@@ -22,6 +23,7 @@ def reset_runner_singleton():
     r._strategies.clear()
     r._last_signal_at.clear()
     yield r
+    r._auto_pause = StrategyRunner._auto_pause.__get__(r, StrategyRunner)
     r._running = False
     r._consecutive_errors.clear()
     r._consecutive_order_failures.clear()
