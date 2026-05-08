@@ -367,9 +367,7 @@ async def init_ws_proxies():
         manager.register_proxy("huobi", HuobiProxy(manager))
         logger.info("[WSProxy] WebSocket 代理全部注册成功")
     except ImportError:
-        logger.warning(
-            "[WSProxy] websockets 库不可用，降级为 PollingFallback 轮询模式"
-        )
+        logger.warning("[WSProxy] websockets 库不可用，降级为 PollingFallback 轮询模式")
         polling = PollingFallback(manager)
         await polling.start()
     except Exception as exc:

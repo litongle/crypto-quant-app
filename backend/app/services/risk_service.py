@@ -197,9 +197,11 @@ class RiskService:
                 alerts.append(
                     {
                         "type": "concentration",
-                        "level": "warning"
-                        if c["percentage"] < concentration_threshold + 20
-                        else "danger",
+                        "level": (
+                            "warning"
+                            if c["percentage"] < concentration_threshold + 20
+                            else "danger"
+                        ),
                         "message": f"{c['symbol']} 集中度 {c['percentage']:.1f}% 超过 {concentration_threshold}% 警戒线",
                         "threshold": concentration_threshold,
                         "current": c["percentage"],
@@ -211,9 +213,9 @@ class RiskService:
             alerts.append(
                 {
                     "type": "drawdown",
-                    "level": "warning"
-                    if unrealized_pnl_pct > drawdown_threshold - 15
-                    else "danger",
+                    "level": (
+                        "warning" if unrealized_pnl_pct > drawdown_threshold - 15 else "danger"
+                    ),
                     "message": f"未实现亏损 {float(unrealized_pnl_pct):.1f}% 超过 {drawdown_threshold}% 警戒线",
                     "threshold": drawdown_threshold,
                     "current": float(unrealized_pnl_pct),

@@ -62,7 +62,9 @@ def _inspect_schema_state(sync_conn) -> dict[str, object]:
         strategy_columns = {col["name"] for col in inspector.get_columns("strategy_instances")}
     current_revision = None
     if "alembic_version" in table_names:
-        current_revision = sync_conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        current_revision = sync_conn.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar()
 
     app_tables = {
         "users",

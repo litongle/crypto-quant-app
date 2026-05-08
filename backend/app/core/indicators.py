@@ -174,9 +174,11 @@ def calc_bollinger(
 
     std = np.array(
         [
-            np.std(closes[max(0, i - period + 1) : i + 1])
-            if i >= period - 1 and not np.isnan(middle[i])
-            else np.nan
+            (
+                np.std(closes[max(0, i - period + 1) : i + 1])
+                if i >= period - 1 and not np.isnan(middle[i])
+                else np.nan
+            )
             for i in range(len(closes))
         ]
     )

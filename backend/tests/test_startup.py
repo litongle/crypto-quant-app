@@ -76,7 +76,9 @@ async def test_lifespan_initializes_db_before_strategy_boot(monkeypatch):
         "app.services.order_reconciliation_service.stop_reconciliation",
         fake_stop_reconciliation,
     )
-    monkeypatch.setattr("app.services.sync_scheduler.start_sync_scheduler", fake_start_sync_scheduler)
+    monkeypatch.setattr(
+        "app.services.sync_scheduler.start_sync_scheduler", fake_start_sync_scheduler
+    )
     monkeypatch.setattr("app.services.sync_scheduler.stop_sync_scheduler", fake_stop_sync_scheduler)
     monkeypatch.setattr("app.redis.close_redis", fake_close_redis)
     monkeypatch.setattr("app.database.reset_database", fake_reset_database)

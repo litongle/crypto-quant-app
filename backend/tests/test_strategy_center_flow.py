@@ -24,8 +24,14 @@ async def isolate_strategy_instances(db_session):
 @pytest_asyncio.fixture(autouse=True)
 def mock_strategy_runner():
     with (
-        patch("app.core.strategy_runner.strategy_runner.start_instance", new=AsyncMock(return_value=True)),
-        patch("app.core.strategy_runner.strategy_runner.stop_instance", new=AsyncMock(return_value=None)),
+        patch(
+            "app.core.strategy_runner.strategy_runner.start_instance",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.core.strategy_runner.strategy_runner.stop_instance",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 

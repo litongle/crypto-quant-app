@@ -739,7 +739,9 @@ class TestHuobiAdapter:
         assert second_path.endswith("/linear-swap-api/v1/swap_cross_position_info")
 
     async def test_create_order_quantizes_amount_and_price(self, monkeypatch):
-        client = _patch_client(monkeypatch, post_response=_fake_response({"status": "ok", "data": "1"}))
+        client = _patch_client(
+            monkeypatch, post_response=_fake_response({"status": "ok", "data": "1"})
+        )
         self.adapter.get_exchange_info = AsyncMock(
             return_value=SymbolInfo(
                 symbol="BTCUSDT",

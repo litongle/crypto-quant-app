@@ -227,12 +227,14 @@ async def _save_backtest_history(
         equity_curve=equity_curve_str,
         trades=trades_str,
         # 时间
-        start_time=datetime.fromisoformat(result["startTime"].rstrip("Z"))
-        if result.get("startTime")
-        else None,
-        end_time=datetime.fromisoformat(result["endTime"].rstrip("Z"))
-        if result.get("endTime")
-        else None,
+        start_time=(
+            datetime.fromisoformat(result["startTime"].rstrip("Z"))
+            if result.get("startTime")
+            else None
+        ),
+        end_time=(
+            datetime.fromisoformat(result["endTime"].rstrip("Z")) if result.get("endTime") else None
+        ),
     )
 
     session.add(record)

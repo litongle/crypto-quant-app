@@ -243,9 +243,9 @@ def create_app() -> FastAPI:
                 "success": False,
                 "error": {
                     "code": error_code,
-                    "message": "外部服务异常，请稍后重试"
-                    if status_code == 502
-                    else "服务器内部错误",
+                    "message": (
+                        "外部服务异常，请稍后重试" if status_code == 502 else "服务器内部错误"
+                    ),
                     "retryable": is_retryable,
                 },
             },

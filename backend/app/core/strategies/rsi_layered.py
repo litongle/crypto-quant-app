@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from app.core.indicators import calc_rsi
+from app.core.indicators import calc_atr, calc_rsi
 from app.core.strategy_engine import BaseStrategy, Signal, StrategyConfig
 
 logger = logging.getLogger(__name__)
@@ -46,16 +46,26 @@ DEFAULTS: dict[str, Any] = {
     "short_levels": [70, 75, 80],
     "retracement_points": 2.0,
     "max_additional_positions": 4,
-    # 单位为价格点数(基础货币计价,如 USDT)
-    "fixed_stop_loss_points": 6.0,
-    # 分层浮动止盈: [(窗口K线数, 回撤点数, 最小盈利点数), ...]
-    "profit_taking_config": [
-        [10, 3.0, 2.0],
-        [30, 5.0, 3.0],
-        [60, 10.0, 5.0],
-    ],
     "max_holding_candles": 60,
     "cooling_candles": 3,
+    # 头寸量纲: pct(入场价百分比) 或 atr(ATR 倍数)
+    "size_mode": "pct",
+    # ── pct 模式: 阈值 = 入场价 × 百分比 ──
+    "fixed_stop_loss_pct": 0.005,
+    # 分层浮动止盈: [[窗口K线数, 回撤百分比, 最小盈利百分比], ...]
+    "profit_taking_config_pct": [
+        [10, 0.003, 0.002],
+        [30, 0.005, 0.003],
+        [60, 0.010, 0.005],
+    ],
+    # ── atr 模式: 阈值 = 入场时锁定的 ATR × 倍数 ──
+    "atr_period": 14,
+    "fixed_stop_loss_atr": 2.0,
+    "profit_taking_config_atr": [
+        [10, 1.0, 0.7],
+        [30, 1.5, 1.0],
+        [60, 3.0, 1.5],
+    ],
 }
 
 
@@ -74,12 +84,26 @@ class RsiLayeredStrategy(BaseStrategy):
         self.short_levels: list[float] = [float(x) for x in p["short_levels"]]
         self.retracement_points: float = float(p["retracement_points"])
         self.max_additional_positions: int = int(p["max_additional_positions"])
-        self.fixed_stop_loss_points: float = float(p["fixed_stop_loss_points"])
-        self.profit_taking_config: list[tuple[int, float, float]] = [
-            (int(w), float(r), float(m)) for w, r, m in p["profit_taking_config"]
-        ]
         self.max_holding_candles: int = int(p["max_holding_candles"])
         self.cooling_candles: int = int(p["cooling_candles"])
+
+        # 头寸量纲: pct(入场价百分比) / atr(入场时锁定 ATR × 倍数)
+        self.size_mode: str = str(p["size_mode"]).lower()
+        if self.size_mode not in ("pct", "atr"):
+            raise ValueError(f"size_mode must be 'pct' or 'atr', got {p['size_mode']!r}")
+
+        # pct 模式参数
+        self.fixed_stop_loss_pct: float = float(p["fixed_stop_loss_pct"])
+        self.profit_taking_config_pct: list[tuple[int, float, float]] = [
+            (int(w), float(r), float(m)) for w, r, m in p["profit_taking_config_pct"]
+        ]
+
+        # atr 模式参数
+        self.atr_period: int = int(p["atr_period"])
+        self.fixed_stop_loss_atr: float = float(p["fixed_stop_loss_atr"])
+        self.profit_taking_config_atr: list[tuple[int, float, float]] = [
+            (int(w), float(r), float(m)) for w, r, m in p["profit_taking_config_atr"]
+        ]
 
         # ── 运行时状态 ──
         self._mode: str = "monitoring"  # monitoring / long / short / cooling
@@ -104,6 +128,10 @@ class RsiLayeredStrategy(BaseStrategy):
         self._max_profit: float = 0.0
         self._additional_positions_count: int = 0
 
+        # ATR(仅 atr 模式使用): 最近一根 K 线的 ATR / 开仓时锁定的 ATR
+        self._latest_atr: float | None = None
+        self._entry_atr: float | None = None
+
         # 防止同根 K 线重复触发
         self._last_kline_ts: int | None = None
 
@@ -127,6 +155,14 @@ class RsiLayeredStrategy(BaseStrategy):
 
         current_rsi = float(rsi_arr[-1])
         kline_time = _ts_to_dt(ts)
+
+        # atr 模式: 每根 K 线刷新最新 ATR(下一次开仓会被锁定)
+        if self.size_mode == "atr" and len(klines) >= self.atr_period + 1:
+            highs = np.array([float(k["high"]) for k in klines], dtype=np.float64)
+            lows = np.array([float(k["low"]) for k in klines], dtype=np.float64)
+            atr_arr = calc_atr(highs, lows, closes, self.atr_period)
+            if len(atr_arr) > 0 and not np.isnan(atr_arr[-1]):
+                self._latest_atr = float(atr_arr[-1])
 
         long_lvl, short_lvl = self._check_rsi_level(current_rsi)
         self._update_extreme_values(current_rsi, kline_time, long_lvl, short_lvl)
@@ -359,7 +395,8 @@ class RsiLayeredStrategy(BaseStrategy):
     # ── 持仓决策 ──────────────────────────────────────────
 
     def _should_take_profit(self, kline: dict) -> bool:
-        """分层浮动止盈: 达到窗口后,最大浮盈回撤超阈值 + 保留最低盈利"""
+        """分层浮动止盈：达到窗口后，最大浮盈回撤超阈值 + 当前浮盈≥最低盈利。
+        阈值按 size_mode 换算到绝对价差：pct→×入场价；atr→×入场时锁定的 ATR。"""
         if self._position_dir is None or self._entry_price is None:
             return False
         current_pnl = self._unrealized_pnl(kline)
@@ -368,11 +405,21 @@ class RsiLayeredStrategy(BaseStrategy):
         if current_pnl > self._max_profit:
             self._max_profit = current_pnl
         retracement = self._max_profit - current_pnl
-        for window, retr_points, min_profit in self.profit_taking_config:
+
+        unit = self._size_unit()
+        if unit is None:
+            return False
+
+        config = (
+            self.profit_taking_config_pct
+            if self.size_mode == "pct"
+            else self.profit_taking_config_atr
+        )
+        for window, retr, min_profit in config:
             if (
                 self._holding_periods >= window
-                and retracement >= retr_points
-                and current_pnl >= min_profit
+                and retracement >= retr * unit
+                and current_pnl >= min_profit * unit
             ):
                 return True
         return False
@@ -380,7 +427,30 @@ class RsiLayeredStrategy(BaseStrategy):
     def _should_stop_loss(self, kline: dict) -> bool:
         if self._position_dir is None:
             return False
-        return self._unrealized_pnl(kline) <= -self.fixed_stop_loss_points
+        threshold = self._stop_loss_threshold()
+        if threshold is None:
+            return False
+        return self._unrealized_pnl(kline) <= -threshold
+
+    def _stop_loss_threshold(self) -> float | None:
+        """按 size_mode 返回止损触发的绝对价差(正数)；条件不足返回 None。"""
+        if self._entry_price is None:
+            return None
+        if self.size_mode == "pct":
+            return self._entry_price * self.fixed_stop_loss_pct
+        if self._entry_atr is None or self._entry_atr <= 0:
+            return None
+        return self._entry_atr * self.fixed_stop_loss_atr
+
+    def _size_unit(self) -> float | None:
+        """返回当前模式下"一份"配置对应的绝对价差单位；条件不足返回 None。"""
+        if self._entry_price is None:
+            return None
+        if self.size_mode == "pct":
+            return self._entry_price
+        if self._entry_atr is None or self._entry_atr <= 0:
+            return None
+        return self._entry_atr
 
     def _should_add_position(self, direction: str, rsi: float) -> bool:
         if self._additional_positions_count >= self.max_additional_positions:
@@ -408,6 +478,9 @@ class RsiLayeredStrategy(BaseStrategy):
         self._holding_periods = 0
         self._max_profit = 0.0
         self._additional_positions_count = 0
+        # atr 模式锁定开仓时的 ATR，防止波动飙升把止损阈值推远
+        if self.size_mode == "atr":
+            self._entry_atr = self._latest_atr
 
     def _close_position(self) -> None:
         self._mode = "cooling"
@@ -417,6 +490,7 @@ class RsiLayeredStrategy(BaseStrategy):
         self._holding_periods = 0
         self._max_profit = 0.0
         self._additional_positions_count = 0
+        self._entry_atr = None
 
     def _close_signal_for(self, dir_: str, kline: dict, kind: str, reason: str) -> Signal:
         # 多头平仓 → sell;空头平仓 → buy
@@ -475,6 +549,8 @@ class RsiLayeredStrategy(BaseStrategy):
             "holding_periods": self._holding_periods,
             "max_profit": self._max_profit,
             "additional_positions_count": self._additional_positions_count,
+            "latest_atr": self._latest_atr,
+            "entry_atr": self._entry_atr,
             "last_kline_ts": self._last_kline_ts,
         }
 
@@ -499,6 +575,8 @@ class RsiLayeredStrategy(BaseStrategy):
         self._holding_periods = int(data.get("holding_periods", 0))
         self._max_profit = float(data.get("max_profit", 0.0))
         self._additional_positions_count = int(data.get("additional_positions_count", 0))
+        self._latest_atr = data.get("latest_atr")
+        self._entry_atr = data.get("entry_atr")
         self._last_kline_ts = data.get("last_kline_ts")
 
 

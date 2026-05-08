@@ -338,7 +338,9 @@ class StrategyRunner:
             self._run_loop(inst.id, strategy, config),
             name=f"strategy-runner-{inst.id}",
         )
-        task.add_done_callback(lambda done_task, inst_id=inst.id: self._handle_task_done(inst_id, done_task))
+        task.add_done_callback(
+            lambda done_task, inst_id=inst.id: self._handle_task_done(inst_id, done_task)
+        )
         self._runners[inst.id] = task
         logger.info(
             "[StrategyRunner] 策略 #%d (%s/%s) 已启动",
@@ -461,9 +463,7 @@ class StrategyRunner:
         lock = asyncio.Event()
         self._kline_locks[cache_key] = lock
         try:
-            klines = await self._fetch_klines(
-                exchange, symbol, limit, interval, is_perp=is_perp
-            )
+            klines = await self._fetch_klines(exchange, symbol, limit, interval, is_perp=is_perp)
             if klines:
                 self._kline_cache[cache_key] = (now, klines)
             return klines
@@ -546,12 +546,12 @@ class StrategyRunner:
                     "action": signal.action,
                     "confidence": signal.confidence,
                     "entry_price": str(signal.entry_price) if signal.entry_price else None,
-                    "stop_loss_price": str(signal.stop_loss_price)
-                    if signal.stop_loss_price
-                    else None,
-                    "take_profit_price": str(signal.take_profit_price)
-                    if signal.take_profit_price
-                    else None,
+                    "stop_loss_price": (
+                        str(signal.stop_loss_price) if signal.stop_loss_price else None
+                    ),
+                    "take_profit_price": (
+                        str(signal.take_profit_price) if signal.take_profit_price else None
+                    ),
                     "reason": signal.reason,
                 },
             )

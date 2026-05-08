@@ -35,7 +35,9 @@ async def get_ticker(
 async def get_kline(
     symbol: str,
     session: DbSession,
-    interval: str = Query(default="1h", pattern=r"^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|2d|3d|5d|1w|1M|3M|1y)$"),
+    interval: str = Query(
+        default="1h", pattern=r"^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|2d|3d|5d|1w|1M|3M|1y)$"
+    ),
     limit: int = Query(default=100, ge=1, le=1000),
     exchange: str = Query(default="binance", pattern=r"^(binance|okx|huobi)$"),
     market: str = Query(default="spot", pattern=r"^(spot|perp)$"),

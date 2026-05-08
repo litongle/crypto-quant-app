@@ -1,0 +1,16 @@
+  {
+    "registry-mirrors": [                                                                                                                          
+      "https://mirror.ccs.tencentyun.com",
+      "https://docker.1panel.live",                                                                                                                
+      "https://docker.1ms.run",
+      "https://hub.rat.dev",                                                                                                                       
+  {
+    "registry-mirrors": [
+      "https://mirror.ccs.tencentyun.com",
+      "https://docker.1panel.live",
+      "https://docker.1ms.run",
+      "https://hub.rat.dev",
+      "https://dockerproxy.net",
+      "https://docker-registry.nmqu.com"
+    ]
+  }

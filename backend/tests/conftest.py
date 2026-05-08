@@ -84,7 +84,12 @@ async def engine():
 
 @pytest_asyncio.fixture
 async def db_session(engine) -> AsyncGenerator:
-    """每个测试独立的数据库会话"""
+    """每个测试独立的数据库会话
+
+    teardown 时除了 rollback 当前 session，还会清空所有表数据。
+    Why: 部分测试或被测代码会显式 `await session.commit()`，commit 后的数据会
+    持久到底层 SQLite 文件，rollback 拦不住 → 跨测试泄漏。清表保证完全隔离。
+    """
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -92,6 +97,10 @@ async def db_session(engine) -> AsyncGenerator:
     async with session_maker() as session:
         yield session
         await session.rollback()
+
+    async with engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
 
 
 @pytest_asyncio.fixture

@@ -80,17 +80,21 @@ class TestRsiLayeredTemplate:
         assert self.tmpl["strategy_type"] == "rsi_layered"
 
     def test_has_all_required_params(self):
-        """RsiLayered 9 个核心参数 + auto_trade 都应在 schema"""
+        """核心参数 + 双模式头寸量纲 + auto_trade 都应在 schema"""
         required = {
             "rsi_period",
             "long_levels",
             "short_levels",
             "retracement_points",
             "max_additional_positions",
-            "fixed_stop_loss_points",
+            "size_mode",
+            "fixed_stop_loss_pct",
+            "profit_taking_config_pct",
+            "atr_period",
+            "fixed_stop_loss_atr",
+            "profit_taking_config_atr",
             "max_holding_candles",
             "cooling_candles",
-            "profit_taking_config",
             "auto_trade",
         }
         actual = {p["key"] for p in self.tmpl["params_schema"]["params"]}
@@ -108,10 +112,16 @@ class TestRsiLayeredTemplate:
         assert p["type"] == "array_int"
         assert len(p["default"]) == 3
 
-    def test_profit_taking_config_is_json(self):
-        p = get_param(self.tmpl, "profit_taking_config")
+    def test_profit_taking_config_pct_is_json(self):
+        p = get_param(self.tmpl, "profit_taking_config_pct")
         assert p["type"] == "json"
-        # 默认值应是 [[窗口,回撤,最小盈利], ...] 形式
+        # 默认值应是 [[窗口,回撤百分比,最小盈利百分比], ...] 形式
+        assert isinstance(p["default"], list)
+        assert all(isinstance(row, list) and len(row) == 3 for row in p["default"])
+
+    def test_profit_taking_config_atr_is_json(self):
+        p = get_param(self.tmpl, "profit_taking_config_atr")
+        assert p["type"] == "json"
         assert isinstance(p["default"], list)
         assert all(isinstance(row, list) and len(row) == 3 for row in p["default"])
 
@@ -131,18 +141,22 @@ class TestRsiLayeredTemplate:
             "short_levels",
             "retracement_points",
             "max_additional_positions",
-            "fixed_stop_loss_points",
+            "size_mode",
+            "fixed_stop_loss_pct",
+            "profit_taking_config_pct",
+            "atr_period",
+            "fixed_stop_loss_atr",
+            "profit_taking_config_atr",
             "max_holding_candles",
             "cooling_candles",
-            "profit_taking_config",
         ]:
             tmpl_p = get_param(self.tmpl, key)
             assert tmpl_p is not None, f"模板缺 {key}"
             tmpl_default = tmpl_p["default"]
             strat_default = DEFAULTS[key]
-            assert tmpl_default == strat_default, (
-                f"{key} 默认值漂移: 模板={tmpl_default}, 策略={strat_default}"
-            )
+            assert (
+                tmpl_default == strat_default
+            ), f"{key} 默认值漂移: 模板={tmpl_default}, 策略={strat_default}"
 
 
 # ── 模板与工厂对齐 ────────────────────────────────────────

@@ -248,6 +248,7 @@ def _build_predefined_templates() -> list[dict]:
         )
     return templates
 
+
 ALL_PREDEFINED_TEMPLATES = _build_predefined_templates()
 PREDEFINED_TEMPLATES = [
     template for template in ALL_PREDEFINED_TEMPLATES if template["id"] in PUBLIC_TEMPLATE_CODES
@@ -311,7 +312,9 @@ def _format_instance(inst: StrategyInstance) -> dict:
         "exchange": inst.exchange,
         "symbol": inst.symbol,
         "accountId": inst.account_id,
-        "isLive": bool(inst.account_id is not None and live_trading_supported and auto_trade_enabled),
+        "isLive": bool(
+            inst.account_id is not None and live_trading_supported and auto_trade_enabled
+        ),
         "params": params,  # 返回完整参数(含rules)
         "totalPnl": float(inst.total_pnl or 0),
         "totalPnlPercent": float(inst.total_pnl_percent or 0),

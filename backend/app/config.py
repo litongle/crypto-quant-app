@@ -86,10 +86,7 @@ class Settings(BaseSettings):
         if self.environment.lower() == "test":
             return
         errors = []
-        if (
-            not self.allow_insecure_default_secrets
-            and self.secret_key == _DEFAULT_SECRET_KEY
-        ):
+        if not self.allow_insecure_default_secrets and self.secret_key == _DEFAULT_SECRET_KEY:
             errors.append("secret_key 仍为默认开发值，必须通过 .env 或安装向导设置")
         if (
             not self.allow_insecure_default_secrets

@@ -383,7 +383,11 @@ class HuobiProxy(ExchangeWSProxy):
                             decompressed = raw.decode("utf-8")
                     else:
                         decompressed = raw
-                    data = json.loads(decompressed) if isinstance(decompressed, str) else json.loads(raw)
+                    data = (
+                        json.loads(decompressed)
+                        if isinstance(decompressed, str)
+                        else json.loads(raw)
+                    )
                     if "ping" in data:
                         await ws.send(json.dumps({"pong": data["ping"]}))
                         continue

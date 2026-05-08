@@ -229,7 +229,9 @@ class RuleEngine:
                 params.get("fast", 12),
                 params.get("slow", 26),
                 params.get("signal", 9),
-            )[2],  # histogram
+            )[
+                2
+            ],  # histogram
             "ma_cross": lambda: (
                 calc_sma(self.closes, params.get("fast_period", 5)),
                 calc_sma(self.closes, params.get("slow_period", 20)),
@@ -239,7 +241,9 @@ class RuleEngine:
                 params.get("fast", 12),
                 params.get("slow", 26),
                 params.get("signal", 9),
-            )[:2],  # (macd_line, signal_line)
+            )[
+                :2
+            ],  # (macd_line, signal_line)
             "price_change_pct": lambda: calc_price_change_pct(self.closes, params.get("period", 1)),
             "stoch_k": lambda: calc_stoch_k(
                 self.highs, self.lows, self.closes, params.get("period", 14)

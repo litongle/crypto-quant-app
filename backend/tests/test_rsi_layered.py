@@ -233,7 +233,13 @@ class TestMonitoringMode:
 class TestLongMode:
     def _setup_long_position(self, entry_price: float = 100.0) -> RsiLayeredStrategy:
         s = make_strategy(
-            fixed_stop_loss_points=6.0,
+            size_mode="pct",
+            fixed_stop_loss_pct=0.06,
+            profit_taking_config_pct=[
+                [10, 0.03, 0.02],
+                [30, 0.05, 0.03],
+                [60, 0.10, 0.05],
+            ],
             max_holding_candles=60,
             max_additional_positions=4,
         )
@@ -323,7 +329,16 @@ class TestLongMode:
 
 class TestShortMode:
     def _setup_short_position(self, entry_price: float = 100.0) -> RsiLayeredStrategy:
-        s = make_strategy(fixed_stop_loss_points=6.0, max_holding_candles=60)
+        s = make_strategy(
+            size_mode="pct",
+            fixed_stop_loss_pct=0.06,
+            profit_taking_config_pct=[
+                [10, 0.03, 0.02],
+                [30, 0.05, 0.03],
+                [60, 0.10, 0.05],
+            ],
+            max_holding_candles=60,
+        )
         kline = make_kline(entry_price, 1_700_000_000_000)
         s._open_position("short", kline)
         return s
@@ -462,3 +477,146 @@ class TestDefaults:
 
     def test_defaults_short_levels_ascending(self):
         assert DEFAULTS["short_levels"] == sorted(DEFAULTS["short_levels"])
+
+
+# ── 双模式头寸量纲：pct / atr ─────────────────────────────
+
+
+def make_kline_hl(
+    close: float,
+    ts: int,
+    high: float | None = None,
+    low: float | None = None,
+) -> dict:
+    """带 high/low 抖动的 K 线，用于 ATR 计算。"""
+    return {
+        "open": close,
+        "high": high if high is not None else close + 0.5,
+        "low": low if low is not None else close - 0.5,
+        "close": close,
+        "volume": 1.0,
+        "timestamp": ts,
+    }
+
+
+class TestSizeModePct:
+    """pct 模式：止损/止盈阈值按入场价百分比换算，跨价位自适应。"""
+
+    def test_default_size_mode_is_pct(self):
+        s = make_strategy()
+        assert s.size_mode == "pct"
+
+    def test_stop_loss_threshold_scales_with_entry_price(self):
+        """同一参数在 entry=100 与 entry=50000 时的止损阈值按比例缩放——
+        这是「价格点数硬编码」修复要保证的核心行为。"""
+        s_low = make_strategy(size_mode="pct", fixed_stop_loss_pct=0.05)
+        s_low._open_position("long", make_kline(100.0, 1_700_000_000_000))
+
+        s_high = make_strategy(size_mode="pct", fixed_stop_loss_pct=0.05)
+        s_high._open_position("long", make_kline(50000.0, 1_700_000_000_000))
+
+        # entry=100, 阈值=5: 跌 6 触发
+        assert s_low._should_stop_loss(make_kline(94.0, 1_700_000_000_000 + 60_000))
+        # entry=50000, 阈值=2500: 同样跌 6 完全不触发（旧代码会误触发）
+        assert not s_high._should_stop_loss(make_kline(49994.0, 1_700_000_000_000 + 60_000))
+        # entry=50000, 阈值=2500: 跌 3000 才触发
+        assert s_high._should_stop_loss(make_kline(47000.0, 1_700_000_000_000 + 60_000))
+
+    def test_take_profit_thresholds_scale_with_entry(self):
+        s = make_strategy(
+            size_mode="pct",
+            fixed_stop_loss_pct=0.10,  # 放宽止损避免抢先触发
+            profit_taking_config_pct=[[10, 0.03, 0.02]],
+        )
+        s._open_position("long", make_kline(50000.0, 1_700_000_000_000))
+        s._holding_periods = 10
+        # _max_profit=2500(=5%), current_pnl=1000(=2%) → 回撤 1500(=3%) 命中
+        s._max_profit = 2500.0
+        kline = make_kline(51000.0, 1_700_000_000_000 + 60_000)
+        assert s._should_take_profit(kline)
+
+
+class TestSizeModeAtr:
+    """atr 模式：阈值 = ATR × 倍数；入场时锁定 _entry_atr 防止波动飙升挪止损。"""
+
+    def _atr_klines(self, n: int = 30, base: float = 100.0, swing: float = 1.0) -> list[dict]:
+        return [
+            make_kline_hl(
+                base,
+                1_700_000_000_000 + i * 60_000,
+                high=base + swing,
+                low=base - swing,
+            )
+            for i in range(n)
+        ]
+
+    def test_open_position_locks_entry_atr(self):
+        s = make_strategy(size_mode="atr", atr_period=14, fixed_stop_loss_atr=2.0)
+        klines = self._atr_klines(n=30, base=100.0, swing=1.0)
+        run(s.analyze(klines))
+        assert s._latest_atr is not None
+        assert s._latest_atr > 0
+
+        s._open_position("long", klines[-1])
+        assert s._entry_atr == s._latest_atr
+
+    def test_stop_loss_uses_entry_atr_times_multiplier(self):
+        s = make_strategy(size_mode="atr", atr_period=14, fixed_stop_loss_atr=2.0)
+        klines = self._atr_klines(n=30, base=100.0, swing=1.0)
+        run(s.analyze(klines))
+        s._open_position("long", klines[-1])
+        atr = s._entry_atr
+        assert atr is not None
+        assert atr > 0
+        threshold = 2.0 * atr
+
+        kline_safe = make_kline(100.0 - 0.5 * threshold, 1_700_000_000_000 + 60_000_000)
+        assert not s._should_stop_loss(kline_safe)
+        kline_stop = make_kline(100.0 - 1.1 * threshold, 1_700_000_000_000 + 60_000_000)
+        assert s._should_stop_loss(kline_stop)
+
+    def test_take_profit_uses_atr_units(self):
+        s = make_strategy(
+            size_mode="atr",
+            atr_period=14,
+            fixed_stop_loss_atr=10.0,  # 放宽止损避免抢先触发
+            profit_taking_config_atr=[[10, 1.0, 0.7]],
+        )
+        klines = self._atr_klines(n=30, base=100.0, swing=1.0)
+        run(s.analyze(klines))
+        s._open_position("long", klines[-1])
+        atr = s._entry_atr
+        assert atr is not None
+        assert atr > 0
+
+        s._holding_periods = 10
+        s._max_profit = 2.0 * atr
+        kline = make_kline(100.0 + 1.0 * atr, 1_700_000_000_000 + 60_000_000)
+        assert s._should_take_profit(kline)
+
+    def test_state_serialization_roundtrips_entry_atr(self):
+        s1 = make_strategy(size_mode="atr", atr_period=14, fixed_stop_loss_atr=2.0)
+        s1._latest_atr = 1.5
+        s1._entry_atr = 1.4
+        snap = s1.to_dict()
+
+        s2 = make_strategy(size_mode="atr", atr_period=14, fixed_stop_loss_atr=2.0)
+        s2.from_dict(snap)
+        assert s2._latest_atr == 1.5
+        assert s2._entry_atr == 1.4
+
+    def test_stop_loss_inactive_when_atr_not_yet_available(self):
+        """K 线不足以算出 ATR 时不主动止损，避免开盘瞬间用 None 阈值误平仓。"""
+        s = make_strategy(size_mode="atr", atr_period=14, fixed_stop_loss_atr=2.0)
+        s._open_position("long", make_kline(100.0, 1_700_000_000_000))
+        assert s._entry_atr is None
+        kline = make_kline(50.0, 1_700_000_000_000 + 60_000)
+        assert not s._should_stop_loss(kline)
+
+
+class TestSizeModeValidation:
+    def test_invalid_size_mode_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="size_mode"):
+            make_strategy(size_mode="absolute")

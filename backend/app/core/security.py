@@ -10,28 +10,25 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import bcrypt
 from cryptography.fernet import Fernet
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config import get_settings
-
-# 密码加密上下文（不依赖 settings，可以模块级缓存）
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
     # P3-5: 安全截断，不丢弃字符 — 先按 UTF-8 字节截断再用 surrogateescape 防丢失
     raw = plain_password.encode("utf-8", errors="surrogateescape")[:72]
-    return pwd_context.verify(raw.decode("utf-8", errors="surrogateescape"), hashed_password)
+    return bcrypt.checkpw(raw, hashed_password.encode("utf-8"))
 
 
 def hash_password(password: str) -> str:
     """哈希密码（bcrypt 限制 72 字节，按 UTF-8 字节截断）"""
     # P3-5: 安全截断，不丢弃字符
     raw = password.encode("utf-8", errors="surrogateescape")[:72]
-    return pwd_context.hash(raw.decode("utf-8", errors="surrogateescape"))
+    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(
@@ -110,6 +107,7 @@ def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
         raise ValueError(f"Expected {token_type} token")
 
     return payload
+
 
 # ============ API Key 加密存储 (AES-256) ============
 

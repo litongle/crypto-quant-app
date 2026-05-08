@@ -182,9 +182,11 @@ class AssetService:
                         "unrealizedPnlPercent": float(pnl_percent),
                         "leverage": pos.leverage,
                         "exchange": account.exchange,
-                        "updatedAt": pos.updated_at.isoformat() + "Z"
-                        if pos.updated_at
-                        else datetime.now(UTC).isoformat() + "Z",
+                        "updatedAt": (
+                            pos.updated_at.isoformat() + "Z"
+                            if pos.updated_at
+                            else datetime.now(UTC).isoformat() + "Z"
+                        ),
                     }
                 )
 

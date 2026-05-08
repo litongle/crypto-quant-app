@@ -497,10 +497,14 @@ class BacktestService:
             mlocked = pos.get("margin_locked") or pos.get("margin_notional") or Decimal(0)
             if pos["side"] == "long":
                 pnl = (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
-                capital += mlocked + (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
+                capital += (
+                    mlocked + (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
+                )
             else:
                 pnl = (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
-                capital += mlocked + (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
+                capital += (
+                    mlocked + (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
+                )
             trades.append(
                 TradeRecord(
                     entry_price=pos["entry_price"],
@@ -637,7 +641,9 @@ class BacktestService:
                         do_open_long(current_price * (Decimal("1") + slippage_pct), current_time)
                     elif direction_meta == "short" and sig.action == "sell":
                         do_open_short(current_price * (Decimal("1") - slippage_pct), current_time)
-                elif intent == "add" and position is not None and position["side"] == direction_meta:
+                elif (
+                    intent == "add" and position is not None and position["side"] == direction_meta
+                ):
                     if direction_meta == "long" and sig.action == "buy":
                         do_add_long(current_price * (Decimal("1") + slippage_pct))
                     elif direction_meta == "short" and sig.action == "sell":
@@ -671,15 +677,8 @@ class BacktestService:
             current_price = klines[i]["close"]
             current_time = klines[i]["timestamp"]
 
-            if (
-                i > min_history
-                and perp
-                and funding_rate_8h != 0
-                and position is not None
-            ):
-                n_f = _count_binance_funding_events_utc(
-                    klines[i - 1]["timestamp"], current_time
-                )
+            if i > min_history and perp and funding_rate_8h != 0 and position is not None:
+                n_f = _count_binance_funding_events_utc(klines[i - 1]["timestamp"], current_time)
                 if n_f > 0:
                     mark = current_price
                     notional = position["quantity"] * mark
@@ -690,9 +689,7 @@ class BacktestService:
                         capital += delta
 
             hist_end = i + 1
-            window_start = (
-                0 if analysis_window is None else max(0, hist_end - analysis_window)
-            )
+            window_start = 0 if analysis_window is None else max(0, hist_end - analysis_window)
             history_slice = float_klines[window_start:hist_end]
 
             # 策略分析
@@ -820,9 +817,9 @@ class BacktestService:
             "leverage": leverage_used,
             "initialMarginRate": float(initial_margin_rate),
             "fundingRate8h": float(funding_rate_8h),
-            "warning": "⚠️ 使用模拟数据回测，结果可能失真，仅供参考"
-            if data_source == "mock"
-            else None,
+            "warning": (
+                "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None
+            ),
         }
 
     async def _fetch_klines(

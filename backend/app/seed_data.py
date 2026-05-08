@@ -592,13 +592,73 @@ STRATEGY_TEMPLATES = [
                     "step": 1,
                 },
                 {
-                    "key": "fixed_stop_loss_points",
-                    "name": "固定止损(价格点)",
+                    "key": "size_mode",
+                    "name": "止损止盈量纲",
+                    "type": "select",
+                    "default": "pct",
+                    "options": [
+                        {"value": "pct", "label": "按入场价百分比"},
+                        {"value": "atr", "label": "按 ATR 倍数"},
+                    ],
+                    "description": (
+                        "决定下方止损/止盈阈值的换算方式。"
+                        "pct：阈值=入场价×百分比，跨币种、跨价位都自适应，配置直观。"
+                        "atr：阈值=入场时锁定的 ATR×倍数，按当下波动率自适应，更专业。"
+                    ),
+                },
+                {
+                    "key": "fixed_stop_loss_pct",
+                    "name": "固定止损（百分比）",
                     "type": "double",
-                    "default": 6.0,
-                    "min": 1.0,
-                    "max": 100.0,
-                    "step": 1.0,
+                    "default": 0.005,
+                    "min": 0.001,
+                    "max": 0.10,
+                    "step": 0.001,
+                    "description": "size_mode=pct 时生效。0.005 表示浮亏达到入场价 0.5% 平仓。",
+                },
+                {
+                    "key": "profit_taking_config_pct",
+                    "name": "分层浮动止盈（百分比）",
+                    "type": "json",
+                    "default": [[10, 0.003, 0.002], [30, 0.005, 0.003], [60, 0.010, 0.005]],
+                    "description": (
+                        "size_mode=pct 时生效。每行 [窗口K线数, 回撤百分比, 最低盈利百分比]。"
+                        "持仓数≥窗口 且 浮盈从最高点回撤≥入场价×回撤% 且 当前浮盈≥入场价×最低盈利%——"
+                        "三者同时满足才平仓。"
+                    ),
+                },
+                {
+                    "key": "atr_period",
+                    "name": "ATR 周期",
+                    "type": "int",
+                    "default": 14,
+                    "min": 5,
+                    "max": 100,
+                    "step": 1,
+                    "description": "size_mode=atr 时生效。ATR 计算所用的 K 线根数。",
+                },
+                {
+                    "key": "fixed_stop_loss_atr",
+                    "name": "固定止损（ATR 倍数）",
+                    "type": "double",
+                    "default": 2.0,
+                    "min": 0.5,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "description": (
+                        "size_mode=atr 时生效。开仓时锁定 ATR，止损阈值=ATR×本倍数。"
+                        "锁定可避免波动飙升时止损被反向推远。"
+                    ),
+                },
+                {
+                    "key": "profit_taking_config_atr",
+                    "name": "分层浮动止盈（ATR 倍数）",
+                    "type": "json",
+                    "default": [[10, 1.0, 0.7], [30, 1.5, 1.0], [60, 3.0, 1.5]],
+                    "description": (
+                        "size_mode=atr 时生效。每行 [窗口K线数, 回撤×ATR, 最低盈利×ATR]。"
+                        "三者同时满足才平仓，单位是入场时锁定的 ATR。"
+                    ),
                 },
                 {
                     "key": "max_holding_candles",
@@ -655,17 +715,6 @@ STRATEGY_TEMPLATES = [
                     "description": (
                         "每期(UTC 约 8h 一档)名义价值×费率；与 Binance 符号一致：正=多付空收。"
                         "0=回测不计资金费。"
-                    ),
-                },
-                {
-                    "key": "profit_taking_config",
-                    "name": "分层浮动止盈",
-                    "type": "json",
-                    "default": [[10, 3.0, 2.0], [30, 5.0, 3.0], [60, 10.0, 5.0]],
-                    "description": (
-                        "按持仓周期分层止盈,每层 [窗口K线数, 回撤点数, 最小盈利点数](单位:价格点)。"
-                        "三个条件同时满足才平仓:持仓K线数≥窗口 且 浮盈从最高点回撤≥回撤点数 且 当前浮盈≥最小盈利。"
-                        "默认 [[10,3,2],[30,5,3],[60,10,5]] 表示:短线小赚保利→中线放宽回撤→长线让利润奔跑。"
                     ),
                 },
                 {
