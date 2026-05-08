@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # 通知服务 — P0-1
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    # 自停 / 异常告警 (auto-pause v1)
+    auto_pause_consecutive_errors: int = 5
+    auto_pause_consecutive_order_failures: int = 3
+    auto_pause_heartbeat_multiplier: int = 5
+    auto_pause_heartbeat_min_seconds: int = 300
+    auto_pause_watchdog_interval_seconds: int = 30
     wecom_webhook_url: str | None = None
 
     @property

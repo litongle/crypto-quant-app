@@ -30,6 +30,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
+from app.config import get_settings
 from app.core.instrument_resolution import adapter_symbol_for_klines, resolve_execution_context
 from app.core.strategy_engine import (
     BaseStrategy,
@@ -153,6 +154,11 @@ class StrategyRunner:
         self._symbol_min_qty_cache: dict[tuple[str, str, bool], Decimal] = {}
         # 余额同步防抖：account_id → last_sync_ts
         self._balance_sync_at: dict[int, float] = {}
+        # auto-pause v1: 计数器（重启即归零，符合"重启即重置"语义）
+        self._consecutive_errors: dict[int, int] = {}
+        self._consecutive_order_failures: dict[int, int] = {}
+        self._poll_interval: dict[int, int] = {}  # 心跳超时阈值计算用
+        self._watchdog_task: asyncio.Task | None = None
 
     async def start(self, session_maker) -> None:
         """启动运行器，加载所有 running 状态的策略实例"""
@@ -172,17 +178,27 @@ class StrategyRunner:
         for inst in instances:
             await self._start_instance(inst)
 
+        self._watchdog_task = asyncio.create_task(
+            self._heartbeat_watchdog_loop(),
+            name="strategy-runner-watchdog",
+        )
         logger.info("[StrategyRunner] 启动，加载 %d 个运行中策略", len(instances))
 
     async def stop(self) -> None:
         """停止所有策略运行"""
         self._running = False
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
         for inst_id, task in list(self._runners.items()):
             task.cancel()
             logger.info("[StrategyRunner] 停止策略 #%d", inst_id)
         self._runners.clear()
         self._strategies.clear()
         self._last_signal_at.clear()
+        self._consecutive_errors.clear()
+        self._consecutive_order_failures.clear()
+        self._poll_interval.clear()
 
     async def start_instance(self, instance_id: int) -> bool:
         """启动单个策略实例"""
@@ -215,6 +231,9 @@ class StrategyRunner:
             task.cancel()
             self._strategies.pop(instance_id, None)
             self._last_signal_at.pop(instance_id, None)
+            self._consecutive_errors.pop(instance_id, None)
+            self._consecutive_order_failures.pop(instance_id, None)
+            self._poll_interval.pop(instance_id, None)
             logger.info("[StrategyRunner] 策略 #%d 已停止", instance_id)
 
     async def restart_instance(self, instance_id: int) -> bool:
@@ -233,6 +252,9 @@ class StrategyRunner:
             self._runners.pop(instance_id, None)
         self._strategies.pop(instance_id, None)
         self._last_signal_at.pop(instance_id, None)
+        self._consecutive_errors.pop(instance_id, None)
+        self._consecutive_order_failures.pop(instance_id, None)
+        self._poll_interval.pop(instance_id, None)
 
     def _handle_task_done(self, instance_id: int, task: asyncio.Task) -> None:
         self._forget_instance(instance_id, task)
@@ -279,6 +301,121 @@ class StrategyRunner:
                 )
         except Exception as exc:
             logger.warning("[StrategyRunner] 自动校正策略 #%d 状态失败: %s", instance_id, exc)
+
+    async def _auto_pause(
+        self,
+        instance_id: int,
+        *,
+        reason: str,
+        detail: str,
+        metrics: dict | None = None,
+    ) -> None:
+        """系统判定异常 → status=paused + 推送 risk_alert。
+
+        与 _mark_instance_stopped 的区别:
+        - 这里 status=paused, state_json 保留, 用户可恢复
+        - _mark_instance_stopped 是 task 硬崩溃, status=stopped
+        """
+        if not self._session_maker:
+            return
+
+        # 1. 取消 task + 清理内存态
+        task = self._runners.pop(instance_id, None)
+        current_task = asyncio.current_task()
+        cancel_current_task = task is not None and task is current_task
+        if task and not task.done() and not cancel_current_task:
+            task.cancel()
+        self._strategies.pop(instance_id, None)
+        self._consecutive_errors.pop(instance_id, None)
+        self._consecutive_order_failures.pop(instance_id, None)
+        self._poll_interval.pop(instance_id, None)
+
+        # 2. 写 DB
+        instance_name = "未知策略"
+        try:
+            async with self._session_maker() as session:
+                result = await session.execute(
+                    select(StrategyInstance).where(StrategyInstance.id == instance_id)
+                )
+                inst = result.scalar_one_or_none()
+                if not inst:
+                    return
+                instance_name = inst.name
+                inst.status = "paused"
+                inst.last_pause_reason = reason
+                inst.last_stopped_at = datetime.now(UTC)
+                await session.commit()
+        except Exception as exc:
+            logger.error("[StrategyRunner] 自停状态写库失败 #%d: %s", instance_id, exc)
+
+        logger.warning(
+            "[StrategyRunner] 策略 #%d (%s) 已自动暂停: reason=%s detail=%s",
+            instance_id,
+            instance_name,
+            reason,
+            detail,
+        )
+
+        # 3. 推送告警（失败不抛）
+        try:
+            from app.services.notification_service import notify_risk_alert
+
+            await notify_risk_alert(
+                alert_type="策略自停",
+                message=f'策略 "{instance_name}" (#{instance_id}) {detail}',
+                metrics={"reason": reason, "instance_id": instance_id, **(metrics or {})},
+            )
+        except Exception as exc:
+            logger.warning("[StrategyRunner] 自停告警推送失败 #%d: %s", instance_id, exc)
+        finally:
+            if cancel_current_task and task and not task.done():
+                task.cancel()
+
+    async def _heartbeat_watchdog_loop(self) -> None:
+        """周期扫描 running 实例，检测 last_run_at 过旧。
+
+        超时阈值 = max(poll_interval × multiplier, min_seconds)
+        """
+        settings = get_settings()
+        while self._running:
+            try:
+                await asyncio.sleep(settings.auto_pause_watchdog_interval_seconds)
+                if not self._running or not self._session_maker:
+                    continue
+
+                async with self._session_maker() as session:
+                    result = await session.execute(
+                        select(StrategyInstance).where(StrategyInstance.status == "running")
+                    )
+                    instances = list(result.scalars().all())
+
+                now = datetime.now(UTC)
+                for inst in instances:
+                    if inst.id not in self._runners:
+                        continue
+                    if inst.last_run_at is None:
+                        continue
+
+                    interval = self._poll_interval.get(inst.id, 60)
+                    threshold_seconds = max(
+                        interval * settings.auto_pause_heartbeat_multiplier,
+                        settings.auto_pause_heartbeat_min_seconds,
+                    )
+                    age_seconds = (now - inst.last_run_at).total_seconds()
+                    if age_seconds > threshold_seconds:
+                        await self._auto_pause(
+                            inst.id,
+                            reason="auto:heartbeat_timeout",
+                            detail=f"心跳超时 {age_seconds:.0f}s > 阈值 {threshold_seconds}s",
+                            metrics={
+                                "age_seconds": int(age_seconds),
+                                "threshold_seconds": threshold_seconds,
+                            },
+                        )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("[StrategyRunner] watchdog 异常: %s", exc)
 
     async def _start_instance(self, inst: StrategyInstance) -> None:
         """内部：为策略实例创建运行 Task"""
@@ -360,6 +497,7 @@ class StrategyRunner:
         poll_interval = _kline_poll_seconds(kline_interval)
         # 兼容旧参数:若用户显式给了 interval(秒),仍尊重之
         interval = int(config.params.get("interval", poll_interval))
+        self._poll_interval[instance_id] = interval
         kline_limit = 100  # 获取最近 100 根 K 线
 
         while self._running:
@@ -396,6 +534,7 @@ class StrategyRunner:
                 # 5. 更新 last_run_at + Step 3: 持久化策略状态
                 await self._update_last_run_and_state(instance_id, strategy)
 
+                self._consecutive_errors[instance_id] = 0
                 await asyncio.sleep(interval)
 
             except asyncio.CancelledError:
@@ -403,7 +542,21 @@ class StrategyRunner:
                 break
             except Exception as exc:
                 logger.error("[StrategyRunner] 策略 #%d 运行异常: %s", instance_id, exc)
-                # 评审问题10: 区分异常类型，缩短网络抖动重试间隔
+                self._consecutive_errors[instance_id] = (
+                    self._consecutive_errors.get(instance_id, 0) + 1
+                )
+                threshold = get_settings().auto_pause_consecutive_errors
+                if self._consecutive_errors[instance_id] >= threshold:
+                    await self._auto_pause(
+                        instance_id,
+                        reason="auto:consecutive_errors",
+                        detail=f"连续 {threshold} 次运行异常，最后异常: {type(exc).__name__}: {exc}",
+                        metrics={
+                            "consecutive_errors": self._consecutive_errors[instance_id],
+                            "last_exc": str(exc),
+                        },
+                    )
+                    break
                 retry_delay = self._calc_retry_delay(exc, interval)
                 logger.info(
                     "[StrategyRunner] 策略 #%d 异常重试,等待 %.1f 秒",
@@ -809,6 +962,21 @@ class StrategyRunner:
             logger.warning("[StrategyRunner] 策略 #%d 计算的下单数量 <= 0,跳过", instance_id)
             if signal_id:
                 await self._update_signal_status(signal_id, "rejected", reason="余额不足")
+            self._consecutive_order_failures[instance_id] = (
+                self._consecutive_order_failures.get(instance_id, 0) + 1
+            )
+            threshold = get_settings().auto_pause_consecutive_order_failures
+            if self._consecutive_order_failures[instance_id] >= threshold:
+                await self._auto_pause(
+                    instance_id,
+                    reason="auto:order_failures",
+                    detail=f"连续 {threshold} 次下单失败",
+                    metrics={
+                        "consecutive_order_failures": self._consecutive_order_failures[
+                            instance_id
+                        ],
+                    },
+                )
             return False
 
         order_service = OrderService(session)
@@ -832,11 +1000,27 @@ class StrategyRunner:
                 pass
             if signal_id:
                 await self._update_signal_status(signal_id, "rejected", reason="下单失败")
+            self._consecutive_order_failures[instance_id] = (
+                self._consecutive_order_failures.get(instance_id, 0) + 1
+            )
+            threshold = get_settings().auto_pause_consecutive_order_failures
+            if self._consecutive_order_failures[instance_id] >= threshold:
+                await self._auto_pause(
+                    instance_id,
+                    reason="auto:order_failures",
+                    detail=f"连续 {threshold} 次下单失败",
+                    metrics={
+                        "consecutive_order_failures": self._consecutive_order_failures[
+                            instance_id
+                        ],
+                    },
+                )
             raise
 
         if signal_id:
             await self._update_signal_status(signal_id, "executed", order_id=order.id)
 
+        self._consecutive_order_failures[instance_id] = 0
         logger.info(
             "[StrategyRunner] 策略 #%d 下单成功: order_id=%d, side=%s, qty=%s",
             instance_id,
@@ -905,6 +1089,21 @@ class StrategyRunner:
                     "rejected",
                     reason="reverse 平原仓失败",
                 )
+            self._consecutive_order_failures[instance_id] = (
+                self._consecutive_order_failures.get(instance_id, 0) + 1
+            )
+            threshold = get_settings().auto_pause_consecutive_order_failures
+            if self._consecutive_order_failures[instance_id] >= threshold:
+                await self._auto_pause(
+                    instance_id,
+                    reason="auto:order_failures",
+                    detail=f"连续 {threshold} 次下单失败",
+                    metrics={
+                        "consecutive_order_failures": self._consecutive_order_failures[
+                            instance_id
+                        ],
+                    },
+                )
             return False
 
         # 2. 再开: 调 _auto_open_position
@@ -922,6 +1121,8 @@ class StrategyRunner:
             signal=signal,
             signal_id=signal_id,
         )
+        if opened:
+            self._consecutive_order_failures[instance_id] = 0
         return opened
 
     # ── 辅助方法 ─────────────────────────────────────────
@@ -1290,6 +1491,21 @@ class StrategyRunner:
                             "rejected",
                             reason=f"intent={intent} 双向持仓拒绝",
                         )
+                    self._consecutive_order_failures[instance_id] = (
+                        self._consecutive_order_failures.get(instance_id, 0) + 1
+                    )
+                    threshold = get_settings().auto_pause_consecutive_order_failures
+                    if self._consecutive_order_failures[instance_id] >= threshold:
+                        await self._auto_pause(
+                            instance_id,
+                            reason="auto:order_failures",
+                            detail=f"连续 {threshold} 次下单失败",
+                            metrics={
+                                "consecutive_order_failures": self._consecutive_order_failures[
+                                    instance_id
+                                ],
+                            },
+                        )
                     return False
 
             if not positions:
@@ -1304,6 +1520,21 @@ class StrategyRunner:
                         signal_id,
                         "rejected",
                         reason=f"intent={intent} 但 DB 无开仓",
+                    )
+                self._consecutive_order_failures[instance_id] = (
+                    self._consecutive_order_failures.get(instance_id, 0) + 1
+                )
+                threshold = get_settings().auto_pause_consecutive_order_failures
+                if self._consecutive_order_failures[instance_id] >= threshold:
+                    await self._auto_pause(
+                        instance_id,
+                        reason="auto:order_failures",
+                        detail=f"连续 {threshold} 次下单失败",
+                        metrics={
+                            "consecutive_order_failures": self._consecutive_order_failures[
+                                instance_id
+                            ],
+                        },
                     )
                 return False
 
@@ -1320,6 +1551,21 @@ class StrategyRunner:
                         signal_id,
                         "rejected",
                         reason=f"intent={intent} 无匹配持仓",
+                    )
+                self._consecutive_order_failures[instance_id] = (
+                    self._consecutive_order_failures.get(instance_id, 0) + 1
+                )
+                threshold = get_settings().auto_pause_consecutive_order_failures
+                if self._consecutive_order_failures[instance_id] >= threshold:
+                    await self._auto_pause(
+                        instance_id,
+                        reason="auto:order_failures",
+                        detail=f"连续 {threshold} 次下单失败",
+                        metrics={
+                            "consecutive_order_failures": self._consecutive_order_failures[
+                                instance_id
+                            ],
+                        },
                     )
                 return False
 
@@ -1346,6 +1592,7 @@ class StrategyRunner:
             )
             if signal_id:
                 await self._update_signal_status(signal_id, "executed")
+            self._consecutive_order_failures[instance_id] = 0
             return True
         except Exception as exc:
             logger.error(
@@ -1361,6 +1608,21 @@ class StrategyRunner:
                         "rejected",
                         reason=str(exc),
                     )
+            self._consecutive_order_failures[instance_id] = (
+                self._consecutive_order_failures.get(instance_id, 0) + 1
+            )
+            threshold = get_settings().auto_pause_consecutive_order_failures
+            if self._consecutive_order_failures[instance_id] >= threshold:
+                await self._auto_pause(
+                    instance_id,
+                    reason="auto:order_failures",
+                    detail=f"连续 {threshold} 次下单失败",
+                    metrics={
+                        "consecutive_order_failures": self._consecutive_order_failures[
+                            instance_id
+                        ],
+                    },
+                )
             return False
 
     async def _update_last_run_and_state(
