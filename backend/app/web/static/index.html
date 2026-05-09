@@ -672,6 +672,21 @@ function showRegister() {
   document.getElementById('register-form').style.display = 'block';
 }
 
+function resetTransientUiForAuthTransition() {
+  if (typeof closeSettingsDrawer === 'function') closeSettingsDrawer();
+  if (typeof closeInstanceDrawer === 'function') closeInstanceDrawer();
+  if (typeof closeDangerConfirm === 'function') closeDangerConfirm(false);
+  if (typeof closeWorkbenchLeaveDialog === 'function') closeWorkbenchLeaveDialog(false);
+  document.body.classList.remove('is-drawer-open');
+}
+
+function showLoggedOutView() {
+  resetTransientUiForAuthTransition();
+  if (typeof cancelLogin2fa === 'function') cancelLogin2fa(true);
+  document.getElementById('app-page').style.display = 'none';
+  document.getElementById('login-page').style.display = 'flex';
+}
+
 async function handleLogin() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
@@ -725,9 +740,7 @@ async function handleLogout() {
     deselectTemplate({ keepSelection: false, silent: true });
   }
   api.logout();
-  if (typeof cancelLogin2fa === 'function') cancelLogin2fa(true);
-  document.getElementById('app-page').style.display = 'none';
-  document.getElementById('login-page').style.display = 'flex';
+  showLoggedOutView();
   _currentPage = 'dashboard';
   if (location.hash !== '#dashboard') {
     _suppressHashSync = true;
@@ -891,12 +904,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ok) enterApp();
         else {
           api.logout();
-          document.getElementById('login-page').style.display = 'flex';
+          showLoggedOutView();
         }
       });
     });
   } else {
-    document.getElementById('login-page').style.display = 'flex';
+    showLoggedOutView();
   }
 });
 

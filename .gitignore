@@ -69,6 +69,11 @@ logs/
 .codebuddy/
 .workbuddy/
 CLAUDE.md
+AGENTS.md
+.agents/
+.mcp/
+.mcp.json
+mcp.json
 
 # Screenshots (testing artifacts)
 screenshot-*.png
