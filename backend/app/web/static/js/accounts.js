@@ -3,6 +3,7 @@
  */
 let accounts = [];
 let showAddForm = false;
+let accountsMountSelector = '#accounts-content';
 
 /* ── 交易所品牌色和图标 ── */
 const EXCHANGE_META = {
@@ -18,8 +19,10 @@ const STATUS_MAP = {
   disabled:{ label: '已禁用', color: 'var(--cq-text-disabled)', bg: 'var(--cq-bg-l2)' },
 };
 
-async function loadAccountsPage() {
-  const container = document.getElementById('accounts-content');
+async function renderAccountsPane(targetSelector = '#accounts-content') {
+  accountsMountSelector = targetSelector;
+  const container = document.querySelector(targetSelector);
+  if (!container) return;
   container.innerHTML = '<div class="cq-skeleton" style="height:120px;margin-bottom:var(--cq-space-4);"></div><div class="cq-skeleton" style="height:80px;"></div>';
 
   try {
@@ -32,7 +35,8 @@ async function loadAccountsPage() {
 }
 
 function renderAccounts() {
-  const container = document.getElementById('accounts-content');
+  const container = document.querySelector(accountsMountSelector);
+  if (!container) return;
 
   // 空状态
   if (accounts.length === 0 && !showAddForm) {
@@ -163,10 +167,6 @@ function renderAccounts() {
                 <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${formatBalance(acc.balance || 0)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
                 ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);">冻结: ${formatBalance(acc.frozen_balance)}</div>` : ''}
               </div>
-            <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="openAccountDetailModal(${acc.id})">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/></svg>
-              详情
-            </button>
             <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="syncAccount(${acc.id})" title="同步余额" id="sync-btn-${acc.id}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               同步
@@ -322,83 +322,4 @@ async function deleteAccount(id) {
   } catch (err) {
     showToast(err.message || '删除失败', 'error');
   }
-}
-
-async function openAccountDetailModal(accountId) {
-  const modal = document.getElementById('account-detail-modal');
-  const body = document.getElementById('account-detail-body');
-  if (!modal || !body) return;
-
-  modal.classList.add('is-visible');
-  body.innerHTML = '<div class="cq-skeleton" style="height:260px;"></div>';
-
-  try {
-    const positionsPath = accountId ? `/trading/positions?account_id=${accountId}` : '/trading/positions';
-    const [account, positions] = await Promise.all([
-      api.getExchangeAccount(accountId),
-      api.get(positionsPath).then((json) => json.data || json || []).catch(() => []),
-    ]);
-
-    const meta = EXCHANGE_META[account.exchange] || { label: account.exchange, letter: '?' };
-    body.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:var(--cq-space-5);">
-        <div class="cq-card cq-card--sm">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--cq-space-4);flex-wrap:wrap;">
-            <div>
-              <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-2);">
-                <span style="font-size:var(--cq-text-xl);font-weight:600;color:var(--cq-text-primary);">${escapeHtml(account.account_name || meta.label)}</span>
-                <span class="cq-tag cq-tag--neutral">${escapeHtml(meta.label || account.exchange)}</span>
-                ${account.is_demo ? '<span class="cq-tag cq-tag--warn">模拟盘</span>' : ''}
-                ${account.is_testnet ? '<span class="cq-tag cq-tag--neutral">测试网</span>' : ''}
-              </div>
-              <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.7;">
-                账户 ID：<span class="cq-num">${account.id}</span><br>
-                状态：${escapeHtml(account.status || '--')}<br>
-                最后同步：${escapeHtml(account.last_sync_at ? timeAgo(new Date(account.last_sync_at)) : '尚未同步')}
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:var(--cq-space-3);min-width:min(100%,320px);">
-              <div class="cq-card cq-card--sm">
-                <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:4px;">账户余额</div>
-                <div class="cq-num" style="font-size:var(--cq-text-lg);font-weight:600;">${formatBalance(account.balance || 0)}</div>
-              </div>
-              <div class="cq-card cq-card--sm">
-                <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:4px;">冻结金额</div>
-                <div class="cq-num" style="font-size:var(--cq-text-lg);font-weight:600;">${formatBalance(account.frozen_balance || 0)}</div>
-              </div>
-            </div>
-          </div>
-          ${account.error_message ? `<div style="margin-top:var(--cq-space-3);padding:var(--cq-space-3);border-radius:var(--cq-radius-lg);background:rgba(249,57,32,0.08);border:1px solid rgba(249,57,32,0.2);color:var(--cq-color-loss);font-size:var(--cq-text-sm);line-height:1.6;">${escapeHtml(account.error_message)}</div>` : ''}
-        </div>
-
-        <div class="cq-card cq-card--sm">
-          <div style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-3);">当前持仓</div>
-          ${positions.length ? `
-            <div class="cq-table-wrap">
-              <table class="cq-table">
-                <thead>
-                  <tr><th>交易对</th><th>方向</th><th>数量</th><th>开仓价</th><th>现价</th><th>未实现盈亏</th></tr>
-                </thead>
-                <tbody>
-                  ${positions.map((position) => `
-                    <tr>
-                      <td>${escapeHtml(position.symbol)}</td>
-                      <td>${position.side === 'buy' || position.side === 'long' ? '多' : '空'}</td>
-                      <td class="cq-num">${escapeHtml(position.quantity)}</td>
-                      <td class="cq-num">${escapeHtml(position.entryPrice)}</td>
-                      <td class="cq-num">${escapeHtml(position.currentPrice)}</td>
-                      <td class="cq-num" style="color:${Number(position.unrealizedPnl || 0) >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${escapeHtml(position.unrealizedPnl)}</td>
-                    </tr>`).join('')}
-                </tbody>
-              </table>
-            </div>` : '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">当前没有持仓。</div>'}
-        </div>
-      </div>`;
-  } catch (err) {
-    body.innerHTML = `<div class="cq-card cq-empty-state"><h3>加载账户详情失败</h3><p>${escapeHtml(err.message || '请稍后重试')}</p></div>`;
-  }
-}
-
-function closeAccountDetailModal() {
-  document.getElementById('account-detail-modal')?.classList.remove('is-visible');
 }

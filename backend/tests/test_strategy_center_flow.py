@@ -142,6 +142,70 @@ class TestStrategyCenterFlow:
         assert detail["lastStartedAt"].endswith("Z")
         assert detail["lastStoppedAt"].endswith("Z")
 
+    async def test_pause_strategy_sets_paused_status(self, client: AsyncClient, auth_headers):
+        created = await _create_strategy(client, auth_headers)
+        instance_id = created["id"]
+
+        await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/start",
+            headers=auth_headers,
+        )
+        pause_response = await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/pause",
+            headers=auth_headers,
+        )
+        assert pause_response.status_code == 200
+        assert pause_response.json()["data"]["status"] == "paused"
+
+        detail_response = await client.get(
+            f"/api/v1/strategies/instances/{instance_id}",
+            headers=auth_headers,
+        )
+        detail = detail_response.json()["data"]
+        assert detail["status"] == "paused"
+        assert detail["workspaceState"] == "library"
+        assert detail["lastStoppedAt"] is not None
+
+    async def test_start_paused_strategy_resumes_running(self, client: AsyncClient, auth_headers):
+        created = await _create_strategy(client, auth_headers)
+        instance_id = created["id"]
+
+        await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/start",
+            headers=auth_headers,
+        )
+        await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/pause",
+            headers=auth_headers,
+        )
+
+        resume_response = await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/start",
+            headers=auth_headers,
+        )
+        assert resume_response.status_code == 200
+        assert resume_response.json()["data"]["status"] == "running"
+
+    async def test_stop_paused_strategy_marks_stopped(self, client: AsyncClient, auth_headers):
+        created = await _create_strategy(client, auth_headers)
+        instance_id = created["id"]
+
+        await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/start",
+            headers=auth_headers,
+        )
+        await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/pause",
+            headers=auth_headers,
+        )
+
+        stop_response = await client.post(
+            f"/api/v1/strategies/instances/{instance_id}/stop",
+            headers=auth_headers,
+        )
+        assert stop_response.status_code == 200
+        assert stop_response.json()["data"]["status"] == "stopped"
+
     async def test_clone_running_strategy_creates_draft_copy(
         self, client: AsyncClient, auth_headers
     ):

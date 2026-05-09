@@ -155,9 +155,7 @@ async def test_order_failures_threshold_triggers_pause(
 
 
 @pytest.mark.asyncio
-async def test_order_failures_reset_on_success(
-    reset_runner_singleton, fake_settings, monkeypatch
-):
+async def test_order_failures_reset_on_success(reset_runner_singleton, fake_settings, monkeypatch):
     runner = reset_runner_singleton
     runner._update_signal_status = AsyncMock()
     runner._auto_pause = AsyncMock()

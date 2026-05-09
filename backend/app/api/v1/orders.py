@@ -242,4 +242,3 @@ async def update_contract_settings(
     )
     await session.commit()
     return APIResponse(data=data)
-

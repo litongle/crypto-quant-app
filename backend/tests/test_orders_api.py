@@ -74,4 +74,3 @@ class TestPositionsAndOrdersAPI:
         resp = await client.get("/api/v1/trading/positions", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["data"] == []
-

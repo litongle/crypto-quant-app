@@ -972,9 +972,7 @@ class StrategyRunner:
                     reason="auto:order_failures",
                     detail=f"连续 {threshold} 次下单失败",
                     metrics={
-                        "consecutive_order_failures": self._consecutive_order_failures[
-                            instance_id
-                        ],
+                        "consecutive_order_failures": self._consecutive_order_failures[instance_id],
                     },
                 )
             return False
@@ -1010,9 +1008,7 @@ class StrategyRunner:
                     reason="auto:order_failures",
                     detail=f"连续 {threshold} 次下单失败",
                     metrics={
-                        "consecutive_order_failures": self._consecutive_order_failures[
-                            instance_id
-                        ],
+                        "consecutive_order_failures": self._consecutive_order_failures[instance_id],
                     },
                 )
             raise
@@ -1099,9 +1095,7 @@ class StrategyRunner:
                     reason="auto:order_failures",
                     detail=f"连续 {threshold} 次下单失败",
                     metrics={
-                        "consecutive_order_failures": self._consecutive_order_failures[
-                            instance_id
-                        ],
+                        "consecutive_order_failures": self._consecutive_order_failures[instance_id],
                     },
                 )
             return False
@@ -1618,9 +1612,7 @@ class StrategyRunner:
                     reason="auto:order_failures",
                     detail=f"连续 {threshold} 次下单失败",
                     metrics={
-                        "consecutive_order_failures": self._consecutive_order_failures[
-                            instance_id
-                        ],
+                        "consecutive_order_failures": self._consecutive_order_failures[instance_id],
                     },
                 )
             return False

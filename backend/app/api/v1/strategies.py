@@ -6,6 +6,7 @@ P1-6: 策略实例创建上限（每用户最多 20 个）
 补充: 业务错误统一用 HTTPException
 """
 
+import time
 from datetime import UTC
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -16,10 +17,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.config import get_settings
 from app.constants import STR_ID_MAP, TEMPLATE_ID_TO_CODE
+from app.core.exchanges import get_exchange_adapter
 from app.core.performance import PerformanceCalculator
 from app.core.rule_engine import describe_rules, validate_rules
 from app.core.schemas import APIResponse
+from app.core.trade_schemas import OrderSchema, PositionSchema
 from app.database import get_session
 from app.models.order import Order
 from app.models.strategy import StrategyInstance
@@ -432,6 +436,40 @@ async def get_strategy(
     return APIResponse(data=_format_instance(instance))
 
 
+@router.get("/instances/{instance_id}/snapshot")
+async def get_strategy_snapshot(
+    instance_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> APIResponse:
+    """返回策略实例详情抽屉所需的持仓与订单快照。"""
+    inst_id = _parse_instance_id(instance_id)
+
+    service = StrategyService(session)
+    instance = await service.get_instance(inst_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    if instance.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限访问")
+
+    from app.repositories.trading_repo import OrderRepository, PositionRepository
+
+    position_repo = PositionRepository(session)
+    order_repo = OrderRepository(session)
+    positions = await position_repo.get_by_strategy(inst_id, status="open")
+    orders = await order_repo.get_by_strategy(inst_id, limit=20)
+
+    return APIResponse(
+        data={
+            "positions": [
+                PositionSchema.from_model(position).model_dump(by_alias=True)
+                for position in positions
+            ],
+            "orders": [OrderSchema.from_model(order).model_dump(by_alias=True) for order in orders],
+        }
+    )
+
+
 @router.put("/instances/{instance_id}")
 async def update_strategy(
     instance_id: str,
@@ -501,6 +539,30 @@ async def stop_strategy(
 
     service = StrategyService(session)
     instance = await service.stop_instance(inst_id, current_user.id)
+
+    if not instance:
+        raise HTTPException(status_code=404, detail="策略不存在或无权限")
+    await session.commit()
+
+    return APIResponse(
+        data={
+            "id": instance.id,
+            "status": instance.status,
+        }
+    )
+
+
+@router.post("/instances/{instance_id}/pause")
+async def pause_strategy(
+    instance_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_session),
+) -> APIResponse:
+    """手动暂停策略。"""
+    inst_id = _parse_instance_id(instance_id)
+
+    service = StrategyService(session)
+    instance = await service.pause_instance(inst_id, current_user.id)
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
@@ -616,5 +678,82 @@ async def validate_strategy_rules(
             "valid": True,
             "errors": [],
             "description": description,
+        }
+    )
+
+
+@router.get("/runner/status")
+async def get_runner_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse[dict]:
+    """返回策略运行器状态、交易所连通性与只读设置摘要。"""
+    del current_user, session
+
+    from app.core.strategy_runner import strategy_runner
+
+    instance_tasks = {
+        instance_id: not task.done() for instance_id, task in strategy_runner._runners.items()
+    }
+    runner_block = {
+        "running": strategy_runner._running,
+        "task_count": len(instance_tasks),
+        "alive_count": sum(1 for value in instance_tasks.values() if value),
+        "active_instances": sorted(instance_tasks.keys()),
+        "last_heartbeat": getattr(strategy_runner, "_last_heartbeat", None),
+    }
+
+    exchange_symbols = {
+        "binance": "BTCUSDT",
+        "okx": "BTC-USDT",
+        "huobi": "btcusdt",
+    }
+    exchanges = []
+    for exchange_name, symbol in exchange_symbols.items():
+        try:
+            client = get_exchange_adapter(exchange_name, "", "")
+            start = time.monotonic()
+            if hasattr(client, "ping"):
+                await client.ping()
+            else:
+                await client.get_ticker(symbol)
+            latency_ms = int((time.monotonic() - start) * 1000)
+            exchanges.append(
+                {
+                    "name": exchange_name,
+                    "ws_connected": True,
+                    "rest_latency_ms": latency_ms,
+                }
+            )
+        except Exception as exc:
+            exchanges.append(
+                {
+                    "name": exchange_name,
+                    "ws_connected": False,
+                    "rest_latency_ms": None,
+                    "error": str(exc)[:80],
+                }
+            )
+
+    settings = get_settings()
+    settings_block = {
+        "notifications": {
+            "telegram_bot_token_configured": bool(settings.telegram_bot_token),
+            "telegram_chat_id_configured": bool(settings.telegram_chat_id),
+        },
+        "auto_pause": {
+            "consecutive_errors": settings.auto_pause_consecutive_errors,
+            "consecutive_order_failures": settings.auto_pause_consecutive_order_failures,
+            "heartbeat_multiplier": settings.auto_pause_heartbeat_multiplier,
+            "heartbeat_min_seconds": settings.auto_pause_heartbeat_min_seconds,
+            "watchdog_interval_seconds": settings.auto_pause_watchdog_interval_seconds,
+        },
+    }
+
+    return APIResponse(
+        data={
+            "strategy_runner": runner_block,
+            "exchanges": exchanges,
+            "settings": settings_block,
         }
     )

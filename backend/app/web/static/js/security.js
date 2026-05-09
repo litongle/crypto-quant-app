@@ -10,6 +10,7 @@ const securityState = {
     resource: '',
   },
 };
+let securityMountSelector = '#security-content';
 
 window._pending2faLogin = null;
 
@@ -66,8 +67,9 @@ async function handleLogin2fa() {
   }
 }
 
-async function loadSecurityPage() {
-  const container = document.getElementById('security-content');
+async function renderSecurityPane(targetSelector = '#security-content') {
+  securityMountSelector = targetSelector;
+  const container = document.querySelector(targetSelector);
   if (!container) return;
   container.innerHTML = '<div class="cq-skeleton" style="height:180px;margin-bottom:var(--cq-space-4);"></div><div class="cq-skeleton" style="height:220px;"></div>';
 
@@ -109,7 +111,7 @@ async function loadAuditLogs({ reset = false, silent = false } = {}) {
 }
 
 function renderSecurityPage() {
-  const container = document.getElementById('security-content');
+  const container = document.querySelector(securityMountSelector);
   if (!container) return;
 
   const status = securityState.status || { enabled: false, verified: false, has_2fa: false };

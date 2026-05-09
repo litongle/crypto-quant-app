@@ -254,6 +254,11 @@ class ApiClient {
     return json.data || json;
   }
 
+  async pauseStrategy(instanceId) {
+    const json = await this.post(`/strategies/instances/${instanceId}/pause`);
+    return json.data || json;
+  }
+
   async stopStrategy(instanceId) {
     const json = await this.post(`/strategies/instances/${instanceId}/stop`);
     return json.data || json;
@@ -296,11 +301,6 @@ class ApiClient {
     return json.data || json;
   }
 
-  async getOrderbook(symbol, limit = 20, exchange = 'binance', market = 'spot') {
-    const json = await this.get(`/market/orderbook/${symbol}?limit=${limit}&exchange=${exchange}&market=${market}`);
-    return json.data || json;
-  }
-
   async getSymbols() {
     const json = await this.get('/market/symbols');
     return json.data || json;
@@ -314,6 +314,22 @@ class ApiClient {
   async getBatchTickers(symbols = 'BTC,ETH,SOL,BNB,DOGE') {
     const json = await this.get(`/market/tickers?symbols=${symbols}`);
     return json.data || json || [];
+  }
+
+  async getEvents(params = {}) {
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value == null || value === '') return;
+      search.set(key, String(value));
+    });
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    const json = await this.get(`/events${suffix}`);
+    return json.data || json;
+  }
+
+  async getRunnerStatus() {
+    const json = await this.get('/strategies/runner/status');
+    return json.data || json;
   }
 
   // ===== 交易所账户管理 =====
@@ -381,6 +397,11 @@ class ApiClient {
     return json.data || json;
   }
 
+  async getStrategySnapshot(instanceId) {
+    const json = await this.get(`/strategies/instances/${instanceId}/snapshot`);
+    return json.data || json;
+  }
+
   async getStrategyPerformance(instanceId) {
     const json = await this.get(`/strategies/instances/${instanceId}/performance`);
     return json.data || json;
@@ -400,3 +421,14 @@ class ApiClient {
 
 // 全局单例
 const api = new ApiClient();
+
+function resolveSinceParam(range) {
+  const now = new Date();
+  const next = new Date(now);
+  if (range === '1h') next.setHours(now.getHours() - 1);
+  else if (range === '24h') next.setHours(now.getHours() - 24);
+  else if (range === '7d') next.setDate(now.getDate() - 7);
+  else if (range === '30d') next.setDate(now.getDate() - 30);
+  else return '';
+  return next.toISOString();
+}

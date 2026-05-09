@@ -2,7 +2,14 @@
 策略 API 集成测试 — 模板查询、实例 CRUD、规则校验
 """
 
+from decimal import Decimal
+
 from httpx import AsyncClient
+from sqlalchemy import delete
+
+from app.models.exchange import ExchangeAccount, Position
+from app.models.order import Order
+from app.models.strategy import StrategyInstance
 
 # ==================== 模板查询 ====================
 
@@ -64,6 +71,122 @@ class TestStrategyInstancesAPI:
             headers=auth_headers,
         )
         assert resp.status_code == 200
+
+    async def test_get_instance_snapshot_filters_positions_and_orders(
+        self, client: AsyncClient, auth_headers, db_session, test_user
+    ):
+        await db_session.execute(delete(Order))
+        await db_session.execute(delete(Position))
+        await db_session.execute(delete(StrategyInstance))
+        await db_session.commit()
+
+        account = ExchangeAccount(
+            user_id=test_user.id,
+            exchange="binance",
+            account_name="snapshot-account",
+            is_active=True,
+            status="active",
+        )
+        account.set_api_key("FAKE_API_KEY_FOR_TEST_AAAAA")
+        account.set_secret_key("FAKE_SECRET_KEY_FOR_TEST_BBBBB")
+        db_session.add(account)
+        await db_session.flush()
+
+        first = StrategyInstance(
+            user_id=test_user.id,
+            template_id=1,
+            name="first",
+            symbol="BTCUSDT",
+            exchange="binance",
+            direction="both",
+            params={},
+            risk_params={},
+            account_id=account.id,
+            status="running",
+            workspace_state="running",
+        )
+        second = StrategyInstance(
+            user_id=test_user.id,
+            template_id=1,
+            name="second",
+            symbol="ETHUSDT",
+            exchange="binance",
+            direction="both",
+            params={},
+            risk_params={},
+            account_id=account.id,
+            status="running",
+            workspace_state="running",
+        )
+        db_session.add_all([first, second])
+        await db_session.flush()
+
+        db_session.add_all(
+            [
+                Position(
+                    account_id=account.id,
+                    symbol="BTCUSDT",
+                    side="long",
+                    quantity=Decimal("1"),
+                    entry_price=Decimal("60000"),
+                    current_price=Decimal("61000"),
+                    leverage=1,
+                    status="open",
+                    strategy_instance_id=first.id,
+                ),
+                Position(
+                    account_id=account.id,
+                    symbol="ETHUSDT",
+                    side="long",
+                    quantity=Decimal("2"),
+                    entry_price=Decimal("3000"),
+                    current_price=Decimal("3100"),
+                    leverage=1,
+                    status="open",
+                    strategy_instance_id=second.id,
+                ),
+                Order(
+                    account_id=account.id,
+                    symbol="BTCUSDT",
+                    side="buy",
+                    order_type="market",
+                    quantity=Decimal("1"),
+                    filled_quantity=Decimal("1"),
+                    avg_fill_price=Decimal("60000"),
+                    order_value=Decimal("60000"),
+                    commission=Decimal("0"),
+                    status="filled",
+                    strategy_instance_id=first.id,
+                ),
+                Order(
+                    account_id=account.id,
+                    symbol="ETHUSDT",
+                    side="buy",
+                    order_type="market",
+                    quantity=Decimal("2"),
+                    filled_quantity=Decimal("2"),
+                    avg_fill_price=Decimal("3000"),
+                    order_value=Decimal("6000"),
+                    commission=Decimal("0"),
+                    status="filled",
+                    strategy_instance_id=second.id,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/strategies/instances/{first.id}/snapshot",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert len(data["positions"]) == 1
+        assert data["positions"][0]["strategyInstanceId"] == first.id
+        assert data["positions"][0]["symbol"] == "BTCUSDT"
+        assert len(data["orders"]) == 1
+        assert data["orders"][0]["strategyInstanceId"] == first.id
+        assert data["orders"][0]["symbol"] == "BTCUSDT"
 
 
 # ==================== 实例创建校验 ====================

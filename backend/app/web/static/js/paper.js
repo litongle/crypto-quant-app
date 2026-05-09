@@ -1,9 +1,11 @@
 const paperState = {
   accounts: [],
 };
+let paperMountSelector = '#paper-content';
 
-async function loadPaperPage() {
-  const container = document.getElementById('paper-content');
+async function renderPaperPane(targetSelector = '#paper-content') {
+  paperMountSelector = targetSelector;
+  const container = document.querySelector(targetSelector);
   if (!container) return;
   container.innerHTML = '<div class="cq-skeleton" style="height:160px;"></div>';
 
@@ -18,7 +20,7 @@ async function loadPaperPage() {
 }
 
 function renderPaperPage() {
-  const container = document.getElementById('paper-content');
+  const container = document.querySelector(paperMountSelector);
   if (!container) return;
 
   const accounts = paperState.accounts || [];

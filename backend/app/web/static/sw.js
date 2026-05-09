@@ -1,14 +1,19 @@
 // 币钱袋 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v5';
+const CACHE_NAME = 'cq-sw-v6';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
   '/web/static/js/api.js',
   '/web/static/js/dashboard.js',
+  '/web/static/js/kline.js',
   '/web/static/js/strategy.js',
   '/web/static/js/backtest.js',
   '/web/static/js/accounts.js',
-  '/web/static/js/market.js',
+  '/web/static/js/paper.js',
+  '/web/static/js/security.js',
+  '/web/static/js/settings-drawer.js',
+  '/web/static/js/instance-drawer.js',
+  '/web/static/js/events.js',
   '/web/static/manifest.json',
 ];
 

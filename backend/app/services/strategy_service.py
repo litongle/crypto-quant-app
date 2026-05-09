@@ -332,6 +332,7 @@ class StrategyService:
                 workspace_state="running",
                 last_started_at=now,
                 last_run_at=now,
+                last_pause_reason=None,
             )
         except Exception:
             try:
@@ -344,8 +345,8 @@ class StrategyService:
 
         return instance
 
-    async def stop_instance(self, instance_id: int, user_id: int) -> StrategyInstance | None:
-        """停止策略"""
+    async def pause_instance(self, instance_id: int, user_id: int) -> StrategyInstance | None:
+        """手动暂停策略。"""
         instance = await self.instance_repo.get_by_id(instance_id)
         if not instance:
             raise HTTPException(
@@ -360,7 +361,7 @@ class StrategyService:
         if instance.status != "running":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="策略未在运行",
+                detail="只有运行中的策略才能暂停",
             )
 
         try:
@@ -370,17 +371,59 @@ class StrategyService:
         except Exception as exc:
             import logging
 
-            logging.getLogger(__name__).warning("停止策略运行器失败: %s", exc)
+            logging.getLogger(__name__).warning("暂停策略运行器失败: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="策略停止失败，请稍后重试",
+                detail="策略暂停失败，请稍后重试",
             ) from exc
+
+        return await self.instance_repo.update(
+            instance_id,
+            status="paused",
+            workspace_state="library",
+            last_stopped_at=datetime.now(UTC),
+            last_pause_reason=None,
+        )
+
+    async def stop_instance(self, instance_id: int, user_id: int) -> StrategyInstance | None:
+        """停止策略"""
+        instance = await self.instance_repo.get_by_id(instance_id)
+        if not instance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="策略实例不存在",
+            )
+        if instance.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权操作此策略",
+            )
+        if instance.status not in {"running", "paused"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="策略当前不可停止",
+            )
+
+        if instance.status == "running":
+            try:
+                from app.core.strategy_runner import strategy_runner
+
+                await strategy_runner.stop_instance(instance_id)
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).warning("停止策略运行器失败: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="策略停止失败，请稍后重试",
+                ) from exc
 
         return await self.instance_repo.update(
             instance_id,
             status="stopped",
             workspace_state="library",
             last_stopped_at=datetime.now(UTC),
+            last_pause_reason=None,
         )
 
     async def clone_to_draft(self, instance_id: int, user_id: int) -> StrategyInstance:
