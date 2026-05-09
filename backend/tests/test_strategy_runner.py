@@ -246,6 +246,7 @@ class TestLifecycle:
         _, session_maker = _make_session_mock(instances=[])
         await runner.start(session_maker)
         assert runner._running is True
+        await runner.stop()
 
     async def test_start_idempotent(self, runner):
         runner._running = True

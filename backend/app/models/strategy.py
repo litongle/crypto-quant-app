@@ -113,6 +113,12 @@ class StrategyInstance(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    last_pause_reason: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        default=None,
+        comment="自停原因 — auto:consecutive_errors / auto:order_failures / auto:heartbeat_timeout；NULL=用户手动操作",
+    )
     # Step 3: 策略状态机持久化(每 tick 末由 runner 写入,启动时恢复)
     # 形如 {"mode": "long", "entry_price": 50000.0, ...},内容由具体策略 to_dict 决定
     state_json: Mapped[dict | None] = mapped_column(

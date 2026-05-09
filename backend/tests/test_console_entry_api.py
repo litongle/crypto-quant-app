@@ -174,57 +174,6 @@ async def test_market_symbols_and_orderbook_endpoints(
 
 
 @pytest.mark.asyncio
-async def test_manual_trading_accepts_perp_symbol_suffix(
-    client: AsyncClient,
-    auth_headers,
-    test_user,
-    db_session: AsyncSession,
-    monkeypatch,
-):
-    account = ExchangeAccount(
-        user_id=test_user.id,
-        exchange="okx",
-        account_name="Manual Perp",
-        is_active=True,
-        status="active",
-        balance="2000",
-        frozen_balance="0",
-    )
-    account.set_api_key("test-api-key-123456")
-    account.set_secret_key("test-secret-key-123456")
-    account.set_passphrase("test-passphrase")
-    db_session.add(account)
-    await db_session.commit()
-    await db_session.refresh(account)
-
-    async def fake_submit_order(self, order_id, user_id):
-        order = await self.order_repo.get_by_id(order_id)
-        order.status = "submitted"
-        order.exchange_order_id = "EX-MANUAL-PERP-1"
-        return order
-
-    monkeypatch.setattr(
-        "app.api.v1.orders.OrderService.submit_order",
-        fake_submit_order,
-    )
-
-    resp = await client.post(
-        "/api/v1/trading",
-        headers=auth_headers,
-        json={
-            "account_id": account.id,
-            "symbol": "BTCUSDT.P",
-            "side": "buy",
-            "order_type": "market",
-            "quantity": "0.002",
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    order_data = resp.json()["data"]
-    assert order_data["symbol"] == "BTCUSDT.P"
-
-
-@pytest.mark.asyncio
 async def test_manual_trading_symbol_rules_endpoint(
     client: AsyncClient,
     auth_headers,

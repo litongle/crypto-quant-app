@@ -1,11 +1,6 @@
-"""
-订单 API — 统一 APIResponse + IDOR 修复 + 一键平仓确认
-
-路由排列规则：静态路径优先，参数化路径靠后，避免 FastAPI 路由冲突
-"""
+"""交易账户与持仓 API。"""
 
 import logging
-from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,11 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.core.instrument_resolution import resolve_execution_context
 from app.core.schemas import APIResponse
 from app.core.trade_schemas import (
     AccountInfoSchema,
-    OrderSchema,
     PositionSchema,
     TradingSymbolRulesSchema,
 )
@@ -48,42 +41,6 @@ class CreateExchangeAccountRequest(BaseModel):
 
 
 router = APIRouter()
-
-
-# ============ 请求模型 ============
-
-
-class CreateOrderRequest(BaseModel):
-    """创建订单请求"""
-
-    account_id: int = Field(gt=0, description="账户ID必须为正整数")
-    symbol: str = Field(pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$")
-    side: Literal["buy", "sell"]
-    order_type: Literal["market", "limit"]
-    quantity: Decimal = Field(gt=0, description="数量必须大于0")
-    price: Decimal | None = Field(default=None, gt=0, description="限价单价格必须大于0")
-    strategy_instance_id: int | None = Field(default=None, gt=0)
-
-
-class SetStopLossRequest(BaseModel):
-    """设置止损请求"""
-
-    account_id: int = Field(gt=0)
-    stop_price: Decimal = Field(gt=0, description="止损价格必须大于0")
-
-
-class SetTakeProfitRequest(BaseModel):
-    """设置止盈请求"""
-
-    account_id: int = Field(gt=0)
-    take_profit_price: Decimal = Field(gt=0, description="止盈价格必须大于0")
-
-
-class EmergencyCloseConfirm(BaseModel):
-    """一键平仓确认请求"""
-
-    confirm: bool = Field(..., description="必须传 confirm=true 才会执行平仓")
-    account_id: int | None = Field(default=None, description="指定账户ID，不传则平所有账户")
 
 
 class UpdateContractSettingsRequest(BaseModel):
@@ -215,32 +172,8 @@ async def delete_exchange_account(
 
 
 # ============================================================
-# 交易操作（静态路径优先）
+# 持仓与账户配置（静态路径优先）
 # ============================================================
-
-
-@router.post("/emergency-close-all")
-async def emergency_close_all(
-    request: EmergencyCloseConfirm,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """紧急一键平仓（需 confirm=true 确认）"""
-    if not request.confirm:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请确认操作：必须传 confirm=true",
-        )
-
-    service = OrderService(session)
-    closed = await service.emergency_close_all(current_user.id, request.account_id)
-    await session.commit()
-    return APIResponse(
-        data={
-            "closed_count": len(closed),
-            "message": f"已平仓 {len(closed)} 个仓位",
-        }
-    )
 
 
 @router.get("/positions")
@@ -264,7 +197,7 @@ async def get_trading_symbol_rules(
     account_id: int = Query(..., gt=0),
     symbol: str = Query(..., pattern=r"^[A-Z]{2,10}(USDT|USDC|BTC|ETH)?(?:\.P)?$"),
 ) -> APIResponse[TradingSymbolRulesSchema]:
-    """获取手动交易表单的交易规则与市场语义。"""
+    """获取交易规则与市场语义。"""
     service = OrderService(session)
     rules = await service.get_symbol_rules(
         user_id=current_user.id,
@@ -310,148 +243,3 @@ async def update_contract_settings(
     await session.commit()
     return APIResponse(data=data)
 
-
-# ============================================================
-# 订单 CRUD（参数化路径放最后）
-# ============================================================
-
-
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_order(
-    request: CreateOrderRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """创建订单"""
-    service = OrderService(session)
-
-    # 格式化交易对
-    base_symbol, is_perp = resolve_execution_context(request.symbol, None)
-    symbol = base_symbol.upper()
-    if not symbol.endswith(("USDT", "USDC", "BTC", "ETH")):
-        symbol += "USDT"
-    if is_perp:
-        symbol = f"{symbol}.P"
-
-    order = await service.create_order(
-        user_id=current_user.id,
-        account_id=request.account_id,
-        symbol=symbol,
-        side=request.side,
-        order_type=request.order_type,
-        quantity=request.quantity,
-        price=request.price,
-        strategy_instance_id=request.strategy_instance_id,
-    )
-
-    # 提交订单（P0-3: 如果提交失败，删除残留订单避免幽灵订单）
-    try:
-        order = await service.submit_order(order.id, current_user.id)
-    except HTTPException:
-        # HTTPException（交易所拒绝/限流/网络错误）→ 清理残留订单
-        try:
-            await service.order_repo.delete(order.id)
-            await session.commit()
-        except Exception:
-            pass
-        raise
-    except Exception as err:
-        # 非 HTTPException（如 AppException 等）→ 同样清理，避免幽灵订单
-        try:
-            await service.order_repo.delete(order.id)
-            await session.commit()
-        except Exception:
-            pass
-        raise HTTPException(status_code=502, detail="下单失败，请检查订单状态") from err
-    await session.commit()
-    return APIResponse(data=OrderSchema.from_model(order).model_dump(by_alias=True))
-
-
-@router.get("")
-async def get_orders(
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    account_id: int | None = None,
-    symbol: str | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-) -> APIResponse:
-    """获取订单历史"""
-    service = OrderService(session)
-    orders = await service.get_order_history(
-        user_id=current_user.id,
-        account_id=account_id,
-        symbol=symbol,
-        limit=limit,
-    )
-    return APIResponse(data=[OrderSchema.from_model(o).model_dump(by_alias=True) for o in orders])
-
-
-@router.post("/{order_id}/cancel")
-async def cancel_order(
-    order_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """取消订单"""
-    service = OrderService(session)
-    order = await service.cancel_order(order_id, current_user.id)
-    await session.commit()
-    return APIResponse(data=OrderSchema.from_model(order).model_dump(by_alias=True))
-
-
-@router.post("/{position_id}/stop-loss")
-async def set_stop_loss(
-    position_id: int,
-    request: SetStopLossRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """设置止损"""
-    service = OrderService(session)
-    position = await service.set_stop_loss(
-        position_id=position_id,
-        user_id=current_user.id,
-        stop_price=request.stop_price,
-    )
-    await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))
-
-
-@router.post("/{position_id}/take-profit")
-async def set_take_profit(
-    position_id: int,
-    request: SetTakeProfitRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """设置止盈"""
-    service = OrderService(session)
-    position = await service.set_take_profit(
-        position_id=position_id,
-        user_id=current_user.id,
-        tp_price=request.take_profit_price,
-    )
-    await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))
-
-
-class ClosePositionRequest(BaseModel):
-    """平仓请求"""
-
-    account_id: int | None = Field(
-        default=None, description="指定账户ID（可选，后端自动从持仓获取）"
-    )
-
-
-@router.post("/{position_id}/close")
-async def close_position(
-    position_id: int,
-    request: ClosePositionRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> APIResponse:
-    """平仓"""
-    service = OrderService(session)
-    position = await service.close_position(position_id, current_user.id)
-    await session.commit()
-    return APIResponse(data=PositionSchema.from_model(position).model_dump(by_alias=True))

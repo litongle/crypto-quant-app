@@ -202,7 +202,7 @@ class ApiClient {
     return json.data || json;
   }
 
-  // 资产页:账户全持仓视图(跨账户聚合);避免与 trading.getPositions 同名
+  // 资产页:账户全持仓视图(跨账户聚合)
   async getPortfolioPositions(exchange = 'all', side = 'all') {
     const json = await this.get(`/asset/positions?exchange=${exchange}&side=${side}`);
     return json.data || json;
@@ -340,96 +340,6 @@ class ApiClient {
 
   async deleteExchangeAccount(accountId) {
     return this.del(`/trading/accounts/${accountId}`);
-  }
-
-  // ===== 交易/订单 =====
-  async createOrder({ accountId, symbol, side, orderType, quantity, price, strategyInstanceId }) {
-    const body = {
-      account_id: accountId,
-      symbol,
-      side,
-      order_type: orderType,
-      quantity: String(quantity),
-    };
-    if (price) body.price = String(price);
-    if (strategyInstanceId) body.strategy_instance_id = strategyInstanceId;
-    const json = await this.post('/trading', body);
-    return json.data || json;
-  }
-
-  async getOrders({ accountId, symbol, limit } = {}) {
-    const params = new URLSearchParams();
-    if (accountId) params.set('account_id', accountId);
-    if (symbol) params.set('symbol', symbol);
-    if (limit) params.set('limit', limit);
-    const qs = params.toString();
-    const json = await this.get(`/trading${qs ? '?' + qs : ''}`);
-    return json.data || json || [];
-  }
-
-  async cancelOrder(orderId) {
-    const json = await this.post(`/trading/${orderId}/cancel`);
-    return json.data || json;
-  }
-
-  async getPositions(accountId) {
-    const qs = accountId ? `?account_id=${accountId}` : '';
-    const json = await this.get(`/trading/positions${qs}`);
-    return json.data || json || [];
-  }
-
-  async getTradingSymbolRules(accountId, symbol) {
-    const params = new URLSearchParams({
-      account_id: String(accountId),
-      symbol: String(symbol || ''),
-    });
-    const json = await this.get(`/trading/symbol-rules?${params.toString()}`);
-    return json.data || json;
-  }
-
-  async getContractSettings(accountId, symbol) {
-    const params = new URLSearchParams({ symbol: String(symbol || '') });
-    const json = await this.get(`/trading/accounts/${accountId}/contract-settings?${params.toString()}`);
-    return json.data || json;
-  }
-
-  async updateContractSettings(accountId, { symbol, leverage, marginMode }) {
-    const json = await this.post(`/trading/accounts/${accountId}/contract-settings`, {
-      symbol,
-      leverage,
-      marginMode,
-    });
-    return json.data || json;
-  }
-
-  async setStopLoss(positionId, accountId, stopPrice) {
-    const json = await this.post(`/trading/${positionId}/stop-loss`, {
-      account_id: accountId,
-      stop_price: String(stopPrice),
-    });
-    return json.data || json;
-  }
-
-  async setTakeProfit(positionId, accountId, takeProfitPrice) {
-    const json = await this.post(`/trading/${positionId}/take-profit`, {
-      account_id: accountId,
-      take_profit_price: String(takeProfitPrice),
-    });
-    return json.data || json;
-  }
-
-  async closePosition(positionId, accountId) {
-    const body = {};
-    if (accountId) body.account_id = accountId;
-    const json = await this.post(`/trading/${positionId}/close`, body);
-    return json.data || json;
-  }
-
-  async emergencyCloseAll(accountId) {
-    const body = { confirm: true };
-    if (accountId) body.account_id = accountId;
-    const json = await this.post('/trading/emergency-close-all', body);
-    return json.data || json;
   }
 
   async getUserInfo() {

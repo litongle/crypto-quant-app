@@ -333,10 +333,10 @@ async function openAccountDetailModal(accountId) {
   body.innerHTML = '<div class="cq-skeleton" style="height:260px;"></div>';
 
   try {
-    const [account, positions, orders] = await Promise.all([
+    const positionsPath = accountId ? `/trading/positions?account_id=${accountId}` : '/trading/positions';
+    const [account, positions] = await Promise.all([
       api.getExchangeAccount(accountId),
-      api.getPositions(accountId).catch(() => []),
-      api.getOrders({ accountId, limit: 20 }).catch(() => []),
+      api.get(positionsPath).then((json) => json.data || json || []).catch(() => []),
     ]);
 
     const meta = EXCHANGE_META[account.exchange] || { label: account.exchange, letter: '?' };
@@ -392,29 +392,6 @@ async function openAccountDetailModal(accountId) {
                 </tbody>
               </table>
             </div>` : '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">当前没有持仓。</div>'}
-        </div>
-
-        <div class="cq-card cq-card--sm">
-          <div style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-3);">最近订单</div>
-          ${orders.length ? `
-            <div class="cq-table-wrap">
-              <table class="cq-table">
-                <thead>
-                  <tr><th>时间</th><th>交易对</th><th>方向</th><th>类型</th><th>数量</th><th>状态</th></tr>
-                </thead>
-                <tbody>
-                  ${orders.map((order) => `
-                    <tr>
-                      <td>${escapeHtml(order.createdAt ? timeAgo(new Date(order.createdAt)) : '--')}</td>
-                      <td>${escapeHtml(order.symbol)}</td>
-                      <td>${order.side === 'buy' ? '买入' : '卖出'}</td>
-                      <td>${escapeHtml(order.orderType || '--')}</td>
-                      <td class="cq-num">${escapeHtml(order.quantity)}</td>
-                      <td>${escapeHtml(order.status || '--')}</td>
-                    </tr>`).join('')}
-                </tbody>
-              </table>
-            </div>` : '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">当前没有订单记录。</div>'}
         </div>
       </div>`;
   } catch (err) {
