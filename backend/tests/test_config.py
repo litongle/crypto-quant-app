@@ -105,14 +105,21 @@ class TestProductionSecurity:
         )
         assert settings.debug is False
 
-    def test_setup_complete_true_without_env_file_is_not_setup_required(self):
-        """云部署仅靠环境变量也能视为已完成安装"""
-        from app.config import Settings
+def test_settings_has_admin_fields(monkeypatch):
+    """admin 凭证字段应从环境变量读取"""
+    monkeypatch.setenv("ADMIN_USERNAME", "admin@example.com")
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", "$2b$12$abcd")
+    from app.config import reload_settings
 
-        settings = Settings(
-            setup_complete=True,
-            secret_key="real-secret-key-here-at-least-32-chars",
-            jwt_secret_key="real-jwt-key-here-at-least-32-chars",
-        )
+    s = reload_settings()
+    assert s.admin_username == "admin@example.com"
+    assert s.admin_password_hash == "$2b$12$abcd"
 
-        assert settings.setup_required is False
+
+def test_settings_no_setup_complete():
+    """setup_complete / setup_required 应已被删除"""
+    from app.config import Settings
+
+    s = Settings()
+    assert not hasattr(s, "setup_complete")
+    assert not hasattr(s, "setup_required")

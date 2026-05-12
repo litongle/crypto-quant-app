@@ -31,17 +31,20 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = False  # P0-2: 默认关闭，开发环境需显式开启
 
-    # 环境 & 安装状态
+    # 环境
     environment: str = "development"
-    setup_complete: bool = False
     allow_insecure_default_secrets: bool = False
 
-    # 安全密钥（开发占位值，生产环境必须通过 .env 或安装向导设置）
+    # 管理员账户（唯一登录账户；由 app.main.seed_admin 启动时种子）
+    admin_username: str = "admin@example.com"
+    admin_password_hash: str = ""
+
+    # 安全密钥（开发占位值，生产环境必须通过 .env 设置）
     secret_key: str = _DEFAULT_SECRET_KEY
     jwt_secret_key: str = _DEFAULT_JWT_SECRET_KEY
 
-    # 数据库（默认 SQLite，安装向导可切换 PostgreSQL）
-    database_url: str = "sqlite+aiosqlite:///./data/crypto_quant.db"
+    # 数据库（强制 PostgreSQL；默认指向 docker-compose 内置服务）
+    database_url: str = "postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -74,13 +77,6 @@ class Settings(BaseSettings):
     @property
     def env_path(self) -> Path:
         return ENV_PATH
-
-    @property
-    def setup_required(self) -> bool:
-        # Cloud platforms like Render inject settings as environment variables
-        # without creating a local .env file, so installation state must depend
-        # on the explicit setup flag rather than file presence.
-        return not self.setup_complete
 
     @property
     def is_production(self) -> bool:

@@ -5,12 +5,8 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_lifespan_initializes_db_before_strategy_boot(monkeypatch):
-    """setup 已完成时，启动应先建表，再 seed 模板和启动 runner。"""
-    from app.config import get_settings
+    """启动应先建表，再 seed 模板和启动 runner。"""
     from app.main import lifespan
-
-    settings = get_settings()
-    settings.setup_complete = True
 
     calls: list[str] = []
 
