@@ -3058,6 +3058,17 @@ select.cq-input:not([multiple]) {
   outline: none;
 }
 
+/* Hide native spinners on number inputs — they squish weirdly at 32px height */
+.cq-settings-form input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.cq-settings-form input[type="number"]::-webkit-outer-spin-button,
+.cq-settings-form input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .cq-settings-form input:hover:not(:focus) {
   border-color: var(--cq-border-hover);
 }
