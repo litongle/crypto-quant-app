@@ -2950,3 +2950,91 @@ select.cq-input:not([multiple]) {
   .account-card-actions { width: 100%; display: flex; justify-content: space-between; align-items: center; }
 }
 
+/* ── Strategy Template Cards (v4) ────────────────────────────── */
+.cq-template-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--cq-space-3);
+}
+
+.cq-template-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cq-space-3);
+  padding: var(--cq-space-4);
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-lg);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--cq-text-primary);
+  transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
+              box-shadow var(--cq-duration-fast) var(--cq-ease-default),
+              background-color var(--cq-duration-medium) var(--cq-ease-default),
+              transform var(--cq-duration-medium) var(--cq-ease-out);
+}
+
+.cq-template-card:hover {
+  border-color: var(--cq-border-hover);
+  box-shadow: var(--cq-glow-sm);
+  transform: translateY(-1px);
+}
+
+.cq-template-card.is-selected {
+  background: var(--cq-bg-l4);
+  border-color: var(--cq-border-active);
+  box-shadow: var(--cq-glow-md);
+}
+
+.cq-template-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cq-radius-md);
+  background: var(--cq-color-primary-muted);
+  color: var(--cq-color-primary);
+  flex-shrink: 0;
+}
+.cq-template-card__icon svg { width: 16px; height: 16px; }
+
+.cq-template-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cq-template-card__name {
+  font-size: var(--cq-text-md);
+  font-weight: 600;
+  color: var(--cq-text-primary);
+  line-height: 1.4;
+}
+
+.cq-template-card__desc {
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-tertiary);
+  line-height: 1.5;
+}
+
+.cq-template-card__chevron {
+  color: var(--cq-text-tertiary);
+  flex-shrink: 0;
+  margin-top: 4px;
+  transition: transform var(--cq-duration-fast) var(--cq-ease-default),
+              color var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-template-card:hover .cq-template-card__chevron {
+  color: var(--cq-color-primary);
+  transform: translateX(2px);
+}
+
+.cq-template-card.is-selected .cq-template-card__chevron {
+  color: var(--cq-color-primary);
+}
+

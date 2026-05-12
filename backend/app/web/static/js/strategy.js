@@ -295,8 +295,18 @@ function renderStrategyLibrary(instances) {
   if (!instances || instances.length === 0) {
     el.innerHTML = `
       <div class="cq-card cq-empty-state">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
         <h3>策略仓库还是空的</h3>
-        <p>先在工作台保存一个草案，保存后就会进入这里。</p>
+        <p>先从下面的「快速模板」选一个开始，保存后正式策略就会出现在这里。</p>
+        <button class="cq-btn cq-btn--primary" onclick="document.getElementById('workbench-section')?.scrollIntoView({behavior:'smooth',block:'start'})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          从模板新建
+        </button>
       </div>`;
     return;
   }
@@ -434,13 +444,17 @@ function setStrategyLibraryFilter(filterKey) {
 
 function renderTemplateButton(template) {
   const isSelected = !window._editingInstanceId && selectedTemplateId === template.id;
+  const desc = template.description || '';
   return `
-    <button class="cq-pill${isSelected ? ' is-selected' : ''}" id="pill-${template.id}" onclick="quickLaunchTemplate('${template.id}')" title="${escapeHtml(template.description || template.name)}">
-      <div class="cq-pill__icon">${getStrategyIcon(template.icon || template.id)}</div>
-      <span class="cq-pill__name">${escapeHtml(template.name)}</span>
-      <div class="cq-pill__check">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      </div>
+    <button class="cq-template-card${isSelected ? ' is-selected' : ''}" id="pill-${template.id}" onclick="quickLaunchTemplate('${template.id}')" title="${escapeHtml(desc || template.name)}">
+      <span class="cq-template-card__icon">${getStrategyIcon(template.icon || template.id)}</span>
+      <span class="cq-template-card__body">
+        <span class="cq-template-card__name">${escapeHtml(template.name)}</span>
+        ${desc ? `<span class="cq-template-card__desc">${escapeHtml(desc)}</span>` : ''}
+      </span>
+      <svg class="cq-template-card__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
     </button>`;
 }
 
@@ -474,7 +488,7 @@ function renderTemplatePills(templates) {
         <span class="cq-template-group__title">${group.title}</span>
         <span class="cq-template-group__hint">${group.hint}</span>
       </div>
-      <div class="cq-template-group__pills">
+      <div class="cq-template-card-grid">
         ${group.templates.map(renderTemplateButton).join('')}
       </div>
     </div>`).join('');
