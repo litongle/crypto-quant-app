@@ -37,7 +37,7 @@ def calculate_pnl(price: Decimal, quantity: Decimal) -> Decimal:
 ```python
 import logging
 logger = logging.getLogger(__name__)
-logger.info("user_created", extra={"user_id": user_id, "action": "register"})
+logger.info("admin_login", extra={"user_id": user_id, "action": "login"})
 ```
 
 **FastAPI 端点模板**：
@@ -281,32 +281,39 @@ StrategyRunner.start() → asyncio.Task 循环:
 
 ## 6. 后端环境变量参考
 
-安装向导自动生成 `.env`。完整变量列表：
+部署：`cp backend/.env.example backend/.env`，按以下提示填写。完整变量与默认值见
+`backend/.env.example`。
 
 ```env
 # 应用
 APP_NAME=CryptoQuant
-APP_VERSION=0.3.0
 DEBUG=false                          # 生产必须 false
-SECRET_KEY=                          # 安装向导自动生成（生产校验安全性）
-JWT_SECRET_KEY=                      # 安装向导自动生成
+ENVIRONMENT=production               # production/staging 触发密钥校验
+
+# 安全密钥（用 `openssl rand -hex 32` 生成）
+SECRET_KEY=
+JWT_SECRET_KEY=
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
-PRODUCTION=true                      # 生产=true 触发密钥校验
 
-# 数据库
-DATABASE_URL=sqlite+aiosqlite:///./data/crypto_quant.db
-# PostgreSQL: postgresql+asyncpg://user:password@localhost:5432/crypto_quant
+# 管理员账户（唯一登录账户）
+ADMIN_USERNAME=admin@example.com
+# 用 `docker compose run --rm backend python -m scripts.generate_admin_hash` 生成
+ADMIN_PASSWORD_HASH=
 
-# Redis
-REDIS_URL=redis://localhost:6379/0   # 可选，缺失时部分功能降级
+# 数据库 / Redis（docker-compose 内置 PG + Redis）
+DATABASE_URL=postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant
+REDIS_URL=redis://:dev-redis-password@redis:6379/0
 
-# CORS
-CORS_ORIGINS=["http://localhost:8000"]
+# CORS（VPS 部署填入你的域名）
+CORS_ORIGINS=http://localhost:8001,https://your-domain.example.com
 ```
 
-> ⚠️ `PRODUCTION=true` 时 `validate_production_secrets()` 拒绝默认密钥启动。开发环境不设此变量即可。
+> ⚠️ `ENVIRONMENT=production` 时 `validate_production_secrets()` 拒绝默认/空密钥启动。
+
+> ⚠️ 单用户：本系统设计为单 admin。`seed_admin()` 在启动时根据 `.env` 凭证
+> 创建或同步唯一用户记录；改 `.env` 后 `docker compose restart backend` 即生效。
 
 ---
 

@@ -63,20 +63,27 @@ docker compose up -d --build
 
 ```
 crypto-quant-app/
-├── docker-compose.yml          ← 一键部署（后端+PG+Redis）
+├── docker-compose.yml          ← 后端 + PG + Redis 一键启动
 ├── README.md                   ← 本文档
-├── DECISIONS.md                ← 架构决策记录（ADR，12条）
-├── DESIGN_SYSTEM.md            ← 统一设计系统 v3.1
+├── CLAUDE.md                   ← Claude Code 项目级指令
+├── DECISIONS.md                ← 架构决策记录（ADR-001~013）
+├── DESIGN_SYSTEM.md            ← 设计系统 v3.1
 ├── DEVELOPMENT.md              ← 开发参考手册
+├── deploy/
+│   └── Caddyfile.example       ← VPS 反向代理模板（自动 HTTPS）
 ├── docs/
-│   └── 系统架构图.html         ← 可视化架构图
-├── backend/                    ← FastAPI 后端
-│   ├── Dockerfile              ← Python 3.12-slim（多阶段构建+镜像加速）
+│   ├── DEPLOY-VPS.md           ← VPS 部署指南
+│   └── superpowers/            ← 实施记录（specs + plans）
+├── backend/
+│   ├── Dockerfile              ← Python 3.12-slim
+│   ├── alembic/                ← 数据库迁移（0001~0011）
+│   ├── scripts/
+│   │   └── generate_admin_hash.py  ← 交互生成 admin bcrypt 哈希
 │   ├── app/
-│   │   ├── main.py             # 应用入口 + 生命周期
-│   │   ├── config.py           # 配置（开发默认值 + 生产校验）
-│   │   ├── database.py         # 懒初始化 + SQLite 默认
-│   │   ├── redis.py            # Redis 连接池（asyncio.Lock）
+│   │   ├── main.py             # 应用入口 + lifespan + seed_admin
+│   │   ├── config.py           # Settings（admin/db/cors/告警）
+│   │   ├── database.py         # SQLAlchemy 异步引擎
+│   │   ├── redis.py            # Redis 连接池
 │   │   ├── api/v1/             # API 端点
 │   │   │   ├── auth.py         # 单用户登录（login/refresh/me）
 │   │   │   ├── strategies.py   # 策略模板/实例/规则校验
@@ -85,26 +92,15 @@ crypto-quant-app/
 │   │   │   ├── backtest.py     # 回测执行 & 历史
 │   │   │   ├── asset.py        # 资产汇总/持仓/权益曲线
 │   │   │   └── events.py       # 事件流（信号 + 策略自停）
-│   │   ├── core/               # 核心模块（10个）
-│   │   │   ├── strategy_engine.py   # 6种策略实现
-│   │   │   ├── strategy_runner.py   # 实时运行器 + 自动交易
-│   │   │   ├── rule_engine.py       # 自定义规则引擎（14种指标+逻辑组合）
-│   │   │   ├── indicators.py        # 技术指标计算
-│   │   │   ├── exchange_adapter.py  # 三交易所适配器（~1150行）
-│   │   │   ├── performance.py       # 绩效计算
-│   │   │   ├── security.py          # JWT + AES-256 加密
-│   │   │   ├── exceptions.py        # 统一异常
-│   │   │   ├── schemas.py           # 通用 Schema
-│   │   │   └── trade_schemas.py     # 交易 Schema
-│   │   ├── models/             # SQLAlchemy 模型（6个）
-│   │   ├── services/           # 业务逻辑层（6个）
-│   │   ├── repositories/       # 数据访问层（4个）
-│   │   └── web/                # 网页控制台（/web 入口）
+│   │   ├── core/               # 策略引擎、规则引擎、指标、交易所适配器
+│   │   ├── models/             # SQLAlchemy 模型
+│   │   ├── services/           # 业务逻辑层
+│   │   ├── repositories/       # 数据访问层
+│   │   └── web/
 │   │       ├── routes.py
-│   │       └── static/         # index.html, css/, js/（控制台 + 设置抽屉）
-│   └── tests/                  # 测试（7个文件 / 40+ 用例）
-└── docs/
-    └── 系统架构图.html         ← 可视化架构图
+│   │       └── static/         # index.html + css + js（控制台 + 设置抽屉）
+│   └── tests/
+└── .claude/                    ← Claude Code 配置 + 钩子（git-guardrails）
 ```
 
 ---
@@ -121,59 +117,18 @@ crypto-quant-app/
 
 ---
 
-## 项目状态
+## 当前能力
 
-### 功能完成度
-
-| 模块 | 状态 |
-|------|------|
-| 后端 API（40端点） | ✅ |
-| 安全审计（P0~P3，27项 → 21已修复） | ✅ 核心清零 |
-| 策略引擎（6种 + 规则引擎 + 自动交易） | ✅ |
-| 回测框架（真实K线 + 绩效 + 历史） | ✅ |
-| 交易所适配器（3交易所 + 重试 + 限流） | ✅ |
-| WebSocket 实时行情 | ✅ |
-| 交易所账户管理（CRUD + AES-256加密） | ✅ |
-| 网页控制台（7页面 + 响应式4断点 + PWA） | ✅ |
-| 设计系统 v3.1（流体缩放 + 双主题） | ✅ |
-| 测试框架（40+ 用例） | ✅ |
-| 数据库迁移（Alembic） | 📋 待完成 |
-
-### API 对接矩阵
-
-| 模块 | 前缀 | 端点数 | 网页端 |
-|------|------|--------|--------|
-| 认证 | /auth | 3 | ✅ |
-| 策略 | /strategies | 10 | ✅ 7/10 |
-| 回测 | /backtest | 3 | ✅ |
-| 行情 | /market | 5 | ✅ 2/5 |
-| 资产 | /asset | 3 | ✅ |
-| 交易 | /trading | 10 | ✅ 9/10 |
-| WebSocket | /ws | 3 | ✅ |
-
-### 安全审计
-
-| 审计轮次 | 发现 | 已修 | 关键未修项 |
-|----------|------|------|-----------|
-| 第一轮（2026-04-21） | 27项 | 27 | — |
-| 现实检验（2026-04-26） | 27项 | 21 | Alembic迁移 / 订单模型优化 / 健康检查详情 / httpOnly cookie / 密码截断 |
-
-### 发布阻塞项
-
-| 优先级 | 问题 | 状态 |
-|--------|------|------|
-| 🔴 P0 | 策略信号 WS 前端订阅 | ❌ |
-| 🟡 P1 | 数据库迁移（Alembic） | ❌ |
-| 🟢 P2 | token httpOnly cookie | ❌ |
-
-### 版本规划
-
-| 版本 | 目标日期 | 主要内容 | 状态 |
-|------|---------|---------|------|
-| v0.3.0 | 2026-04-26 | 现实检验修复 + 规则引擎 + 前端P0修复 | ✅ |
-| v0.4.0 | 2026-05-18 | 数据库迁移 + PWA 完善 | 📋 |
-| v0.5.0 | 2026-06-01 | 风控完善 + 策略信号通知 | 📋 |
-| v1.0.0 | 2026-06-30 | 生产发布 | 📋 |
+- **单用户认证**：admin 用户名 + bcrypt 密码哈希存 `.env`，启动种子（详见 [ADR-013](DECISIONS.md)）
+- **策略引擎**：6 种内置策略（含 RSI 分层极值追踪）+ 规则引擎 + 自动交易
+- **回测框架**：真实 K 线 + 滑点/手续费模拟 + 绩效报告 + 历史回看
+- **交易所适配**：Binance / OKX / HTX（火币）三家 + 重试 + 限流
+- **WebSocket 实时行情**：多交易所代理 + 重连
+- **交易所账户管理**：AES-256 (Fernet) 加密存 API key
+- **风控与自停**：连续失败/心跳超时自动暂停策略（详见 [ADR-013](DECISIONS.md)）
+- **数据库迁移**：Alembic 0001~0011
+- **网页控制台**：4 项侧栏（控制台 / 策略 / 回测 / 事件流）+ 设置抽屉 + PWA
+- **测试**：pytest 600+ 用例，Docker 容器内 SQLite 内存数据库
 
 ---
 
@@ -191,9 +146,12 @@ crypto-quant-app/
 
 | 文档 | 说明 |
 |------|------|
-| [DECISIONS.md](DECISIONS.md) | 架构决策记录（ADR，12条）—— "为什么这样选" |
-| [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | 统一设计系统 v3.1 —— 色彩/字体/组件/动效规范 |
+| [docs/DEPLOY-VPS.md](docs/DEPLOY-VPS.md) | VPS 生产部署 —— Caddy + HTTPS + 防火墙 + 备份 |
+| [DECISIONS.md](DECISIONS.md) | 架构决策记录（ADR-001~013）—— "为什么这样选" |
+| [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | 设计系统 v3.1 —— 色彩/字体/组件/动效规范 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 开发参考手册 —— 代码规范/Docker/架构/环境变量 |
+| [CLAUDE.md](CLAUDE.md) | Claude Code 项目级指令（开发协作约定） |
+| [docs/superpowers/](docs/superpowers/) | 设计 spec 与实施 plan 历史档案 |
 
 ---
 
@@ -227,24 +185,25 @@ REDIS_URL=redis://:dev-redis-password@redis:6379/0
 
 ## Docker 环境
 
-| 服务 | 镜像 | 端口 |
-|------|------|------|
-| 后端 | Python 3.12-slim（多阶段构建） | 8000 |
-| PostgreSQL | postgres:16-alpine | 5432 |
-| Redis | redis:7-alpine | 6379 |
+| 服务 | 镜像 | 容器内端口 | 宿主映射 |
+|------|------|------|------|
+| 后端 | Python 3.12-slim（多阶段构建） | 8000 | 8001 |
+| PostgreSQL | postgres:16-alpine | 5432 | 127.0.0.1:5432 |
+| Redis | redis:7-alpine | 6379 | 127.0.0.1:6379 |
 
-启动：`docker compose up --build`（项目根目录）
+启动：`docker compose up -d --build`（项目根目录）
 
-> Docker 构建已优化：多阶段构建 + 国内镜像加速（阿里云 apt/pip 源）+ .dockerignore 排除，镜像从 718MB 降至 ~250MB。详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+> 多阶段构建 + 国内镜像加速（阿里云 apt/pip 源）+ .dockerignore。详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ---
 
 ## 安全特性
 
-- **生产密钥校验**：`PRODUCTION=true` 时拒绝默认/弱密钥
+- **生产密钥校验**：`ENVIRONMENT=production` 时拒绝默认/空 `SECRET_KEY`/`JWT_SECRET_KEY`/`ADMIN_PASSWORD_HASH`
 - **API Key 加密存储**：交易所 API Key/Secret/Passphrase 使用 AES-256 (Fernet)
-- **JWT Token 类型校验**：Refresh Token 验证时校验 token_type
-- **IDOR 防护**：所有资源操作校验 user_id 所有权
-- **WS 连接认证**：WebSocket 端点需 JWT 认证 + 单用户最多 5 连接
-- **数值范围校验**：金融数值字段使用 `Field(gt=0)`
-- **策略实例上限**：每用户最多 20 个
+- **bcrypt 密码哈希**：admin 密码以 bcrypt 哈希形式存 `.env`，明文从不入库
+- **JWT 双 Token + 类型校验**：Access/Refresh 分离，Refresh 验证时校验 token_type
+- **HTTPS 强制（生产）**：登录端点要求 `X-Forwarded-Proto: https`（反向代理传递）
+- **WS 认证**：WebSocket 端点需 JWT + 单用户最多 5 连接
+- **金融字段校验**：金额数值统一用 `Decimal` + Pydantic `Field(gt=0)`
+- **策略自停**：连续失败/心跳超时触发自动暂停，避免「失控的策略」
