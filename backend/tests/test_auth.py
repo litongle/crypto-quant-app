@@ -56,3 +56,15 @@ async def test_2fa_endpoints_removed(client: AsyncClient, auth_headers):
     ):
         resp = await client.post(path, headers=auth_headers, json={"code": "123456"})
         assert resp.status_code == 404, f"{path} should be 404, got {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_setup_endpoints_removed(client: AsyncClient):
+    """/api/v1/setup/* 与 /web/setup 应已删除"""
+    for path in (
+        "/api/v1/setup/status",
+        "/api/v1/setup/env-defaults",
+        "/web/setup",
+    ):
+        resp = await client.get(path)
+        assert resp.status_code == 404, f"{path} should be 404, got {resp.status_code}"
