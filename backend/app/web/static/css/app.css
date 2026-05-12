@@ -1437,6 +1437,11 @@ select.cq-input:not([multiple]) {
   flex-shrink: 0;
 }
 
+.cq-template-group--compact .cq-template-card-grid {
+  grid-template-columns: minmax(260px, 320px);
+  flex-shrink: 0;
+}
+
 .cq-template-group--compact .cq-pill {
   max-width: 100%;
 }
@@ -2902,7 +2907,8 @@ select.cq-input:not([multiple]) {
   .cq-template-group--compact {
     display: block;
   }
-  .cq-template-group--compact .cq-template-group__pills {
+  .cq-template-group--compact .cq-template-group__pills,
+  .cq-template-group--compact .cq-template-card-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
