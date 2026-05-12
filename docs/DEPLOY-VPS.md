@@ -46,7 +46,7 @@ docker compose logs -f backend
 # 按 Ctrl+C 退出日志（不会停服务）
 ```
 
-此时 `127.0.0.1:8001` 已经在服务，但还没暴露公网。
+此时 `127.0.0.1:8000` 已经在服务，但还没暴露公网。
 
 ## 5. 配置 Caddy 反向代理（自动 HTTPS）
 
@@ -68,7 +68,7 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-**关键**：Postgres（5432）和 Redis（6379）由 docker-compose 绑定到 `127.0.0.1`，不会暴露公网；后端的 8001 同样不要直接暴露，全部走 Caddy。
+**关键**：Postgres（5432）和 Redis（6379）由 docker-compose 绑定到 `127.0.0.1`，不会暴露公网；后端的 8000 同样不要直接暴露，全部走 Caddy。
 
 ## 7. 验证
 

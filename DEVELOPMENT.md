@@ -307,7 +307,7 @@ DATABASE_URL=postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/c
 REDIS_URL=redis://:dev-redis-password@redis:6379/0
 
 # CORS（VPS 部署填入你的域名）
-CORS_ORIGINS=http://localhost:8001,https://your-domain.example.com
+CORS_ORIGINS=http://localhost:8000,https://your-domain.example.com
 ```
 
 > ⚠️ `ENVIRONMENT=production` 时 `validate_production_secrets()` 拒绝默认/空密钥启动。

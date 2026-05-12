@@ -39,7 +39,7 @@ cd crypto-quant-app
 docker compose up -d --build
 ```
 
-访问 `http://localhost:8001/`，用刚才设的邮箱 + 密码登录。
+访问 `http://localhost:8000/`，用刚才设的邮箱 + 密码登录。
 
 其他运行时配置（**交易所 API key / Telegram / SMTP / 风控阈值**）登录后在「设置」抽屉里填，保存即时生效，无需重启。
 
@@ -51,9 +51,9 @@ docker compose up -d --build
 
 | 入口 | 地址 |
 |------|------|
-| 网页控制台 | `http://localhost:8001/web/` |
-| API 文档 | `http://localhost:8001/docs` |
-| 健康检查 | `http://localhost:8001/health` |
+| 网页控制台 | `http://localhost:8000/web/` |
+| API 文档 | `http://localhost:8000/docs` |
+| 健康检查 | `http://localhost:8000/health` |
 
 ---
 
@@ -180,7 +180,7 @@ REDIS_URL=redis://:dev-redis-password@redis:6379/0
 
 | 服务 | 镜像 | 容器内端口 | 宿主映射 |
 |------|------|------|------|
-| 后端 | Python 3.12-slim（多阶段构建） | 8000 | 8001 |
+| 后端 | Python 3.12-slim（多阶段构建） | 8000 | 8000 |
 | PostgreSQL | postgres:16-alpine | 5432 | 127.0.0.1:5432 |
 | Redis | redis:7-alpine | 6379 | 127.0.0.1:6379 |
 

@@ -78,7 +78,7 @@ sed -i "s|^ADMIN_USERNAME=.*|ADMIN_USERNAME=${ADMIN_EMAIL}|" "$ENV_PATH"
 sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=${HASH}|" "$ENV_PATH"
 sed -i "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" "$ENV_PATH"
 sed -i "s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=${JWT_SECRET}|" "$ENV_PATH"
-sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://localhost:8001,http://127.0.0.1:8001,https://${DOMAIN}|" "$ENV_PATH"
+sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,https://${DOMAIN}|" "$ENV_PATH"
 
 chmod 600 "$ENV_PATH"
 
@@ -87,6 +87,6 @@ echo "✅ 已生成 ${ENV_PATH}"
 echo
 echo "下一步："
 echo "  1. 启动：docker compose up -d --build"
-echo "  2. 打开浏览器：http://localhost:8001  （生产：https://${DOMAIN}）"
+echo "  2. 打开浏览器：http://localhost:8000  （生产：https://${DOMAIN}）"
 echo "  3. 用刚才设的邮箱 + 密码登录"
 echo "  4. 其他配置（交易所 API key / Telegram / SMTP / 风控阈值）登录后在「设置」抽屉里填，立即生效不用重启。"
