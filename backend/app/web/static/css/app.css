@@ -1223,10 +1223,9 @@ select.cq-input:not([multiple]) {
 }
 
 .cq-workbench-toolbar {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--cq-space-4);
-  align-items: start;
 }
 
 .cq-workbench-toolbar__block {
@@ -2953,15 +2952,15 @@ select.cq-input:not([multiple]) {
 /* ── Strategy Template Cards (v4) ────────────────────────────── */
 .cq-template-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--cq-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--cq-space-2);
 }
 
 .cq-template-card {
   display: flex;
   align-items: flex-start;
   gap: var(--cq-space-3);
-  padding: var(--cq-space-4);
+  padding: var(--cq-space-3);
   background: var(--cq-bg-l2);
   border: 1px solid var(--cq-border-default);
   border-radius: var(--cq-radius-lg);
@@ -3018,7 +3017,12 @@ select.cq-input:not([multiple]) {
 .cq-template-card__desc {
   font-size: var(--cq-text-sm);
   color: var(--cq-text-tertiary);
-  line-height: 1.5;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cq-template-card__chevron {
