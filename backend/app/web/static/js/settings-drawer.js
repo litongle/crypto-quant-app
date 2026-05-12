@@ -40,11 +40,6 @@ async function loadSettingsDrawerTab(tab) {
     await renderPaperPane('#settings-pane-paper');
     return;
   }
-  if (tab === 'security') {
-    await renderSecurityPane('#settings-pane-security');
-    return;
-  }
-
   settingsDrawerState.runnerStatus = settingsDrawerState.runnerStatus || await api.getRunnerStatus().catch(() => null);
   if (tab === 'notifications') {
     renderNotificationsPane();

@@ -46,53 +46,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
         登录
       </button>
-      <div style="text-align:center;margin-top:var(--cq-space-4);">
-        <span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">还没有账号？</span>
-        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="showRegister()">注册</span>
-      </div>
-    </div>
-
-    <div id="register-form" style="display:none;">
-      <div style="margin-bottom:var(--cq-space-3);">
-        <label class="cq-label">用户名</label>
-        <input type="text" class="cq-input" id="reg-name" placeholder="输入用户名">
-      </div>
-      <div style="margin-bottom:var(--cq-space-3);">
-        <label class="cq-label">邮箱</label>
-        <input type="email" class="cq-input" id="reg-email" placeholder="you@example.com">
-      </div>
-      <div style="margin-bottom:var(--cq-space-5);">
-        <label class="cq-label">密码</label>
-        <input type="password" class="cq-input" id="reg-password" placeholder="至少6位">
-      </div>
-      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="handleRegister()" id="reg-btn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-        注册
-      </button>
-      <div style="text-align:center;margin-top:var(--cq-space-4);">
-        <span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">已有账号？</span>
-        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="showLogin()">登录</span>
-      </div>
-    </div>
-
-    <div id="login-2fa-form" style="display:none;">
-      <div style="margin-bottom:var(--cq-space-2);font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.6;">
-        该账户已启用双重验证，请输入动态验证码完成登录。
-      </div>
-      <div style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3);border-radius:var(--cq-radius-lg);background:var(--cq-bg-l2);color:var(--cq-text-secondary);font-size:var(--cq-text-sm);">
-        当前账户：<span id="login-2fa-email" style="font-weight:600;color:var(--cq-text-primary);">--</span>
-      </div>
-      <div style="margin-bottom:var(--cq-space-5);">
-        <label class="cq-label">6位动态验证码</label>
-        <input type="text" class="cq-input" id="login-2fa-code" placeholder="输入 6 位验证码" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
-      </div>
-      <button class="cq-btn cq-btn--primary cq-btn--full" onclick="handleLogin2fa()" id="login-2fa-btn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 5-3.5 8.74-7 9-3.5-.26-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg>
-        验证并登录
-      </button>
-      <div style="text-align:center;margin-top:var(--cq-space-4);">
-        <span style="font-size:var(--cq-text-sm);color:var(--cq-color-primary-hover);cursor:pointer;font-weight:500;" onclick="cancelLogin2fa()">返回账号密码登录</span>
-      </div>
     </div>
   </div>
 </div>
@@ -454,14 +407,12 @@
       <button class="cq-drawer__tab" data-settings-tab="paper" onclick="switchSettingsTab('paper')">模拟盘</button>
       <button class="cq-drawer__tab" data-settings-tab="notifications" onclick="switchSettingsTab('notifications')">通知通道</button>
       <button class="cq-drawer__tab" data-settings-tab="risk" onclick="switchSettingsTab('risk')">风控参数</button>
-      <button class="cq-drawer__tab" data-settings-tab="security" onclick="switchSettingsTab('security')">安全</button>
     </nav>
     <div class="cq-drawer__body">
       <div class="cq-settings-pane is-active" data-settings-pane="accounts" id="settings-pane-accounts"></div>
       <div class="cq-settings-pane" data-settings-pane="paper" id="settings-pane-paper" hidden></div>
       <div class="cq-settings-pane" data-settings-pane="notifications" id="settings-pane-notifications" hidden></div>
       <div class="cq-settings-pane" data-settings-pane="risk" id="settings-pane-risk" hidden></div>
-      <div class="cq-settings-pane" data-settings-pane="security" id="settings-pane-security" hidden></div>
     </div>
   </div>
 </aside>
@@ -522,7 +473,6 @@
 <script src="/web/static/js/backtest.js"></script>
 <script src="/web/static/js/accounts.js"></script>
 <script src="/web/static/js/paper.js"></script>
-<script src="/web/static/js/security.js"></script>
 <script src="/web/static/js/settings-drawer.js"></script>
 <script src="/web/static/js/instance-drawer.js"></script>
 <script src="/web/static/js/events.js"></script>
@@ -658,20 +608,7 @@ window.addEventListener('beforeunload', (event) => {
   event.returnValue = '';
 });
 
-// ===== 登录/注册 =====
-function showLogin() {
-  window._pending2faLogin = null;
-  document.getElementById('login-form').style.display = 'block';
-  document.getElementById('login-2fa-form').style.display = 'none';
-  document.getElementById('register-form').style.display = 'none';
-}
-function showRegister() {
-  window._pending2faLogin = null;
-  document.getElementById('login-form').style.display = 'none';
-  document.getElementById('login-2fa-form').style.display = 'none';
-  document.getElementById('register-form').style.display = 'block';
-}
-
+// ===== 登录（单用户） =====
 function resetTransientUiForAuthTransition() {
   if (typeof closeSettingsDrawer === 'function') closeSettingsDrawer();
   if (typeof closeInstanceDrawer === 'function') closeInstanceDrawer();
@@ -682,7 +619,6 @@ function resetTransientUiForAuthTransition() {
 
 function showLoggedOutView() {
   resetTransientUiForAuthTransition();
-  if (typeof cancelLogin2fa === 'function') cancelLogin2fa(true);
   document.getElementById('app-page').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
 }
@@ -697,40 +633,13 @@ async function handleLogin() {
   btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 登录中...';
 
   try {
-    const result = await api.login(email, password);
-    if (result && result.requires_2fa) {
-      showLogin2fa(email, password);
-      showToast('请输入双重验证码完成登录', 'info');
-      return;
-    }
+    await api.login(email, password);
     enterApp();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> 登录';
-  }
-}
-
-async function handleRegister() {
-  const name = document.getElementById('reg-name').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const password = document.getElementById('reg-password').value;
-  if (!name || !email || !password) { showToast('请填写所有字段', 'warn'); return; }
-
-  const btn = document.getElementById('reg-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 注册中...';
-
-  try {
-    await api.register(email, password, name);
-    showToast('注册成功！', 'success');
-    enterApp();
-  } catch (err) {
-    showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> 注册';
   }
 }
 
@@ -917,9 +826,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const loginPage = document.getElementById('login-page');
     if (loginPage.style.display !== 'none') {
-      if (document.getElementById('login-form').style.display !== 'none') handleLogin();
-      else if (document.getElementById('login-2fa-form').style.display !== 'none') handleLogin2fa();
-      else handleRegister();
+      handleLogin();
     }
   }
 });

@@ -139,39 +139,6 @@ class ApiClient {
     }
     const json = await res.json();
     const data = json.data || json;  // APIResponse 包裹兼容
-    if (data.requires_2fa) {
-      this.logout();
-      return data;
-    }
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token;
-    sessionStorage.setItem('access_token', this.accessToken);
-    sessionStorage.setItem('refresh_token', this.refreshToken);
-    return data;
-  }
-
-  async login2fa(email, password, code) {
-    const json = await this.post('/auth/login-2fa', { email, password, code });
-    const data = json.data || json;
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token;
-    sessionStorage.setItem('access_token', this.accessToken);
-    sessionStorage.setItem('refresh_token', this.refreshToken);
-    return data;
-  }
-
-  async register(email, password, name) {
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || '注册失败');
-    }
-    const json = await res.json();
-    const data = json.data || json;  // APIResponse 包裹兼容
     this.accessToken = data.access_token;
     this.refreshToken = data.refresh_token;
     sessionStorage.setItem('access_token', this.accessToken);
@@ -361,34 +328,6 @@ class ApiClient {
   async getUserInfo() {
     const json = await this.get('/auth/me');
     return json.data || json;
-  }
-
-  async get2faStatus() {
-    const json = await this.post('/auth/2fa/status');
-    return json.data || json;
-  }
-
-  async setup2fa() {
-    const json = await this.post('/auth/2fa/setup');
-    return json.data || json;
-  }
-
-  async verify2fa(code) {
-    return this.post('/auth/2fa/verify', { code });
-  }
-
-  async disable2fa(code) {
-    return this.post('/auth/2fa/disable', { code });
-  }
-
-  async getAuditLogs({ action = '', resource = '', limit = 100, offset = 0 } = {}) {
-    const params = new URLSearchParams();
-    if (action) params.set('action', action);
-    if (resource) params.set('resource', resource);
-    params.set('limit', String(limit));
-    params.set('offset', String(offset));
-    const json = await this.get(`/users/audit-logs?${params.toString()}`);
-    return json.data || json || [];
   }
 
   // ===== 策略详情/绩效/编辑 =====
