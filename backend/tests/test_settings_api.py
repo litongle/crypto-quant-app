@@ -154,3 +154,52 @@ async def test_notifications_test_endpoint_returns_502_on_failure(
 async def test_unauthenticated_request_rejected(client):
     resp = await client.get("/api/v1/settings/notifications")
     assert resp.status_code in (401, 403)
+
+
+# ── risk 风控阈值 ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_risk_returns_defaults_when_empty(client, auth_headers):
+    resp = await client.get("/api/v1/settings/risk", headers=auth_headers)
+    body = resp.json()
+    assert resp.status_code == 200, resp.text
+    assert body["consecutive_errors"] == 5
+    assert body["consecutive_order_failures"] == 3
+    assert body["heartbeat_multiplier"] == 5
+    assert body["heartbeat_min_seconds"] == 300
+    assert body["watchdog_interval_seconds"] == 30
+
+
+@pytest.mark.asyncio
+async def test_put_risk_writes_values(client, db_session, auth_headers):
+    resp = await client.put(
+        "/api/v1/settings/risk",
+        json={
+            "consecutive_errors": 10,
+            "consecutive_order_failures": 4,
+            "heartbeat_multiplier": 6,
+            "heartbeat_min_seconds": 600,
+            "watchdog_interval_seconds": 60,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["consecutive_errors"] == 10
+    assert await RuntimeConfigService(db_session).get("AUTO_PAUSE_CONSECUTIVE_ERRORS") == "10"
+
+
+@pytest.mark.asyncio
+async def test_put_risk_rejects_out_of_range(client, auth_headers):
+    resp = await client.put(
+        "/api/v1/settings/risk",
+        json={
+            "consecutive_errors": 0,  # 必须 >= 1
+            "consecutive_order_failures": 1,
+            "heartbeat_multiplier": 1,
+            "heartbeat_min_seconds": 10,
+            "watchdog_interval_seconds": 5,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422

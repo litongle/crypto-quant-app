@@ -1,9 +1,9 @@
-"""前端可改的运行时设置 — 通知通道（Telegram / SMTP）+ 测试发送。"""
+"""前端可改的运行时设置 — 通知通道（Telegram / SMTP）+ 风控阈值 + 测试发送。"""
 
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -58,6 +58,24 @@ class SmtpOut(BaseModel):
 
 class TestIn(BaseModel):
     channel: Literal["telegram", "email"]
+
+
+class RiskIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    consecutive_errors: int = Field(ge=1, le=100)
+    consecutive_order_failures: int = Field(ge=1, le=100)
+    heartbeat_multiplier: int = Field(ge=1, le=100)
+    heartbeat_min_seconds: int = Field(ge=10, le=3600)
+    watchdog_interval_seconds: int = Field(ge=5, le=600)
+
+
+class RiskOut(BaseModel):
+    consecutive_errors: int
+    consecutive_order_failures: int
+    heartbeat_multiplier: int
+    heartbeat_min_seconds: int
+    watchdog_interval_seconds: int
 
 
 # ── 工具 ──────────────────────────────────────────────────────
@@ -162,6 +180,68 @@ async def put_smtp(body: SmtpIn, db: AsyncSession = Depends(get_db)):
         await svc.set("SMTP_USE_TLS", "true" if body.smtp_use_tls else "false", encrypt=False)
     await _put_secret(svc, "SMTP_PASSWORD", body.smtp_password, encrypt=True)
     return await get_smtp(db=db)
+
+
+# ── 风控阈值 ──────────────────────────────────────────────────
+
+
+_RISK_KEYS_DEFAULTS: dict[str, int] = {
+    "AUTO_PAUSE_CONSECUTIVE_ERRORS": 5,
+    "AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES": 3,
+    "AUTO_PAUSE_HEARTBEAT_MULTIPLIER": 5,
+    "AUTO_PAUSE_HEARTBEAT_MIN_SECONDS": 300,
+    "AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS": 30,
+}
+
+
+@router.get(
+    "/risk",
+    response_model=RiskOut,
+    dependencies=[Depends(get_current_user)],
+)
+async def get_risk(db: AsyncSession = Depends(get_db)):
+    cfg = await RuntimeConfigService(db).get_many(list(_RISK_KEYS_DEFAULTS.keys()))
+    return RiskOut(
+        consecutive_errors=int(
+            cfg["AUTO_PAUSE_CONSECUTIVE_ERRORS"]
+            or _RISK_KEYS_DEFAULTS["AUTO_PAUSE_CONSECUTIVE_ERRORS"]
+        ),
+        consecutive_order_failures=int(
+            cfg["AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES"]
+            or _RISK_KEYS_DEFAULTS["AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES"]
+        ),
+        heartbeat_multiplier=int(
+            cfg["AUTO_PAUSE_HEARTBEAT_MULTIPLIER"]
+            or _RISK_KEYS_DEFAULTS["AUTO_PAUSE_HEARTBEAT_MULTIPLIER"]
+        ),
+        heartbeat_min_seconds=int(
+            cfg["AUTO_PAUSE_HEARTBEAT_MIN_SECONDS"]
+            or _RISK_KEYS_DEFAULTS["AUTO_PAUSE_HEARTBEAT_MIN_SECONDS"]
+        ),
+        watchdog_interval_seconds=int(
+            cfg["AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS"]
+            or _RISK_KEYS_DEFAULTS["AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS"]
+        ),
+    )
+
+
+@router.put(
+    "/risk",
+    response_model=RiskOut,
+    dependencies=[Depends(get_current_user)],
+)
+async def put_risk(body: RiskIn, db: AsyncSession = Depends(get_db)):
+    svc = RuntimeConfigService(db)
+    mapping = {
+        "AUTO_PAUSE_CONSECUTIVE_ERRORS": body.consecutive_errors,
+        "AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES": body.consecutive_order_failures,
+        "AUTO_PAUSE_HEARTBEAT_MULTIPLIER": body.heartbeat_multiplier,
+        "AUTO_PAUSE_HEARTBEAT_MIN_SECONDS": body.heartbeat_min_seconds,
+        "AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS": body.watchdog_interval_seconds,
+    }
+    for key, value in mapping.items():
+        await svc.set(key, str(value), encrypt=False)
+    return await get_risk(db=db)
 
 
 # ── 测试发送 ──────────────────────────────────────────────────
