@@ -83,9 +83,7 @@ async def test_put_notifications_empty_string_clears(
 
 
 @pytest.mark.asyncio
-async def test_smtp_get_and_put(
-    client, db_session, auth_headers, patch_encryption_settings
-):
+async def test_smtp_get_and_put(client, db_session, auth_headers, patch_encryption_settings):
     resp = await client.put(
         "/api/v1/settings/smtp",
         json={

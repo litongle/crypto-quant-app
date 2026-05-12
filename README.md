@@ -32,18 +32,16 @@
 git clone https://github.com/litongle/crypto-quant-app.git
 cd crypto-quant-app
 
-# 1. 准备 .env
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，至少填好 ADMIN_USERNAME、SECRET_KEY、JWT_SECRET_KEY
+# 1. 一键装机（交互问 3 个问题：管理员邮箱 / 密码 / 域名）
+./setup.sh
 
-# 2. 生成 ADMIN_PASSWORD_HASH（交互输入密码两次）
-docker compose run --rm backend python -m scripts.generate_admin_hash
-# 把输出的 ADMIN_PASSWORD_HASH=... 复制到 backend/.env
-
-# 3. 启动
+# 2. 启动
 docker compose up -d --build
-# 访问 http://localhost:8001/，用 .env 里的 ADMIN_USERNAME + 密码登录
 ```
+
+访问 `http://localhost:8001/`，用刚才设的邮箱 + 密码登录。
+
+其他运行时配置（**交易所 API key / Telegram / SMTP / 风控阈值**）登录后在「设置」抽屉里填，保存即时生效，无需重启。
 
 ### VPS 生产部署
 
@@ -74,11 +72,12 @@ crypto-quant-app/
 ├── docs/
 │   ├── DEPLOY-VPS.md           ← VPS 部署指南
 │   └── superpowers/            ← 实施记录（specs + plans）
+├── setup.sh                    ← 一键装机脚本（首次部署 3 问 1 跑）
 ├── backend/
 │   ├── Dockerfile              ← Python 3.12-slim
-│   ├── alembic/                ← 数据库迁移（0001~0011）
+│   ├── alembic/                ← 数据库迁移（0001~0012）
 │   ├── scripts/
-│   │   └── generate_admin_hash.py  ← 交互生成 admin bcrypt 哈希
+│   │   └── generate_admin_hash.py  ← bcrypt 哈希工具（setup.sh 调用，也可手动）
 │   ├── app/
 │   │   ├── main.py             # 应用入口 + lifespan + seed_admin
 │   │   ├── config.py           # Settings（admin/db/cors/告警）
@@ -157,29 +156,23 @@ crypto-quant-app/
 
 ## 环境变量
 
-复制 `backend/.env.example` 为 `backend/.env`，按提示填写：
+推荐用 `./setup.sh` 自动生成 `.env`。
+
+只有 6 个引导级配置必须留在 `.env`（应用启动前就要用到，无法挪到前端）：
 
 ```env
-# 应用
-APP_NAME=CryptoQuant
-DEBUG=false                          # 生产必须 false
-ENVIRONMENT=production
-
-# 安全密钥（用 `openssl rand -hex 32` 生成）
-SECRET_KEY=
-JWT_SECRET_KEY=
-
-# 管理员账户（唯一登录账户）
-ADMIN_USERNAME=admin@example.com
-# 用 `docker compose run --rm backend python -m scripts.generate_admin_hash` 生成
-ADMIN_PASSWORD_HASH=
-
-# 数据库 / Redis（docker-compose 内置 PG + Redis，默认值通常无需改）
+ADMIN_USERNAME=admin@example.com    # 登录邮箱
+ADMIN_PASSWORD_HASH=                # bcrypt 哈希（setup.sh 自动生成）
+SECRET_KEY=                         # openssl rand -hex 32
+JWT_SECRET_KEY=                     # openssl rand -hex 32
 DATABASE_URL=postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant
 REDIS_URL=redis://:dev-redis-password@redis:6379/0
 ```
 
+其他运行时配置（**Telegram / SMTP / 风控阈值**）登录后**在前端「设置」抽屉里填**，存数据库，敏感字段以 Fernet 密文加密（key 派生自 `JWT_SECRET_KEY`）。
+
 > ⚠️ 生产环境（`ENVIRONMENT=production`）时，`validate_production_secrets()` 会拒绝默认/空密钥启动。
+> ⚠️ 改了 `JWT_SECRET_KEY` 会导致已加密的 Telegram token / SMTP 密码失效，需要在前端重新填写。
 
 ---
 
