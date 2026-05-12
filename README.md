@@ -14,7 +14,7 @@
 |------|------|
 | 前端 | PWA 网页控制台 — 原生 JS + CSS 变量设计系统 + Chart.js（响应式4断点） |
 | 后端 | Python 3.12 + FastAPI（异步） |
-| 数据库 | PostgreSQL + TimescaleDB（默认 SQLite 零配置启动） |
+| 数据库 | PostgreSQL（docker-compose 内置） |
 | 缓存/队列 | Redis + Redis Streams |
 | 安全 | AES-256 (Fernet) + JWT + 生产密钥校验 |
 | 交易所 | Binance / OKX / HTX（火币）三交易所适配 |
@@ -26,38 +26,36 @@
 
 ## 快速启动
 
-### Docker 一键部署（推荐）
+### Docker 一键部署（本地开发）
 
 ```bash
 git clone https://github.com/litongle/crypto-quant-app.git
 cd crypto-quant-app
-docker compose up --build
-# 访问 http://localhost:8000 首次进入安装向导
+
+# 1. 准备 .env
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，至少填好 ADMIN_USERNAME、SECRET_KEY、JWT_SECRET_KEY
+
+# 2. 生成 ADMIN_PASSWORD_HASH（交互输入密码两次）
+docker compose run --rm backend python -m scripts.generate_admin_hash
+# 把输出的 ADMIN_PASSWORD_HASH=... 复制到 backend/.env
+
+# 3. 启动
+docker compose up -d --build
+# 访问 http://localhost:8001/，用 .env 里的 ADMIN_USERNAME + 密码登录
 ```
 
-### 后端（零配置启动）
+### VPS 生产部署
 
-```bash
-cd backend
-pip install -e .
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-首次启动无需 `.env`，访问 `http://localhost:8000/` 自动进入安装向导：
-1. 创建管理员账号
-2. 选择数据库（默认 SQLite 开箱即用，可选 PostgreSQL）
-3. 确认安装 → 自动生成安全密钥、建表、跳转登录
-
-运行测试：`pytest` | 代码检查：`ruff check .`
+详见 **[docs/DEPLOY-VPS.md](docs/DEPLOY-VPS.md)** — 含 Caddy 自动 HTTPS、防火墙、域名、备份、升级流程。
 
 ### 访问地址
 
 | 入口 | 地址 |
 |------|------|
-| 安装向导 | `http://localhost:8000/web/setup`（首次自动跳转） |
-| 网页控制台 | `http://localhost:8000/web/` |
-| API 文档 | `http://localhost:8000/docs` |
-| 健康检查 | `http://localhost:8000/health` |
+| 网页控制台 | `http://localhost:8001/web/` |
+| API 文档 | `http://localhost:8001/docs` |
+| 健康检查 | `http://localhost:8001/health` |
 
 ---
 
@@ -79,14 +77,14 @@ crypto-quant-app/
 │   │   ├── config.py           # 配置（开发默认值 + 生产校验）
 │   │   ├── database.py         # 懒初始化 + SQLite 默认
 │   │   ├── redis.py            # Redis 连接池（asyncio.Lock）
-│   │   ├── api/v1/             # 40 个 API 端点
-│   │   │   ├── auth.py         # 认证（登录/注册/刷新/me）
+│   │   ├── api/v1/             # API 端点
+│   │   │   ├── auth.py         # 单用户登录（login/refresh/me）
 │   │   │   ├── strategies.py   # 策略模板/实例/规则校验
 │   │   │   ├── orders.py       # 交易（下单/撤单/持仓/平仓/紧急平仓）
 │   │   │   ├── market.py       # 行情（REST + WebSocket）
 │   │   │   ├── backtest.py     # 回测执行 & 历史
 │   │   │   ├── asset.py        # 资产汇总/持仓/权益曲线
-│   │   │   └── setup.py        # 安装向导
+│   │   │   └── events.py       # 事件流（信号 + 策略自停）
 │   │   ├── core/               # 核心模块（10个）
 │   │   │   ├── strategy_engine.py   # 6种策略实现
 │   │   │   ├── strategy_runner.py   # 实时运行器 + 自动交易
@@ -103,7 +101,7 @@ crypto-quant-app/
 │   │   ├── repositories/       # 数据访问层（4个）
 │   │   └── web/                # 网页控制台（/web 入口）
 │   │       ├── routes.py
-│   │       └── static/         # index.html, setup.html, css/, js/（8个模块）
+│   │       └── static/         # index.html, css/, js/（控制台 + 设置抽屉）
 │   └── tests/                  # 测试（7个文件 / 40+ 用例）
 └── docs/
     └── 系统架构图.html         ← 可视化架构图
@@ -145,8 +143,7 @@ crypto-quant-app/
 
 | 模块 | 前缀 | 端点数 | 网页端 |
 |------|------|--------|--------|
-| 安装向导 | /setup | 2 | ✅ |
-| 认证 | /auth | 4 | ✅ |
+| 认证 | /auth | 3 | ✅ |
 | 策略 | /strategies | 10 | ✅ 7/10 |
 | 回测 | /backtest | 3 | ✅ |
 | 行情 | /market | 5 | ✅ 2/5 |
@@ -202,25 +199,29 @@ crypto-quant-app/
 
 ## 环境变量
 
-安装向导自动生成 `.env`，无需手动配置。如需自定义：
+复制 `backend/.env.example` 为 `backend/.env`，按提示填写：
 
 ```env
 # 应用
 APP_NAME=CryptoQuant
 DEBUG=false                          # 生产必须 false
-SECRET_KEY=                          # 安装向导自动生成
-JWT_SECRET_KEY=                      # 安装向导自动生成
-PRODUCTION=true                      # 生产环境设为 true（校验密钥安全性）
+ENVIRONMENT=production
 
-# 数据库（默认 SQLite，无需配置）
-DATABASE_URL=sqlite+aiosqlite:///./data/crypto_quant.db
-# PostgreSQL: postgresql+asyncpg://user:password@localhost:5432/crypto_quant
+# 安全密钥（用 `openssl rand -hex 32` 生成）
+SECRET_KEY=
+JWT_SECRET_KEY=
 
-# Redis（可选，缺失时部分功能降级）
-REDIS_URL=redis://localhost:6379/0
+# 管理员账户（唯一登录账户）
+ADMIN_USERNAME=admin@example.com
+# 用 `docker compose run --rm backend python -m scripts.generate_admin_hash` 生成
+ADMIN_PASSWORD_HASH=
+
+# 数据库 / Redis（docker-compose 内置 PG + Redis，默认值通常无需改）
+DATABASE_URL=postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant
+REDIS_URL=redis://:dev-redis-password@redis:6379/0
 ```
 
-> ⚠️ 生产环境设置 `PRODUCTION=true` 时，`validate_production_secrets()` 会拒绝默认密钥启动。
+> ⚠️ 生产环境（`ENVIRONMENT=production`）时，`validate_production_secrets()` 会拒绝默认/空密钥启动。
 
 ---
 

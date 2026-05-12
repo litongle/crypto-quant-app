@@ -1,0 +1,31 @@
+# 把 your-domain.example.com 改为你的真实域名。
+# Caddy 自动申请并续期 Let's Encrypt 证书。
+#
+# 部署：
+#   sudo apt install -y caddy
+#   sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile
+#   sudo sed -i 's/your-domain.example.com/你的域名/' /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+your-domain.example.com {
+    # 反代到 docker-compose 暴露的 8001
+    reverse_proxy 127.0.0.1:8001 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+    }
+
+    # 安全头
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    encode gzip zstd
+
+    log {
+        output file /var/log/caddy/crypto-quant.log
+        format console
+    }
+}
