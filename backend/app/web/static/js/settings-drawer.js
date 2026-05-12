@@ -76,8 +76,8 @@ async function renderNotificationsPane() {
         <input type="text" name="telegram_chat_id" value="${escapeHtml(data.telegram_chat_id || '')}" autocomplete="off">
       </label>
       <div class="cq-settings-form__actions">
-        <button type="submit">保存</button>
-        <button type="button" data-action="test-telegram">发送测试通知</button>
+        <button type="submit" class="cq-btn cq-btn--primary">保存</button>
+        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-telegram">发送测试通知</button>
       </div>
       <div class="cq-settings-form__status" data-status></div>
     </form>
@@ -132,33 +132,45 @@ async function renderSmtpPane() {
   const passPh = data.smtp_password_is_set ? '已设置（输入新值覆盖；输入 - 清空）' : '未设置';
   container.innerHTML = `
     <form class="cq-settings-form" data-form="smtp">
-      <label>SMTP Host
-        <input name="smtp_host" value="${escapeHtml(data.smtp_host || '')}" placeholder="smtp.qq.com">
-      </label>
-      <label>端口
-        <input name="smtp_port" type="number" value="${escapeHtml(String(data.smtp_port ?? 465))}" min="1" max="65535">
-        <small>465 = SSL（推荐）；587 = STARTTLS</small>
-      </label>
-      <label>用户名
-        <input name="smtp_username" value="${escapeHtml(data.smtp_username || '')}" placeholder="me@qq.com">
-      </label>
-      <label>密码（授权码，<b>不是登录密码</b>）
-        <input name="smtp_password" type="password" placeholder="${escapeHtml(passPh)}" autocomplete="off">
-        <small>留空 = 不修改；输入 <code>-</code> = 清空；其他 = 覆盖</small>
-      </label>
-      <label>发件人 From
-        <input name="smtp_from" value="${escapeHtml(data.smtp_from || '')}" placeholder="留空则用用户名">
-      </label>
-      <label>收件人 To
-        <input name="smtp_to" value="${escapeHtml(data.smtp_to || '')}" placeholder="me@example.com">
-      </label>
-      <label class="cq-checkbox">
-        <input name="smtp_use_tls" type="checkbox" ${data.smtp_use_tls ? 'checked' : ''}>
-        使用 SSL/TLS（465 勾选 / 587 不勾选）
-      </label>
+      <div class="cq-settings-form__group">
+        <div class="cq-settings-form__group-title">服务器</div>
+        <label>SMTP Host
+          <input name="smtp_host" value="${escapeHtml(data.smtp_host || '')}" placeholder="smtp.qq.com">
+        </label>
+        <label>端口
+          <input name="smtp_port" type="number" value="${escapeHtml(String(data.smtp_port ?? 465))}" min="1" max="65535">
+          <small>465 = SSL（推荐）；587 = STARTTLS</small>
+        </label>
+        <label class="cq-checkbox">
+          <input name="smtp_use_tls" type="checkbox" ${data.smtp_use_tls ? 'checked' : ''}>
+          使用 SSL/TLS（465 勾选 / 587 不勾选）
+        </label>
+      </div>
+
+      <div class="cq-settings-form__group">
+        <div class="cq-settings-form__group-title">认证</div>
+        <label>用户名
+          <input name="smtp_username" value="${escapeHtml(data.smtp_username || '')}" placeholder="me@qq.com">
+        </label>
+        <label>密码 / 授权码
+          <input name="smtp_password" type="password" placeholder="${escapeHtml(passPh)}" autocomplete="off">
+          <small>不是登录密码。留空 = 不修改；输入 <code>-</code> = 清空；其他 = 覆盖</small>
+        </label>
+      </div>
+
+      <div class="cq-settings-form__group">
+        <div class="cq-settings-form__group-title">收发</div>
+        <label>发件人 From
+          <input name="smtp_from" value="${escapeHtml(data.smtp_from || '')}" placeholder="留空则用用户名">
+        </label>
+        <label>收件人 To
+          <input name="smtp_to" value="${escapeHtml(data.smtp_to || '')}" placeholder="me@example.com">
+        </label>
+      </div>
+
       <div class="cq-settings-form__actions">
-        <button type="submit">保存</button>
-        <button type="button" data-action="test-email">发送测试邮件</button>
+        <button type="submit" class="cq-btn cq-btn--primary">保存</button>
+        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-email">发送测试邮件</button>
       </div>
       <div class="cq-settings-form__status" data-status></div>
     </form>
@@ -237,7 +249,7 @@ async function renderRiskSettingsPane() {
         <small>watchdog 扫描周期，越短发现卡死越快</small>
       </label>
       <div class="cq-settings-form__actions">
-        <button type="submit">保存</button>
+        <button type="submit" class="cq-btn cq-btn--primary">保存</button>
       </div>
       <div class="cq-settings-form__status" data-status></div>
     </form>
