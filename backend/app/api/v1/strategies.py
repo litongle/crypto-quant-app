@@ -17,7 +17,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.config import get_settings
 from app.constants import STR_ID_MAP, TEMPLATE_ID_TO_CODE
 from app.core.exchanges import get_exchange_adapter
 from app.core.performance import PerformanceCalculator
@@ -687,10 +686,11 @@ async def get_runner_status(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> APIResponse[dict]:
-    """返回策略运行器状态、交易所连通性与只读设置摘要。"""
-    del current_user, session
+    """返回策略运行器状态、交易所连通性与设置摘要。"""
+    del current_user
 
     from app.core.strategy_runner import strategy_runner
+    from app.services.runtime_config_service import RuntimeConfigService
 
     instance_tasks = {
         instance_id: not task.done() for instance_id, task in strategy_runner._runners.items()
@@ -735,18 +735,28 @@ async def get_runner_status(
                 }
             )
 
-    settings = get_settings()
+    cfg = await RuntimeConfigService(session).get_many(
+        [
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHAT_ID",
+            "AUTO_PAUSE_CONSECUTIVE_ERRORS",
+            "AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES",
+            "AUTO_PAUSE_HEARTBEAT_MULTIPLIER",
+            "AUTO_PAUSE_HEARTBEAT_MIN_SECONDS",
+            "AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS",
+        ]
+    )
     settings_block = {
         "notifications": {
-            "telegram_bot_token_configured": bool(settings.telegram_bot_token),
-            "telegram_chat_id_configured": bool(settings.telegram_chat_id),
+            "telegram_bot_token_configured": bool(cfg["TELEGRAM_BOT_TOKEN"]),
+            "telegram_chat_id_configured": bool(cfg["TELEGRAM_CHAT_ID"]),
         },
         "auto_pause": {
-            "consecutive_errors": settings.auto_pause_consecutive_errors,
-            "consecutive_order_failures": settings.auto_pause_consecutive_order_failures,
-            "heartbeat_multiplier": settings.auto_pause_heartbeat_multiplier,
-            "heartbeat_min_seconds": settings.auto_pause_heartbeat_min_seconds,
-            "watchdog_interval_seconds": settings.auto_pause_watchdog_interval_seconds,
+            "consecutive_errors": int(cfg["AUTO_PAUSE_CONSECUTIVE_ERRORS"] or 5),
+            "consecutive_order_failures": int(cfg["AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES"] or 3),
+            "heartbeat_multiplier": int(cfg["AUTO_PAUSE_HEARTBEAT_MULTIPLIER"] or 5),
+            "heartbeat_min_seconds": int(cfg["AUTO_PAUSE_HEARTBEAT_MIN_SECONDS"] or 300),
+            "watchdog_interval_seconds": int(cfg["AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS"] or 30),
         },
     }
 
