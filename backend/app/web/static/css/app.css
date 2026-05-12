@@ -1422,35 +1422,6 @@ select.cq-input:not([multiple]) {
   stroke-width: 3;
 }
 
-.cq-template-group--compact {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--cq-space-4);
-}
-
-.cq-template-group--compact .cq-template-group__header {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  margin-bottom: 0;
-  min-width: 0;
-}
-
-.cq-template-group--compact .cq-template-group__pills {
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-}
-
-.cq-template-group--compact .cq-template-card-grid {
-  grid-template-columns: minmax(260px, 320px);
-  flex-shrink: 0;
-}
-
-.cq-template-group--compact .cq-pill {
-  max-width: 100%;
-}
-
 /* ── Create Form Card ──────────────────────────────────────── */
 .cq-create-form-wrap {
   margin-bottom: var(--cq-space-5);
@@ -2851,15 +2822,6 @@ select.cq-input:not([multiple]) {
     padding: 8px 12px;
   }
   .cq-pill__check { margin-left: auto; }
-  .cq-template-group--compact {
-    display: block;
-  }
-  .cq-template-group--compact .cq-template-group__pills,
-  .cq-template-group--compact .cq-template-card-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-
   /* Create form — single column on mobile */
   .cq-form-grid { grid-template-columns: 1fr; gap: var(--cq-space-3); }
   .cq-create-card__header { padding: var(--cq-space-3) var(--cq-space-4); }
@@ -2993,6 +2955,55 @@ select.cq-input:not([multiple]) {
 
 .cq-template-card.is-selected .cq-template-card__chevron {
   color: var(--cq-color-primary);
+}
+
+/* ── Template Custom-Rule Banner (v4) ────────────────────────── */
+.cq-template-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cq-space-4);
+  padding: var(--cq-space-4) var(--cq-space-5);
+  margin-top: var(--cq-space-3);
+  background: linear-gradient(135deg, var(--cq-color-primary-muted), var(--cq-color-primary-subtle));
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-lg);
+}
+
+.cq-template-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.cq-template-banner__title {
+  font-size: var(--cq-text-md);
+  font-weight: 600;
+  color: var(--cq-text-primary);
+}
+
+.cq-template-banner__desc {
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-secondary);
+  line-height: 1.5;
+}
+
+.cq-template-banner__action {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .cq-template-banner {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+  }
+  .cq-template-banner__action {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* ── Drawer header/tabs divider (v4) ──────────────────────────── */

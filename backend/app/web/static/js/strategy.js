@@ -23,12 +23,9 @@ const TEMPLATE_GROUPS = [
     hint: '选中后在工作台配置，保存进入策略仓库，按需启动到实盘或模拟运行',
     ids: ['ma_cross', 'rsi', 'bollinger', 'grid', 'martingale', 'rsi_layered', 'dca', 'multi_symbol'],
   },
-  {
-    title: '自定义创建',
-    hint: '用规则构建器组合指标条件，生成自己的策略草案',
-    ids: ['rule_custom'],
-  },
 ];
+
+const CUSTOM_TEMPLATE_ID = 'rule_custom';
 
 function getStrategyIcon(templateId) {
   const key = String(templateId || '').toLowerCase();
@@ -467,7 +464,8 @@ function renderTemplatePills(templates) {
   }
 
   const templateMap = new Map(templates.map(template => [template.id, template]));
-  const groupedIds = new Set(TEMPLATE_GROUPS.flatMap(group => group.ids));
+  const customTemplate = templateMap.get(CUSTOM_TEMPLATE_ID) || null;
+  const groupedIds = new Set([...TEMPLATE_GROUPS.flatMap(group => group.ids), CUSTOM_TEMPLATE_ID]);
   const groups = TEMPLATE_GROUPS.map(group => ({
     ...group,
     templates: group.ids.map(id => templateMap.get(id)).filter(Boolean),
@@ -482,8 +480,8 @@ function renderTemplatePills(templates) {
     });
   }
 
-  el.innerHTML = groups.map(group => `
-    <div class="cq-template-group${group.title === '自定义创建' ? ' cq-template-group--compact' : ''}">
+  const groupHtml = groups.map(group => `
+    <div class="cq-template-group">
       <div class="cq-template-group__header">
         <span class="cq-template-group__title">${group.title}</span>
         <span class="cq-template-group__hint">${group.hint}</span>
@@ -492,6 +490,23 @@ function renderTemplatePills(templates) {
         ${group.templates.map(renderTemplateButton).join('')}
       </div>
     </div>`).join('');
+
+  el.innerHTML = groupHtml + (customTemplate ? renderTemplateBanner(customTemplate) : '');
+}
+
+function renderTemplateBanner(template) {
+  const desc = template.description || '用规则构建器组合指标条件，拼出你自己的策略草案';
+  return `
+    <div class="cq-template-banner">
+      <div class="cq-template-banner__body">
+        <div class="cq-template-banner__title">不满意预设？自己拼一个</div>
+        <div class="cq-template-banner__desc">${escapeHtml(desc)}</div>
+      </div>
+      <button class="cq-btn cq-btn--primary cq-template-banner__action" onclick="quickLaunchTemplate('${template.id}')">
+        ${escapeHtml(template.name || '自定义规则策略')}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>`;
 }
 
 function renderWorkbenchDraftList(drafts) {
