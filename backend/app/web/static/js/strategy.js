@@ -559,7 +559,7 @@ function ensureTradeHintListeners() {
 }
 
 function markTemplateSelection(templateId) {
-  document.querySelectorAll('#template-list .cq-pill').forEach(pill => pill.classList.remove('is-selected'));
+  document.querySelectorAll('#template-list .cq-template-card').forEach(card => card.classList.remove('is-selected'));
   if (!templateId) return;
   const pill = document.getElementById(`pill-${templateId}`);
   if (pill) pill.classList.add('is-selected');
