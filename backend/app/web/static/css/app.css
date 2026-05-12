@@ -988,9 +988,14 @@ select.cq-input:not([multiple]) {
   background: var(--cq-bg-l3);
   position: relative;
   cursor: pointer;
-  transition: background var(--cq-duration-normal) var(--cq-ease-default);
+  transition: background var(--cq-duration-fast) var(--cq-ease-default),
+              box-shadow var(--cq-duration-fast) var(--cq-ease-default);
   display: inline-block;
   flex-shrink: 0;
+}
+
+.cq-toggle:hover {
+  box-shadow: var(--cq-glow-xs);
 }
 
 .cq-toggle.is-on { background: var(--cq-color-primary); }
@@ -1778,7 +1783,7 @@ select.cq-input:not([multiple]) {
   max-width: 90vw;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: var(--cq-shadow-lg);
+  box-shadow: var(--cq-glow-md);
   display: flex;
   align-items: center;
   gap: var(--cq-space-2);
@@ -2210,7 +2215,13 @@ select.cq-input:not([multiple]) {
   border-radius: var(--cq-radius-xl);
   width: 100%;
   max-width: 400px;
-  box-shadow: var(--cq-shadow-lg);
+  box-shadow: var(--cq-glow-md);
+  animation: cq-dialog-in var(--cq-duration-medium) var(--cq-ease-out);
+}
+
+@keyframes cq-dialog-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .cq-dialog__header {
