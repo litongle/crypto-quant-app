@@ -2994,6 +2994,23 @@ select.cq-input:not([multiple]) {
   flex-shrink: 0;
 }
 
+/* ── Account cards inside settings drawer (v4) ─────────────────
+   Account cards are designed for full-width pages with logo+name
+   on the left and balance+actions on the right. The drawer is
+   only ~540px wide which squeezes the name column to a single
+   character wide. Force vertical stacking inside the drawer. */
+.cq-settings-pane .account-card-inner > div {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: var(--cq-space-3) !important;
+}
+
+.cq-settings-pane .account-card-inner > div > div:last-child {
+  justify-content: space-between !important;
+  padding-top: var(--cq-space-3) !important;
+  border-top: 1px solid var(--cq-border-subtle) !important;
+}
+
 @media (max-width: 640px) {
   .cq-template-banner {
     flex-direction: column;

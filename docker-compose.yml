@@ -16,6 +16,11 @@ services:
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-password}@redis:6379/0
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      # HTTP_PROXY / HTTPS_PROXY / NO_PROXY 全部由 backend/.env 控制（国内开发可配代理，
+      # 境外/VPS 留空）。不在这里通过 ${HTTP_PROXY:-} 继承宿主 env，避免覆盖 env_file。
+    # 让容器内可通过 host.docker.internal 访问宿主机代理（Linux 必须）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       postgres:
