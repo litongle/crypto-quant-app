@@ -3102,7 +3102,8 @@ select.cq-input:not([multiple]) {
 
 .cq-settings-form input[type="text"],
 .cq-settings-form input[type="number"],
-.cq-settings-form input[type="password"] {
+.cq-settings-form input[type="password"],
+.cq-settings-form input:not([type]) {
   background: var(--cq-bg-l5);
   border: 1px solid var(--cq-border-default);
   border-radius: var(--cq-radius-md);
@@ -3112,8 +3113,13 @@ select.cq-input:not([multiple]) {
   font-family: var(--cq-font-sans);
   font-size: var(--cq-text-base);
   outline: none;
+  width: 100%;
   transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
               box-shadow var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-settings-form input:focus-visible {
+  outline: none;
 }
 
 .cq-settings-form input:hover:not(:focus) {
