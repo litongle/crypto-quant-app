@@ -112,3 +112,55 @@ docker run --rm -v crypto-quant-app_postgres_data:/data -v $PWD:/backup alpine \
 ## 给朋友自部署
 
 把整个仓库源码 + 本文档发给他，他按上述 7 步走即可。每个人有独立 VPS、独立 admin、独立交易所 key —— 互不影响。
+
+---
+
+## 附录：配置 Telegram 告警（5 分钟）
+
+> 强烈建议配上。合约 7×24 跑，没告警 = 出事第二天才发现。
+> 已接入的告警事件：策略自停、策略崩溃、策略信号、止损/止盈触发、大额成交。
+
+### 1. 创建 bot 拿 token
+
+1. 手机 Telegram 搜 `@BotFather`，发 `/start`，再发 `/newbot`
+2. 按提示输入 bot 名字（任意）+ 用户名（必须以 `bot` 结尾，如 `my_quant_alert_bot`）
+3. BotFather 回复一段消息，里面有一行：`HTTP API: 123456789:ABCdefGhIJK...` —— **这就是 token，复制下来**
+
+### 2. 拿到你的 chat_id
+
+1. 在 Telegram 搜你刚创建的 bot，按 **Start** 发一条消息（任意内容，如 `hi`）
+2. 浏览器打开（把 `<token>` 替换成上一步的 token）：
+   ```
+   https://api.telegram.org/bot<token>/getUpdates
+   ```
+3. 返回的 JSON 里找 `"chat":{"id":123456789,...}` —— **123456789 就是你的 chat_id**
+
+### 3. 填到 `.env`
+
+```bash
+# 编辑 backend/.env：
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJK...
+TELEGRAM_CHAT_ID=123456789
+
+# 重启后端
+docker compose restart backend
+```
+
+### 4. 验证
+
+启动后端日志里搜「告警」无报错即正常。如果想立刻试一下推送是否到位：
+
+```bash
+# 容器内手动触发一条告警
+docker compose exec backend python -c "
+import asyncio
+from app.services.notification_service import notify_risk_alert
+asyncio.run(notify_risk_alert(
+    alert_type='测试',
+    message='如果你看到这条 = Telegram 配置成功',
+    metrics={'source': 'manual_test'},
+))
+"
+```
+
+手机 Telegram 应该秒收到。收不到 → 检查 token / chat_id 是否填错、bot 是否被你 Start 过。

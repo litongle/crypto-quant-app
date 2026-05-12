@@ -361,3 +361,113 @@ async def test_auto_pause_swallows_notification_failure(
     assert fake_inst.status == "paused"
     assert fake_inst.last_pause_reason == "auto:x"
     fake_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mark_instance_stopped_pushes_crash_alert(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """task 硬崩溃 → _mark_instance_stopped 应写 stopped + 推送 alert_type='策略崩溃'。
+
+    与 _auto_pause（策略自停）区分：硬崩溃是「没拦住」的状态，必须有独立告警类型，
+    不能跟系统主动暂停混在一起。
+    """
+    runner = reset_runner_singleton
+
+    fake_inst = MagicMock()
+    fake_inst.id = 99
+    fake_inst.name = "崩溃测试"
+    fake_inst.status = "running"
+    fake_session = AsyncMock()
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=fake_inst))
+    )
+    fake_session.commit = AsyncMock()
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    notify_mock = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        "app.services.notification_service.notify_risk_alert",
+        notify_mock,
+    )
+
+    await runner._mark_instance_stopped(99, "RuntimeError: 模拟崩溃")
+
+    assert fake_inst.status == "stopped"
+    fake_session.commit.assert_awaited_once()
+
+    notify_mock.assert_awaited_once()
+    call_kwargs = notify_mock.call_args.kwargs
+    assert call_kwargs["alert_type"] == "策略崩溃"
+    assert "崩溃测试" in call_kwargs["message"]
+    assert "RuntimeError" in call_kwargs["message"]
+    assert call_kwargs["metrics"]["reason"] == "task_crashed"
+    assert call_kwargs["metrics"]["instance_id"] == 99
+
+
+@pytest.mark.asyncio
+async def test_mark_instance_stopped_no_alert_when_already_stopped(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """status 已经不是 running 时（重复调用）不应重复告警。"""
+    runner = reset_runner_singleton
+
+    fake_inst = MagicMock()
+    fake_inst.id = 99
+    fake_inst.status = "stopped"
+    fake_session = AsyncMock()
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=fake_inst))
+    )
+    fake_session.commit = AsyncMock()
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    notify_mock = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        "app.services.notification_service.notify_risk_alert",
+        notify_mock,
+    )
+
+    await runner._mark_instance_stopped(99, "重复调用")
+
+    notify_mock.assert_not_awaited()
+    fake_session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mark_instance_stopped_swallows_notification_failure(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """notify 失败不影响 status 落库。"""
+    runner = reset_runner_singleton
+
+    fake_inst = MagicMock()
+    fake_inst.id = 99
+    fake_inst.name = "崩溃测试"
+    fake_inst.status = "running"
+    fake_session = AsyncMock()
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=fake_inst))
+    )
+    fake_session.commit = AsyncMock()
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    notify_mock = AsyncMock(side_effect=RuntimeError("notify failed"))
+    monkeypatch.setattr(
+        "app.services.notification_service.notify_risk_alert",
+        notify_mock,
+    )
+
+    await runner._mark_instance_stopped(99, "RuntimeError: 崩溃")
+
+    assert fake_inst.status == "stopped"
+    fake_session.commit.assert_awaited_once()

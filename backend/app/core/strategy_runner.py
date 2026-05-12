@@ -280,8 +280,15 @@ class StrategyRunner:
             asyncio.create_task(self._mark_instance_stopped(instance_id, message))
 
     async def _mark_instance_stopped(self, instance_id: int, reason: str) -> None:
+        """task 硬崩溃后的兜底处理 — 写 stopped + 推送崩溃告警。
+
+        与 _auto_pause 的区别：_auto_pause 是系统判定后主动暂停（reason=auto:*），
+        这里是 task 真的炸了「没拦住」的状态，告警类型也必须区分。
+        """
         if not self._session_maker:
             return
+        instance_name = "未知策略"
+        marked_stopped = False
         try:
             async with self._session_maker() as session:
                 result = await session.execute(
@@ -290,10 +297,12 @@ class StrategyRunner:
                 inst = result.scalar_one_or_none()
                 if not inst or inst.status != "running":
                     return
+                instance_name = inst.name
                 inst.status = "stopped"
                 inst.workspace_state = "library"
                 inst.last_stopped_at = datetime.now(UTC)
                 await session.commit()
+                marked_stopped = True
                 logger.warning(
                     "[StrategyRunner] 策略 #%d 已自动标记为 stopped: %s",
                     instance_id,
@@ -301,6 +310,21 @@ class StrategyRunner:
                 )
         except Exception as exc:
             logger.warning("[StrategyRunner] 自动校正策略 #%d 状态失败: %s", instance_id, exc)
+
+        if not marked_stopped:
+            return
+
+        # 推送崩溃告警（失败不抛）
+        try:
+            from app.services.notification_service import notify_risk_alert
+
+            await notify_risk_alert(
+                alert_type="策略崩溃",
+                message=f'策略 "{instance_name}" (#{instance_id}) task 异常退出: {reason}',
+                metrics={"reason": "task_crashed", "instance_id": instance_id, "detail": reason},
+            )
+        except Exception as exc:
+            logger.warning("[StrategyRunner] 崩溃告警推送失败 #%d: %s", instance_id, exc)
 
     async def _auto_pause(
         self,
