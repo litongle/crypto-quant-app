@@ -3,6 +3,7 @@
 from app.models.backtest import BacktestResult
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
+from app.models.runtime_config import RuntimeConfig
 from app.models.strategy import StrategyInstance, StrategyTemplate
 from app.models.user import User
 
@@ -20,4 +21,6 @@ __all__ = [
     "Signal",
     # 回测结果
     "BacktestResult",
+    # 运行时配置
+    "RuntimeConfig",
 ]
