@@ -196,8 +196,8 @@ body {
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color var(--cq-duration-slow) var(--cq-ease-default),
-              color var(--cq-duration-slow) var(--cq-ease-default);
+  transition: background-color var(--cq-duration-medium) var(--cq-ease-default),
+              color var(--cq-duration-medium) var(--cq-ease-default);
 }
 
 /* Numeric text — tabular numbers for alignment */
@@ -582,26 +582,29 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 
 /* ── 7. Components ──────────────────────────────────────────── */
 
-/* Card — Semi 风:1px 浅边框,无默认阴影,12px 圆角,24px 内边距 */
+/* Card — v4 Linear 风:反层次 + hover 蓝 border + glow */
 .cq-card {
   background: var(--cq-bg-l2);
   border: 1px solid var(--cq-border-default);
   border-radius: var(--cq-radius-xl);
-  padding: var(--cq-space-6);
+  padding: var(--cq-space-5);
   transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
               box-shadow var(--cq-duration-fast) var(--cq-ease-default),
-              background-color var(--cq-duration-slow) var(--cq-ease-default);
+              transform var(--cq-duration-medium) var(--cq-ease-out),
+              background-color var(--cq-duration-medium) var(--cq-ease-default);
 }
 
 .cq-card--interactive { cursor: pointer; }
 .cq-card--interactive:hover {
   border-color: var(--cq-border-hover);
-  box-shadow: var(--cq-shadow-sm);
+  box-shadow: var(--cq-glow-sm);
+  transform: translateY(-1px);
 }
 
 .cq-card--selected {
-  border-color: var(--cq-color-primary);
-  background: var(--cq-color-primary-subtle);
+  background: var(--cq-bg-l4);
+  border-color: var(--cq-border-active);
+  box-shadow: var(--cq-glow-md);
 }
 
 .cq-card--sm { padding: var(--cq-space-4); }
@@ -836,6 +839,7 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 .cq-btn--primary:hover:not(:disabled) {
   background: var(--cq-color-primary-hover);
   border-color: var(--cq-color-primary-hover);
+  box-shadow: var(--cq-glow-sm);
 }
 .cq-btn--primary:active:not(:disabled) {
   background: var(--cq-color-primary-active);
@@ -886,21 +890,21 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 
 .cq-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
 
-/* Input — Semi 风:32 高,1px 边框,聚焦 2px 主色环 */
+/* Input — v4: bg-l5 凹陷感 + focus 蓝 glow */
 .cq-input {
-  background: var(--cq-bg-l1);
+  background: var(--cq-bg-l5);
   border: 1px solid var(--cq-border-default);
   border-radius: var(--cq-radius-md);
   height: 32px;
   padding: 0 var(--cq-space-3);
   color: var(--cq-text-primary);
-  font-size: var(--cq-text-sm);
+  font-size: var(--cq-text-base);
   font-family: var(--cq-font-sans);
   width: 100%;
   outline: none;
   transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
               box-shadow var(--cq-duration-fast) var(--cq-ease-default),
-              background-color var(--cq-duration-slow) var(--cq-ease-default);
+              background-color var(--cq-duration-medium) var(--cq-ease-default);
 }
 
 .cq-input:hover:not(:focus):not(:disabled) {
@@ -909,7 +913,7 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 
 .cq-input:focus {
   border-color: var(--cq-color-primary);
-  box-shadow: 0 0 0 2px var(--cq-color-primary-muted);
+  box-shadow: var(--cq-glow-xs);
 }
 
 .cq-input::placeholder { color: var(--cq-text-disabled); }
