@@ -16,9 +16,7 @@ class _FakeSettings:
 
 
 @pytest.mark.asyncio
-async def test_seed_admin_creates_user_when_empty(
-    db_session, test_engine_injection, monkeypatch
-):
+async def test_seed_admin_creates_user_when_empty(db_session, test_engine_injection, monkeypatch):
     """users 表为空时，应从 .env 创建 admin。"""
     from app.main import seed_admin
 

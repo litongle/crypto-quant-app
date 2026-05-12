@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     jwt_secret_key: str = _DEFAULT_JWT_SECRET_KEY
 
     # 数据库（强制 PostgreSQL；默认指向 docker-compose 内置服务）
-    database_url: str = "postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant"
+    database_url: str = (
+        "postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant"
+    )
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

@@ -55,9 +55,7 @@ async def test_list_events_empty(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_list_events_with_signal_and_auto_pause(
-    client, auth_headers, db_session, test_user
-):
+async def test_list_events_with_signal_and_auto_pause(client, auth_headers, db_session, test_user):
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "趋势实例")
     now = datetime.now(UTC)
@@ -111,9 +109,7 @@ async def test_list_events_filter_by_type(client, auth_headers, db_session, test
 
 
 @pytest.mark.asyncio
-async def test_manual_pause_not_exposed_as_auto_pause(
-    client, auth_headers, db_session, test_user
-):
+async def test_manual_pause_not_exposed_as_auto_pause(client, auth_headers, db_session, test_user):
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "手动暂停实例")
     instance.status = "paused"

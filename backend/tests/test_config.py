@@ -105,6 +105,7 @@ class TestProductionSecurity:
         )
         assert settings.debug is False
 
+
 def test_settings_has_admin_fields():
     """admin 凭证字段存在且可被赋值"""
     from app.config import Settings

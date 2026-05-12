@@ -59,6 +59,7 @@ async def test_risk_dashboard_paper_accounts_and_account_detail(
     assert account_detail["balance"].startswith("1234.56")
     assert account_detail["isPaper"] is False
 
+
 @pytest.mark.asyncio
 async def test_market_symbols_and_orderbook_endpoints(
     client: AsyncClient,
