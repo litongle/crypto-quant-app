@@ -377,6 +377,14 @@ class ApiClient {
   async testNotification(channel) {
     return this.post('/settings/notifications/test', { channel });
   }
+
+  async getRiskSettings() {
+    return this.get('/settings/risk');
+  }
+
+  async putRiskSettings(body) {
+    return this.put('/settings/risk', body);
+  }
 }
 
 // 全局单例

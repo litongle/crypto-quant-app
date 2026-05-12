@@ -49,10 +49,7 @@ async function loadSettingsDrawerTab(tab) {
     return;
   }
   if (tab === 'risk') {
-    // T10 接管：仍走旧 runnerStatus 数据源
-    settingsDrawerState.runnerStatus =
-      settingsDrawerState.runnerStatus || (await api.getRunnerStatus().catch(() => null));
-    renderRiskSettingsPane();
+    await renderRiskSettingsPane();
   }
 }
 
@@ -205,20 +202,68 @@ function bindSmtpForm(container) {
   });
 }
 
-// ── 风控参数（T10 会替换为表单）────────────────────────────────
+// ── 风控参数 ──────────────────────────────────────────────────
 
-function renderRiskSettingsPane() {
+async function renderRiskSettingsPane() {
   const container = document.getElementById('settings-pane-risk');
   if (!container) return;
-  const risk = settingsDrawerState.runnerStatus?.settings?.auto_pause || {};
+  let data;
+  try {
+    data = await api.getRiskSettings();
+  } catch (err) {
+    container.innerHTML = `<p class="cq-settings-error">加载失败：${escapeHtml(err.message)}</p>`;
+    return;
+  }
   container.innerHTML = `
-    <div class="cq-settings-readonly">
-      <div class="cq-settings-readonly__item"><span>连续异常阈值</span><strong>${escapeHtml(risk.consecutive_errors ?? '--')}</strong></div>
-      <div class="cq-settings-readonly__item"><span>连续下单失败阈值</span><strong>${escapeHtml(risk.consecutive_order_failures ?? '--')}</strong></div>
-      <div class="cq-settings-readonly__item"><span>心跳倍数阈值</span><strong>${escapeHtml(risk.heartbeat_multiplier ?? '--')}</strong></div>
-      <div class="cq-settings-readonly__item"><span>最小心跳秒数</span><strong>${escapeHtml(risk.heartbeat_min_seconds ?? '--')}</strong></div>
-      <div class="cq-settings-readonly__item"><span>Watchdog 间隔</span><strong>${escapeHtml(risk.watchdog_interval_seconds ?? '--')}</strong></div>
-      <p>当前版本仅展示配置值。修改请编辑 <code>backend/.env</code> 并重启。</p>
-    </div>
+    <form class="cq-settings-form" data-form="risk">
+      <label>连续异常阈值
+        <input name="consecutive_errors" type="number" value="${data.consecutive_errors}" min="1" max="100">
+        <small>策略循环连续抛错多少次后自停（防卡死）</small>
+      </label>
+      <label>连续下单失败阈值
+        <input name="consecutive_order_failures" type="number" value="${data.consecutive_order_failures}" min="1" max="100">
+        <small>同一实例下单连续失败多少次后自停</small>
+      </label>
+      <label>心跳倍数
+        <input name="heartbeat_multiplier" type="number" value="${data.heartbeat_multiplier}" min="1" max="100">
+        <small>心跳超时阈值 = poll_interval × 这个倍数，与「最小心跳秒数」取较大</small>
+      </label>
+      <label>最小心跳秒数
+        <input name="heartbeat_min_seconds" type="number" value="${data.heartbeat_min_seconds}" min="10" max="3600">
+        <small>心跳超时阈值的下限秒数</small>
+      </label>
+      <label>Watchdog 间隔秒
+        <input name="watchdog_interval_seconds" type="number" value="${data.watchdog_interval_seconds}" min="5" max="600">
+        <small>watchdog 扫描周期，越短发现卡死越快</small>
+      </label>
+      <div class="cq-settings-form__actions">
+        <button type="submit">保存</button>
+      </div>
+      <div class="cq-settings-form__status" data-status></div>
+    </form>
   `;
+  bindRiskForm(container);
+}
+
+function bindRiskForm(container) {
+  const form = container.querySelector('form');
+  const status = container.querySelector('[data-status]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const body = {
+      consecutive_errors: Number(fd.get('consecutive_errors')),
+      consecutive_order_failures: Number(fd.get('consecutive_order_failures')),
+      heartbeat_multiplier: Number(fd.get('heartbeat_multiplier')),
+      heartbeat_min_seconds: Number(fd.get('heartbeat_min_seconds')),
+      watchdog_interval_seconds: Number(fd.get('watchdog_interval_seconds')),
+    };
+    status.textContent = '保存中…';
+    try {
+      await api.putRiskSettings(body);
+      status.textContent = '✅ 已保存（下次 watchdog 周期生效）';
+    } catch (err) {
+      status.textContent = `❌ 保存失败：${err.message}`;
+    }
+  });
 }
