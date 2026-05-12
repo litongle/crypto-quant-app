@@ -9,7 +9,7 @@
    灰阶取自 Semi Grey 0-9
    ──────────────────────────────────────────────────────────── */
 :root {
-  /* Color — Brand (Semi Blue) */
+  /* Color — Brand (保留 indigo 不动) */
   --cq-color-primary:        #4D7FFF;
   --cq-color-primary-hover:  #6F97FF;
   --cq-color-primary-active: #2E66E6;
@@ -26,25 +26,27 @@
   --cq-color-info:           #4D7FFF;
   --cq-color-info-muted:     rgba(77,127,255,0.16);
 
-  /* Color — Surfaces (Dark, Semi 灰阶) */
-  --cq-bg-l0:  #0E1015;       /* Page background */
-  --cq-bg-l1:  #16181D;       /* Header / Sider */
-  --cq-bg-l2:  #1C1F23;       /* Card */
-  --cq-bg-l3:  #2A2D33;       /* Hover / Selected lighter */
+  /* Color — Surfaces (v4: 6 档，卡片反向更暗) */
+  --cq-bg-l0:  #0A0A0C;
+  --cq-bg-l1:  #0F0F12;
+  --cq-bg-l2:  #141417;
+  --cq-bg-l3:  #1A1A1F;
+  --cq-bg-l4:  #1F1F25;
+  --cq-bg-l5:  #26262E;
 
   /* Color — Borders */
-  --cq-border-default:  rgba(255,255,255,0.08);
-  --cq-border-hover:    rgba(255,255,255,0.16);
-  --cq-border-active:   var(--cq-color-primary);
+  --cq-border-default:  rgba(255,255,255,0.06);
+  --cq-border-hover:    rgba(77,127,255,0.32);
+  --cq-border-active:   rgba(77,127,255,0.48);
   --cq-border-subtle:   rgba(255,255,255,0.04);
 
-  /* Color — Text (Semi Grey 0-4 inverted) */
-  --cq-text-primary:    #E8EAED;   /* Grey 0 */
-  --cq-text-secondary:  #C5C7CA;   /* Grey 1 */
-  --cq-text-tertiary:   #9AA0A6;   /* Grey 3 */
-  --cq-text-disabled:   #5F6368;   /* Grey 5 */
+  /* Color — Text */
+  --cq-text-primary:    #EDEDED;
+  --cq-text-secondary:  #C5C7CA;
+  --cq-text-tertiary:   #8B8B93;
+  --cq-text-disabled:   #5F6368;
 
-  /* Avatar palette — 数据看板 6 色彩条(蓝紫绿青黄粉) */
+  /* Avatar palette */
   --cq-avatar-blue:    #4D7FFF;
   --cq-avatar-violet:  #B85AFF;
   --cq-avatar-green:   #00A870;
@@ -53,7 +55,7 @@
   --cq-avatar-pink:    #F758C0;
   --cq-avatar-orange:  #FF7D00;
 
-  /* Color — Exchange brands */
+  /* Exchange brands */
   --cq-color-binance:  #F0B90B;
   --cq-color-okx:      #FFFFFF;
   --cq-color-htx:      #2A6EDB;
@@ -62,17 +64,17 @@
   --cq-font-sans:  'Geist Sans', 'Inter', 'PingFang SC', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --cq-font-mono:  'JetBrains Mono', 'Geist Mono', 'Fira Code', ui-monospace, monospace;
 
-  --cq-text-xs:   12px;
-  --cq-text-sm:   13px;
-  --cq-text-base: 14px;
+  --cq-text-xs:   11px;
+  --cq-text-sm:   12px;
+  --cq-text-base: 13px;
   --cq-text-md:   14px;
-  --cq-text-lg:   16px;
+  --cq-text-lg:   15px;
   --cq-text-xl:   18px;
-  --cq-text-2xl:  20px;
-  --cq-text-3xl:  24px;
-  --cq-text-4xl:  30px;
+  --cq-text-2xl:  22px;
+  --cq-text-3xl:  28px;
+  --cq-text-4xl:  36px;
 
-  /* Spacing — Semi 间距阶 */
+  /* Spacing (保留) */
   --cq-space-1:  4px;
   --cq-space-2:  8px;
   --cq-space-3:  12px;
@@ -83,41 +85,46 @@
   --cq-space-10: 40px;
   --cq-space-12: 48px;
 
-  /* Radius — Semi 圆角阶(更克制) */
-  --cq-radius-sm:   3px;
+  /* Radius (xl 12→10) */
+  --cq-radius-sm:   4px;
   --cq-radius-md:   6px;
   --cq-radius-lg:   8px;
-  --cq-radius-xl:   12px;
+  --cq-radius-xl:   10px;
   --cq-radius-full: 9999px;
 
-  /* Shadows — Semi elevation 三档 */
+  /* Shadows — v4 用 glow 替代 dark 下看不见的 drop shadow */
   --cq-shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
   --cq-shadow-sm: 0 2px 6px rgba(0,0,0,0.32);
   --cq-shadow-md: 0 4px 12px rgba(0,0,0,0.36);
   --cq-shadow-lg: 0 8px 24px rgba(0,0,0,0.42);
 
-  /* Transitions */
-  --cq-duration-fast:   150ms;
-  --cq-duration-normal: 200ms;
-  --cq-duration-slow:   300ms;
-  --cq-ease-default:    cubic-bezier(0.4, 0, 0.2, 1);
+  --cq-glow-xs: 0 0 0 1px rgba(77,127,255,0.16);
+  --cq-glow-sm: 0 0 0 1px rgba(77,127,255,0.16), 0 0 12px rgba(77,127,255,0.06);
+  --cq-glow-md: 0 0 0 1px rgba(77,127,255,0.24), 0 0 24px rgba(77,127,255,0.10);
 
-  /* Layout — 与 New API/Semi 实际尺寸对齐 */
+  /* Transitions — 三档收敛 150/180/220 */
+  --cq-duration-fast:   150ms;
+  --cq-duration-medium: 180ms;
+  --cq-duration-slow:   220ms;
+  --cq-duration-normal: 180ms; /* 兼容旧引用 */
+  --cq-ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --cq-ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Layout */
   --cq-sidebar-width:           180px;
   --cq-sidebar-width-collapsed: 60px;
   --cq-sidebar-current-width:   var(--cq-sidebar-width);
   --cq-header-height:           64px;
   --cq-content-max-width:       1440px;
 
-  /* Header 玻璃态背景(深色) */
-  --cq-header-bg:               rgba(22,24,29,0.75);
+  /* Header 玻璃态(dark) */
+  --cq-header-bg:               rgba(15,15,18,0.78);
   --cq-header-blur:             saturate(180%) blur(12px);
 
-  /* Theme toggle icon */
-  --cq-theme-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%239AA0A6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/%3E%3C/svg%3E");
+  --cq-theme-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238B8B93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/%3E%3C/svg%3E");
 }
 
-/* ── Light Theme — Semi 浅色模式 ─────────────────────────────── */
+/* ── Light Theme (v4) ────────────────────────────────────────── */
 [data-theme="light"] {
   --cq-color-primary:        #0064FA;
   --cq-color-primary-hover:  #2E80FB;
@@ -134,14 +141,17 @@
   --cq-color-info:           #0064FA;
   --cq-color-info-muted:     rgba(0,100,250,0.10);
 
-  --cq-bg-l0:  #F5F6F7;
+  --cq-bg-l0:  #F7F8FA;
   --cq-bg-l1:  #FFFFFF;
   --cq-bg-l2:  #FFFFFF;
-  --cq-bg-l3:  #F0F1F2;
+  --cq-bg-l3:  #F0F1F4;
+  --cq-bg-l4:  #EAECEF;
+  --cq-bg-l5:  #F5F6F8;
 
-  --cq-border-default:  rgba(28,31,35,0.08);
-  --cq-border-hover:    rgba(28,31,35,0.16);
-  --cq-border-subtle:   rgba(28,31,35,0.05);
+  --cq-border-default: rgba(28,31,35,0.08);
+  --cq-border-hover:   rgba(0,100,250,0.32);
+  --cq-border-active:  rgba(0,100,250,0.48);
+  --cq-border-subtle:  rgba(28,31,35,0.05);
 
   --cq-text-primary:    #1C1F23;
   --cq-text-secondary:  #41464C;
@@ -157,8 +167,12 @@
   --cq-shadow-md: 0 4px 12px rgba(0,0,0,0.08);
   --cq-shadow-lg: 0 8px 24px rgba(0,0,0,0.10);
 
-  /* Header 玻璃态背景(浅色) */
-  --cq-header-bg:               rgba(255,255,255,0.75);
+  --cq-glow-xs: 0 0 0 1px rgba(0,100,250,0.12);
+  --cq-glow-sm: 0 0 0 1px rgba(0,100,250,0.12), 0 0 12px rgba(0,100,250,0.04);
+  --cq-glow-md: 0 0 0 1px rgba(0,100,250,0.20), 0 0 24px rgba(0,100,250,0.06);
+
+  /* Header 玻璃态(light) — 关键修复：原本是 .75 白色，在白页上无对比 */
+  --cq-header-bg:               rgba(247,248,250,0.85);
   --cq-header-blur:             saturate(180%) blur(12px);
 
   --cq-theme-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2341464C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3Cline x1='12' y1='1' x2='12' y2='3'/%3E%3Cline x1='12' y1='21' x2='12' y2='23'/%3E%3Cline x1='4.22' y1='4.22' x2='5.64' y2='5.64'/%3E%3Cline x1='18.36' y1='18.36' x2='19.78' y2='19.78'/%3E%3Cline x1='1' y1='12' x2='3' y2='12'/%3E%3Cline x1='21' y1='12' x2='23' y2='12'/%3E%3Cline x1='4.22' y1='19.78' x2='5.64' y2='18.36'/%3E%3Cline x1='18.36' y1='5.64' x2='19.78' y2='4.22'/%3E%3C/svg%3E");

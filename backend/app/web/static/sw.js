@@ -1,5 +1,5 @@
 // 币钱袋 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v8';
+const CACHE_NAME = 'cq-sw-v9';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
