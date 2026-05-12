@@ -24,9 +24,20 @@ from typing import Literal
 import aiosmtplib
 import httpx
 
-from app.config import get_settings
-
 logger = logging.getLogger(__name__)
+
+# 通知渠道从 runtime_config 拉取的 key 列表
+_NOTIFICATION_KEYS: list[str] = [
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_FROM",
+    "SMTP_TO",
+    "SMTP_USE_TLS",
+]
 
 NotificationType = Literal[
     "signal", "stop_loss", "take_profit", "large_trade", "risk_alert", "system"
@@ -38,7 +49,19 @@ class NotificationService:
 
     def __init__(self):
         self._http_client: httpx.AsyncClient | None = None
-        self._settings = get_settings()
+
+    async def _load_config(self) -> dict[str, str | None]:
+        """每次发送时从 runtime_config 拉最新配置。
+
+        独立的 session（不复用调用方的）— 通知服务跨任何上下文调用，
+        包括后台任务/启动钩子，自带 session 避免相互纠缠。
+        """
+        from app.database import get_session_maker
+        from app.services.runtime_config_service import RuntimeConfigService
+
+        session_maker = await get_session_maker()
+        async with session_maker() as session:
+            return await RuntimeConfigService(session).get_many(_NOTIFICATION_KEYS)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
@@ -207,14 +230,15 @@ class NotificationService:
 
     async def _send(self, title: str, message: str, notification_type: NotificationType) -> dict:
         """发送通知到所有已配置的渠道"""
-        results = {"telegram": False, "email": False, "errors": []}
+        results: dict = {"telegram": False, "email": False, "errors": []}
+        cfg = await self._load_config()
 
         # Telegram
-        telegram_bot_token = getattr(self._settings, "telegram_bot_token", None)
-        telegram_chat_id = getattr(self._settings, "telegram_chat_id", None)
-        if telegram_bot_token and telegram_chat_id:
+        token = cfg.get("TELEGRAM_BOT_TOKEN")
+        chat_id = cfg.get("TELEGRAM_CHAT_ID")
+        if token and chat_id:
             try:
-                await self._send_telegram(message, telegram_bot_token, telegram_chat_id)
+                await self._send_telegram(message, token, chat_id)
                 results["telegram"] = True
                 logger.info("[Notification] Telegram 通知发送成功: %s", title)
             except Exception as exc:
@@ -222,13 +246,9 @@ class NotificationService:
                 logger.warning("[Notification] Telegram 发送失败: %s", exc)
 
         # 邮箱 SMTP
-        smtp_host = getattr(self._settings, "smtp_host", None)
-        smtp_username = getattr(self._settings, "smtp_username", None)
-        smtp_password = getattr(self._settings, "smtp_password", None)
-        smtp_to = getattr(self._settings, "smtp_to", None)
-        if smtp_host and smtp_username and smtp_password and smtp_to:
+        if all(cfg.get(k) for k in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_TO")):
             try:
-                await self._send_email(title, message)
+                await self._send_email(cfg, title, message)
                 results["email"] = True
                 logger.info("[Notification] 邮件通知发送成功: %s", title)
             except Exception as exc:
@@ -257,14 +277,13 @@ class NotificationService:
         if not data.get("ok"):
             raise RuntimeError(f"Telegram API error: {data.get('description')}")
 
-    async def _send_email(self, title: str, message: str) -> None:
+    async def _send_email(self, cfg: dict[str, str | None], title: str, message: str) -> None:
         """发送告警邮件（同时提供 HTML 与纯文本两种格式，由邮件客户端自选）"""
-        settings = self._settings
-        from_addr = getattr(settings, "smtp_from", None) or settings.smtp_username
+        from_addr = cfg.get("SMTP_FROM") or cfg["SMTP_USERNAME"]
         msg = EmailMessage()
         msg["Subject"] = f"[CryptoQuant] {title}"
         msg["From"] = from_addr
-        msg["To"] = settings.smtp_to
+        msg["To"] = cfg["SMTP_TO"]
         # 纯文本（剥 HTML 标签）
         plain = re.sub(r"<[^>]+>", "", message)
         msg.set_content(plain)
@@ -273,14 +292,15 @@ class NotificationService:
             f"<h3>{title}</h3><div>{message.replace(chr(10), '<br>')}</div>",
             subtype="html",
         )
+        use_tls = str(cfg.get("SMTP_USE_TLS") or "true").lower() == "true"
         await aiosmtplib.send(
             msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            use_tls=settings.smtp_use_tls,
-            start_tls=not settings.smtp_use_tls,
+            hostname=cfg["SMTP_HOST"],
+            port=int(cfg.get("SMTP_PORT") or 465),
+            username=cfg["SMTP_USERNAME"],
+            password=cfg["SMTP_PASSWORD"],
+            use_tls=use_tls,
+            start_tls=not use_tls,
             timeout=10,
         )
 
