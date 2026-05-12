@@ -2691,6 +2691,73 @@ select.cq-input:not([multiple]) {
   background: var(--cq-bg-l2);
 }
 
+.cq-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-3);
+}
+
+.cq-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-1);
+  font-size: 0.9rem;
+  color: var(--cq-text-secondary);
+}
+
+.cq-settings-form label > input[type="text"],
+.cq-settings-form label > input[type="password"],
+.cq-settings-form label > input[type="number"] {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--cq-border);
+  background: var(--cq-bg-l1);
+  color: var(--cq-text-primary);
+  font-size: 0.95rem;
+}
+
+.cq-settings-form label > small {
+  color: var(--cq-text-tertiary);
+  font-size: 0.8rem;
+}
+
+.cq-settings-form label.cq-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cq-space-2);
+}
+
+.cq-settings-form__actions {
+  display: flex;
+  gap: var(--cq-space-2);
+  margin-top: var(--cq-space-2);
+}
+
+.cq-settings-form__actions button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--cq-border);
+  background: var(--cq-bg-l2);
+  color: var(--cq-text-primary);
+  cursor: pointer;
+}
+
+.cq-settings-form__actions button[type="submit"] {
+  background: var(--cq-color-primary);
+  color: var(--cq-bg-l0);
+  border-color: var(--cq-color-primary);
+}
+
+.cq-settings-form__status {
+  min-height: 1.2em;
+  font-size: 0.85rem;
+  color: var(--cq-text-secondary);
+}
+
+.cq-settings-error {
+  color: var(--cq-color-danger, #e74c3c);
+}
+
 .cq-instance-summary__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

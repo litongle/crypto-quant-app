@@ -356,6 +356,27 @@ class ApiClient {
     const json = await this.post('/strategies/validate-rules', { rules });
     return json.data || json;
   }
+
+  // ===== 设置抽屉（运行时配置）=====
+  async getNotificationsSettings() {
+    return this.get('/settings/notifications');
+  }
+
+  async putNotificationsSettings(body) {
+    return this.put('/settings/notifications', body);
+  }
+
+  async getSmtpSettings() {
+    return this.get('/settings/smtp');
+  }
+
+  async putSmtpSettings(body) {
+    return this.put('/settings/smtp', body);
+  }
+
+  async testNotification(channel) {
+    return this.post('/settings/notifications/test', { channel });
+  }
 }
 
 // 全局单例
