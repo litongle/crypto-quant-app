@@ -1,4 +1,4 @@
-"""事件流 API。"""
+"""事件流 API — 聚合交易信号与策略自停事件（单用户版，不再依赖审计日志）。"""
 
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -10,14 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.schemas import APIResponse
 from app.database import get_session
-from app.models.audit import AuditLog
 from app.models.order import Signal
 from app.models.strategy import StrategyInstance
 from app.models.user import User
 
 router = APIRouter()
 
-EventType = Literal["signal", "order", "risk", "auto_pause", "error"]
+EventType = Literal["signal", "auto_pause"]
 
 
 def _isoformat(value: datetime | None) -> str:
@@ -26,67 +25,6 @@ def _isoformat(value: datetime | None) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.isoformat().replace("+00:00", "Z")
-
-
-def _event_instance_id_from_audit(log: AuditLog) -> int | None:
-    if log.resource == "strategy" and log.resource_id:
-        return log.resource_id
-    for payload in (log.new_value, log.old_value):
-        if isinstance(payload, dict):
-            raw = (
-                payload.get("strategy_instance_id")
-                or payload.get("strategyInstanceId")
-                or payload.get("instance_id")
-                or payload.get("instanceId")
-            )
-            if raw is not None:
-                try:
-                    return int(raw)
-                except (TypeError, ValueError):
-                    return None
-    return None
-
-
-def _classify_audit_type(log: AuditLog) -> EventType | None:
-    action = (log.action or "").lower()
-    status = (log.status or "").lower()
-    if status in {"error", "failure"}:
-        return "error"
-    if "pause" in action:
-        return None
-    if any(token in action for token in ("risk", "stop_loss", "take_profit", "heartbeat")):
-        return "risk"
-    if any(token in action for token in ("order", "position", "strategy_", "account")):
-        return "order"
-    return None
-
-
-def _summary_from_audit(log: AuditLog) -> str:
-    detail = (log.detail or "").strip()
-    if detail:
-        return detail[:200]
-    resource = f" {log.resource}" if log.resource else ""
-    resource_id = f" #{log.resource_id}" if log.resource_id else ""
-    return f"{log.action}{resource}{resource_id}"[:200]
-
-
-def _serialize_audit(log: AuditLog) -> dict[str, Any] | None:
-    event_type = _classify_audit_type(log)
-    if event_type is None:
-        return None
-    return {
-        "id": f"audit:{log.id}",
-        "at": _isoformat(log.created_at),
-        "type": event_type,
-        "instance_id": _event_instance_id_from_audit(log),
-        "summary": _summary_from_audit(log),
-        "detail": {
-            "action": log.action,
-            "resource": log.resource,
-            "resource_id": log.resource_id,
-            "status": log.status,
-        },
-    }
 
 
 def _serialize_signal(signal: Signal) -> dict[str, Any]:
@@ -149,15 +87,7 @@ async def list_events(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> APIResponse[dict[str, Any]]:
-    """聚合审计日志、交易信号和策略自停事件。"""
-    audit_query = select(AuditLog).where(AuditLog.user_id == current_user.id)
-    if since is not None:
-        audit_query = audit_query.where(AuditLog.created_at >= since)
-    if until is not None:
-        audit_query = audit_query.where(AuditLog.created_at <= until)
-    audit_query = audit_query.order_by(AuditLog.created_at.desc()).limit(500)
-    audit_logs = (await session.execute(audit_query)).scalars().all()
-
+    """聚合交易信号和策略自停事件。"""
     signal_query = (
         select(Signal)
         .join(StrategyInstance, StrategyInstance.id == Signal.strategy_instance_id)
@@ -185,14 +115,6 @@ async def list_events(
     pause_instances = (await session.execute(pause_query)).scalars().all()
 
     items: list[dict[str, Any]] = []
-    for log in audit_logs:
-        item = _serialize_audit(log)
-        if item is None:
-            continue
-        if instance_id is not None and item["instance_id"] != instance_id:
-            continue
-        items.append(item)
-
     items.extend(_serialize_signal(signal) for signal in signals)
     items.extend(_serialize_auto_pause(instance) for instance in pause_instances)
 

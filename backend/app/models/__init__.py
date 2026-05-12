@@ -1,6 +1,5 @@
 """Models package - 所有数据模型"""
 
-from app.models.audit import AuditLog
 from app.models.backtest import BacktestResult
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
@@ -21,6 +20,4 @@ __all__ = [
     "Signal",
     # 回测结果
     "BacktestResult",
-    # 审计日志
-    "AuditLog",
 ]

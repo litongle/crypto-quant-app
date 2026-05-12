@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.models.audit import AuditLog
 from app.models.order import Signal
 from app.models.strategy import StrategyInstance, StrategyTemplate
 
@@ -56,50 +55,23 @@ async def test_list_events_empty(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_list_events_with_audit_signal_pause(client, auth_headers, db_session, test_user):
+async def test_list_events_with_signal_and_auto_pause(
+    client, auth_headers, db_session, test_user
+):
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "趋势实例")
     now = datetime.now(UTC)
 
-    db_session.add_all(
-        [
-            AuditLog(
-                user_id=test_user.id,
-                action="order_submit",
-                resource="order",
-                resource_id=11,
-                detail="BTCUSDT 下单成功",
-                status="success",
-                created_at=now - timedelta(minutes=1),
-            ),
-            AuditLog(
-                user_id=test_user.id,
-                action="risk_alert",
-                resource="strategy",
-                resource_id=instance.id,
-                detail="风险触发",
-                status="success",
-                created_at=now - timedelta(minutes=2),
-            ),
-            AuditLog(
-                user_id=test_user.id,
-                action="order_submit",
-                resource="order",
-                resource_id=12,
-                detail="交易所返回错误",
-                status="error",
-                created_at=now - timedelta(minutes=3),
-            ),
-            Signal(
-                strategy_instance_id=instance.id,
-                symbol="BTCUSDT",
-                action="buy",
-                confidence=0.8,
-                status="pending",
-                reason="突破",
-                created_at=now - timedelta(minutes=4),
-            ),
-        ]
+    db_session.add(
+        Signal(
+            strategy_instance_id=instance.id,
+            symbol="BTCUSDT",
+            action="buy",
+            confidence=0.8,
+            status="pending",
+            reason="突破",
+            created_at=now - timedelta(minutes=4),
+        )
     )
     instance.last_pause_reason = "auto:order_failures"
     instance.last_stopped_at = now
@@ -109,68 +81,44 @@ async def test_list_events_with_audit_signal_pause(client, auth_headers, db_sess
     resp = await client.get("/api/v1/events", headers=auth_headers)
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
-    assert len(items) == 5
-    assert items[0]["type"] == "auto_pause"
-    assert [item["type"] for item in items] == [
-        "auto_pause",
-        "order",
-        "risk",
-        "error",
-        "signal",
-    ]
+    assert len(items) == 2
+    types = [item["type"] for item in items]
+    # auto_pause 时间更晚，排在前面
+    assert types == ["auto_pause", "signal"]
 
 
 @pytest.mark.asyncio
 async def test_list_events_filter_by_type(client, auth_headers, db_session, test_user):
     template = await _make_template(db_session)
-    instance = await _make_instance(db_session, test_user.id, template.id, "风险实例")
+    instance = await _make_instance(db_session, test_user.id, template.id, "信号实例")
     db_session.add(
-        AuditLog(
-            user_id=test_user.id,
-            action="risk_alert",
-            resource="strategy",
-            resource_id=instance.id,
-            detail="风险触发",
-            status="success",
+        Signal(
+            strategy_instance_id=instance.id,
+            symbol="BTCUSDT",
+            action="buy",
+            confidence=0.8,
+            status="pending",
         )
     )
+    instance.last_pause_reason = "auto:heartbeat_timeout"
+    instance.last_stopped_at = datetime.now(UTC)
     await db_session.commit()
 
-    resp = await client.get("/api/v1/events?event_type=risk", headers=auth_headers)
+    resp = await client.get("/api/v1/events?event_type=signal", headers=auth_headers)
     body = resp.json()["data"]
-    assert all(item["type"] == "risk" for item in body["items"])
+    assert all(item["type"] == "signal" for item in body["items"])
+    assert body["total"] == 1
 
 
 @pytest.mark.asyncio
-async def test_manual_pause_not_exposed_as_auto_pause(client, auth_headers, db_session, test_user):
+async def test_manual_pause_not_exposed_as_auto_pause(
+    client, auth_headers, db_session, test_user
+):
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "手动暂停实例")
     instance.status = "paused"
     instance.last_stopped_at = datetime.now(UTC)
     instance.last_pause_reason = None
-    await db_session.commit()
-
-    resp = await client.get("/api/v1/events?event_type=auto_pause", headers=auth_headers)
-    assert resp.status_code == 200
-    body = resp.json()["data"]
-    assert body["total"] == 0
-    assert body["items"] == []
-
-
-@pytest.mark.asyncio
-async def test_pause_audit_not_classified_as_auto_pause(
-    client, auth_headers, db_session, test_user
-):
-    db_session.add(
-        AuditLog(
-            user_id=test_user.id,
-            action="strategy_pause",
-            resource="strategy",
-            resource_id=1,
-            detail="手动暂停策略",
-            status="success",
-        )
-    )
     await db_session.commit()
 
     resp = await client.get("/api/v1/events?event_type=auto_pause", headers=auth_headers)
@@ -235,15 +183,17 @@ async def test_list_events_search(client, auth_headers, db_session, test_user):
 
 @pytest.mark.asyncio
 async def test_list_events_pagination(client, auth_headers, db_session, test_user):
+    template = await _make_template(db_session)
+    instance = await _make_instance(db_session, test_user.id, template.id, "分页实例")
     for index in range(12):
         db_session.add(
-            AuditLog(
-                user_id=test_user.id,
-                action="order_submit",
-                resource="order",
-                resource_id=index,
-                detail=f"event-{index}",
-                status="success",
+            Signal(
+                strategy_instance_id=instance.id,
+                symbol="BTCUSDT",
+                action="buy",
+                confidence=0.8,
+                status="pending",
+                reason=f"event-{index}",
                 created_at=datetime.now(UTC) - timedelta(minutes=index),
             )
         )

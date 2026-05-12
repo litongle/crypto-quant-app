@@ -205,15 +205,6 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
-    # 审计日志中间件 — P1-6
-    try:
-        from app.api.audit_middleware import AuditMiddleware
-
-        app.add_middleware(AuditMiddleware)
-        logger.info("审计日志中间件已注册")
-    except Exception as exc:
-        logger.warning("审计日志中间件注册失败: %s", exc)
-
     # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
     # 改为使用 Redis 存储，支持多进程/多实例且有过期时间
     market_rate_limit = 60  # 每分钟请求上限
