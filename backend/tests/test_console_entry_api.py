@@ -1,76 +1,9 @@
-import base64
-import hashlib
-import hmac
-import struct
-import time
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.trade_schemas import TradingSymbolRulesSchema
 from app.models.exchange import ExchangeAccount
-
-
-def make_totp_code(
-    secret: str, timestamp: int | None = None, digits: int = 6, period: int = 30
-) -> str:
-    counter = int((timestamp or time.time()) // period)
-    key = base64.b32decode(secret, casefold=True)
-    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
-    offset = digest[-1] & 0x0F
-    code = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
-    return str(code % (10**digits)).zfill(digits)
-
-
-@pytest.mark.asyncio
-async def test_totp_setup_verify_and_login_flow(
-    client: AsyncClient,
-    auth_headers,
-    test_user,
-):
-    setup_resp = await client.post("/api/v1/auth/2fa/setup", headers=auth_headers)
-    assert setup_resp.status_code == 200, setup_resp.text
-    setup_data = setup_resp.json()["data"]
-    assert setup_data["secret"]
-    assert setup_data["uri"].startswith("otpauth://")
-
-    status_resp = await client.post("/api/v1/auth/2fa/status", headers=auth_headers)
-    assert status_resp.status_code == 200, status_resp.text
-    status_data = status_resp.json()["data"]
-    assert status_data["enabled"] is True
-    assert status_data["verified"] is False
-    assert status_data["has_2fa"] is False
-
-    code = make_totp_code(setup_data["secret"])
-    verify_resp = await client.post(
-        "/api/v1/auth/2fa/verify",
-        headers=auth_headers,
-        json={"code": code},
-    )
-    assert verify_resp.status_code == 200, verify_resp.text
-
-    login_resp = await client.post(
-        "/api/v1/auth/login",
-        data={"username": test_user.email, "password": "testpass123"},
-    )
-    assert login_resp.status_code == 200, login_resp.text
-    login_data = login_resp.json()["data"]
-    assert login_data["requires_2fa"] is True
-    assert login_data["access_token"] == ""
-
-    login_2fa_resp = await client.post(
-        "/api/v1/auth/login-2fa",
-        json={
-            "email": test_user.email,
-            "password": "testpass123",
-            "code": make_totp_code(setup_data["secret"]),
-        },
-    )
-    assert login_2fa_resp.status_code == 200, login_2fa_resp.text
-    login_2fa_data = login_2fa_resp.json()["data"]
-    assert login_2fa_data["access_token"]
-    assert login_2fa_data["refresh_token"]
 
 
 @pytest.mark.asyncio

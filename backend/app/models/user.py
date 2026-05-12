@@ -1,10 +1,10 @@
 """
-用户模型
+用户模型（单用户场景：实际只存在 user_id=1 的 admin）。
 """
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, String, func
+from sqlalchemy import DateTime, Enum, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -27,18 +27,6 @@ class User(Base):
         Enum("conservative", "moderate", "aggressive", name="risk_level"),
         default="moderate",
     )
-    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-
-    # TOTP 双因素认证 — P1-5
-    totp_secret: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="加密存储的TOTP密钥"
-    )
-    totp_enabled: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0", comment="是否启用2FA"
-    )
-    totp_verified: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0", comment="2FA是否已验证（防止设置一半）"
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -49,14 +37,8 @@ class User(Base):
         onupdate=func.now(),
     )
 
-    # 关系
     accounts = relationship("ExchangeAccount", back_populates="user", lazy="selectin")
     strategies = relationship("StrategyInstance", back_populates="user", lazy="selectin")
-
-    @property
-    def has_2fa(self) -> bool:
-        """是否完整开启了2FA"""
-        return bool(self.totp_enabled and self.totp_verified)
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
