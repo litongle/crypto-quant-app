@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import asset, auth, backtest, events, market, orders, strategies, ws
+from app.api.v1 import (
+    asset,
+    auth,
+    backtest,
+    events,
+    market,
+    orders,
+    settings,
+    strategies,
+    ws,
+)
 
 api_router = APIRouter()
 
@@ -26,6 +36,9 @@ api_router.include_router(orders.router, prefix="/trading", tags=["交易"])
 
 # 事件流
 api_router.include_router(events.router, prefix="/events", tags=["事件"])
+
+# 运行时设置（通知通道 / SMTP / 风控阈值）
+api_router.include_router(settings.router)
 
 # WebSocket 行情推送（不走 /api/v1 前缀，直接 /ws/）
 api_router.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
