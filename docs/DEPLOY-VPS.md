@@ -164,3 +164,53 @@ asyncio.run(notify_risk_alert(
 ```
 
 手机 Telegram 应该秒收到。收不到 → 检查 token / chat_id 是否填错、bot 是否被你 Start 过。
+
+---
+
+## 附录：配置邮箱告警（5 分钟）
+
+> 国内 VPS 无梯子时的兜底通道。可与 Telegram 同时启用，互相不冲突。
+> 密码用「邮箱的 SMTP 授权码」**不是登录密码**。
+
+### 主流邮箱 SMTP 参数
+
+| 邮箱 | SMTP_HOST | 端口 | SMTP_USE_TLS | 授权码获取 |
+|---|---|---|---|---|
+| QQ 邮箱 | `smtp.qq.com` | 465 | `true` | 设置 → 账号 → POP3/SMTP → 开启 → 生成授权码 |
+| 网易 163 | `smtp.163.com` | 465 | `true` | 设置 → POP3/SMTP/IMAP → 开启 → 客户端授权密码 |
+| Gmail | `smtp.gmail.com` | 465 | `true` | Google 账号 → 安全性 → 应用专用密码（需先开 2FA） |
+| 自建/企业 | 看自家邮箱配置 | 通常 465 或 587 | 465=true / 587=false | — |
+
+### 配置步骤
+
+1. 按上表去邮箱后台开 SMTP 服务，拿到**授权码**（不是登录密码）
+2. 编辑 `backend/.env`：
+   ```bash
+   SMTP_HOST=smtp.qq.com
+   SMTP_PORT=465
+   SMTP_USERNAME=your_account@qq.com
+   SMTP_PASSWORD=auth_code_from_step_1
+   SMTP_FROM=                              # 留空则用 SMTP_USERNAME
+   SMTP_TO=your_personal@example.com       # 收件人，发到自己就行
+   SMTP_USE_TLS=true
+   ```
+3. 重启：`docker compose restart backend`
+4. 测试（同 Telegram 那条命令，邮箱与 Telegram 共用同一发送出口）：
+   ```bash
+   docker compose exec backend python -c "
+   import asyncio
+   from app.services.notification_service import notify_risk_alert
+   asyncio.run(notify_risk_alert(
+       alert_type='测试',
+       message='如果你收到这封邮件 = SMTP 配置成功',
+       metrics={'source': 'manual_test'},
+   ))
+   "
+   ```
+5. 几秒内邮箱应收到主题为 `[CryptoQuant] 风控告警 | 测试` 的邮件。
+
+### 排错
+
+- **连接被拒** → 端口/SSL 不对：QQ/163 用 465 + `SMTP_USE_TLS=true`；某些企业邮箱用 587 + `SMTP_USE_TLS=false`
+- **535 认证失败** → 密码用了登录密码而非授权码；或邮箱后台 SMTP 未开启
+- **邮件没到/进垃圾箱** → 发件人是 QQ 邮箱时，建议把 `SMTP_TO` 加入收件方白名单，避免被识别为陌生邮件

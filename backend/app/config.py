@@ -59,16 +59,25 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:8000,http://localhost:8000"
 
-    # 通知服务 — P0-1
+    # 告警通道 — Telegram
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+
+    # 告警通道 — 邮箱 SMTP（任一字段为空则不启用邮箱通道）
+    smtp_host: str | None = None
+    smtp_port: int = 465
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None  # 发件人地址，未填则用 smtp_username
+    smtp_to: str | None = None  # 收件人地址（单地址）
+    smtp_use_tls: bool = True  # 465=SSL（推荐），587=STARTTLS（设 False 用 STARTTLS）
+
     # 自停 / 异常告警 (auto-pause v1)
     auto_pause_consecutive_errors: int = 5
     auto_pause_consecutive_order_failures: int = 3
     auto_pause_heartbeat_multiplier: int = 5
     auto_pause_heartbeat_min_seconds: int = 300
     auto_pause_watchdog_interval_seconds: int = 30
-    wecom_webhook_url: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:

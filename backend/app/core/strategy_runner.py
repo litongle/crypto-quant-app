@@ -739,7 +739,7 @@ class StrategyRunner:
         except Exception as exc:
             logger.debug("[StrategyRunner] WS 推送信号失败: %s", exc)
 
-        # ③ 推送通知（Telegram/企微）— P0-1: 信号通知系统
+        # ③ 推送通知（Telegram / 邮箱）
         try:
             from app.services.notification_service import notify_signal
 

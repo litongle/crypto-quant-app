@@ -2,8 +2,8 @@
 通知服务 - 统一通知出口
 
 支持渠道:
-- Telegram Bot
-- 企微 Webhook
+- Telegram Bot（即时推送，需翻墙）
+- 邮箱 SMTP（国内通用兜底，QQ/163/Gmail 均可）
 
 通知类型:
 - 策略信号 (signal)
@@ -15,10 +15,13 @@
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
+from email.message import EmailMessage
 from typing import Literal
 
+import aiosmtplib
 import httpx
 
 from app.config import get_settings
@@ -204,7 +207,7 @@ class NotificationService:
 
     async def _send(self, title: str, message: str, notification_type: NotificationType) -> dict:
         """发送通知到所有已配置的渠道"""
-        results = {"telegram": False, "wecom": False, "errors": []}
+        results = {"telegram": False, "email": False, "errors": []}
 
         # Telegram
         telegram_bot_token = getattr(self._settings, "telegram_bot_token", None)
@@ -218,19 +221,22 @@ class NotificationService:
                 results["errors"].append(f"Telegram: {exc}")
                 logger.warning("[Notification] Telegram 发送失败: %s", exc)
 
-        # 企微 Webhook
-        wecom_webhook_url = getattr(self._settings, "wecom_webhook_url", None)
-        if wecom_webhook_url:
+        # 邮箱 SMTP
+        smtp_host = getattr(self._settings, "smtp_host", None)
+        smtp_username = getattr(self._settings, "smtp_username", None)
+        smtp_password = getattr(self._settings, "smtp_password", None)
+        smtp_to = getattr(self._settings, "smtp_to", None)
+        if smtp_host and smtp_username and smtp_password and smtp_to:
             try:
-                await self._send_wecom(title, message, wecom_webhook_url)
-                results["wecom"] = True
-                logger.info("[Notification] 企微通知发送成功: %s", title)
+                await self._send_email(title, message)
+                results["email"] = True
+                logger.info("[Notification] 邮件通知发送成功: %s", title)
             except Exception as exc:
-                results["errors"].append(f"WeCom: {exc}")
-                logger.warning("[Notification] 企微发送失败: %s", exc)
+                results["errors"].append(f"Email: {exc}")
+                logger.warning("[Notification] 邮件发送失败: %s", exc)
 
         # 如果没有配置任何渠道，记录日志
-        if not results["telegram"] and not results["wecom"]:
+        if not results["telegram"] and not results["email"]:
             logger.info("[Notification] 未配置通知渠道，仅记录日志: %s - %s", title, message[:200])
 
         return results
@@ -251,24 +257,32 @@ class NotificationService:
         if not data.get("ok"):
             raise RuntimeError(f"Telegram API error: {data.get('description')}")
 
-    async def _send_wecom(self, title: str, message: str, webhook_url: str) -> None:
-        """发送企微 Webhook 消息"""
-        client = await self._get_client()
-        # 企微不支持 HTML，转换为 markdown
-        plain_text = message.replace("<b>", "**").replace("</b>", "**")
-        plain_text = plain_text.replace("<i>", "").replace("</i>", "")
-
-        payload = {
-            "msgtype": "markdown",
-            "markdown": {
-                "content": f"**{title}**\n\n{plain_text}",
-            },
-        }
-        resp = await client.post(webhook_url, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("errcode") != 0:
-            raise RuntimeError(f"WeCom API error: {data.get('errmsg')}")
+    async def _send_email(self, title: str, message: str) -> None:
+        """发送告警邮件（同时提供 HTML 与纯文本两种格式，由邮件客户端自选）"""
+        settings = self._settings
+        from_addr = getattr(settings, "smtp_from", None) or settings.smtp_username
+        msg = EmailMessage()
+        msg["Subject"] = f"[CryptoQuant] {title}"
+        msg["From"] = from_addr
+        msg["To"] = settings.smtp_to
+        # 纯文本（剥 HTML 标签）
+        plain = re.sub(r"<[^>]+>", "", message)
+        msg.set_content(plain)
+        # HTML 备用视图
+        msg.add_alternative(
+            f"<h3>{title}</h3><div>{message.replace(chr(10), '<br>')}</div>",
+            subtype="html",
+        )
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            use_tls=settings.smtp_use_tls,
+            start_tls=not settings.smtp_use_tls,
+            timeout=10,
+        )
 
 
 # 全局单例
