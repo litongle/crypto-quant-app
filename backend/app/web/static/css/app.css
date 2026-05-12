@@ -146,7 +146,7 @@
   --cq-bg-l2:  #FFFFFF;
   --cq-bg-l3:  #F0F1F4;
   --cq-bg-l4:  #EAECEF;
-  --cq-bg-l5:  #F5F6F8;
+  --cq-bg-l5:  #ECEEF2;  /* input 凹陷感：跟 bg-l2 白色对比要够 */
 
   --cq-border-default: rgba(28,31,35,0.08);
   --cq-border-hover:   rgba(0,100,250,0.32);
@@ -3154,5 +3154,19 @@ select.cq-input:not([multiple]) {
 .cq-settings-error {
   color: var(--cq-color-loss);
   font-size: var(--cq-text-sm);
+}
+
+/* Suppress Chrome/Edge autofill yellow/blue overlay on all inputs.
+   Use inset box-shadow trick because background can't be overridden. */
+.cq-settings-form input:-webkit-autofill,
+.cq-settings-form input:-webkit-autofill:hover,
+.cq-settings-form input:-webkit-autofill:focus,
+.cq-input:-webkit-autofill,
+.cq-input:-webkit-autofill:hover,
+.cq-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--cq-bg-l5) inset !important;
+  -webkit-text-fill-color: var(--cq-text-primary) !important;
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--cq-text-primary);
 }
 
