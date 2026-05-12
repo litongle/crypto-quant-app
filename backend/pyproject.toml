@@ -32,6 +32,9 @@ dependencies = [
     "bcrypt>=4.0.1,<4.1.0",
     "python-multipart>=0.0.6,<0.0.7",
 
+    # Crypto (运行时配置敏感字段加密)
+    "cryptography>=42.0.0,<46.0.0",
+
     # HTTP Client
     "httpx>=0.26.0,<0.28.0",
 
