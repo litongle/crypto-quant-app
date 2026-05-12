@@ -133,6 +133,19 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
     _set_test_engine(None)
 
 
+# ==================== 引擎注入 ====================
+
+
+@pytest_asyncio.fixture
+async def test_engine_injection(engine):
+    """注入测试 engine 到全局 session_maker，让无 HTTP client 的测试也能走测试 DB"""
+    from app.database import _set_test_engine
+
+    _set_test_engine(engine)
+    yield engine
+    _set_test_engine(None)
+
+
 # ==================== 用户 Fixtures ====================
 
 

@@ -23,6 +23,58 @@ from app.core.exceptions import AppException
 logger = logging.getLogger(__name__)
 
 
+async def seed_admin() -> None:
+    """启动时确保单一 admin 存在；幂等。
+
+    - users 表为空 → 用 .env 中的 ADMIN_USERNAME + ADMIN_PASSWORD_HASH 创建。
+    - 已存在 admin → 同步 email/hash（支持改 .env 后重启即生效）。
+    - ADMIN_PASSWORD_HASH 为空 → 仅警告，不创建（避免裸奔）。
+    """
+    from sqlalchemy import select
+
+    from app.config import get_settings
+    from app.database import get_session_maker
+    from app.models.user import User
+
+    settings = get_settings()
+    if not settings.admin_password_hash:
+        logger.warning(
+            "ADMIN_PASSWORD_HASH 未设置；请在 .env 配置后重启。"
+            "（运行 `docker compose run --rm backend python -m scripts.generate_admin_hash` 生成）"
+        )
+        return
+
+    session_maker = await get_session_maker()
+    async with session_maker() as session:
+        result = await session.execute(select(User).limit(2))
+        users = result.scalars().all()
+        if len(users) > 1:
+            logger.warning("users 表有 %d 条记录，本系统设计为单用户；保留第一条。", len(users))
+
+        if not users:
+            admin = User(
+                email=settings.admin_username,
+                hashed_password=settings.admin_password_hash,
+                name="admin",
+                status="active",
+            )
+            session.add(admin)
+            await session.commit()
+            logger.info("已创建 admin: %s", settings.admin_username)
+        else:
+            admin = users[0]
+            changed = False
+            if admin.email != settings.admin_username:
+                admin.email = settings.admin_username
+                changed = True
+            if admin.hashed_password != settings.admin_password_hash:
+                admin.hashed_password = settings.admin_password_hash
+                changed = True
+            if changed:
+                await session.commit()
+                logger.info("已同步 admin 凭证: %s", settings.admin_username)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -30,18 +82,21 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment
     )
-    if settings.setup_required:
-        logger.info("⚠️ 首次运行，请访问 /web/setup 完成安装向导")
 
-    # setup 完成后先确保数据库 schema 存在，再启动依赖这些表的服务。
-    if not settings.setup_required:
-        try:
-            from app.database import init_db
+    # 数据库 schema
+    try:
+        from app.database import init_db
 
-            await init_db()
-            logger.info("数据库表结构已就绪")
-        except Exception as exc:
-            logger.warning("数据库初始化失败: %s", exc)
+        await init_db()
+        logger.info("数据库表结构已就绪")
+    except Exception as exc:
+        logger.warning("数据库初始化失败: %s", exc)
+
+    # 种子 admin（必须在 init_db 之后）
+    try:
+        await seed_admin()
+    except Exception as exc:
+        logger.warning("admin 种子失败: %s", exc)
 
     # 启动 WebSocket 行情代理
     try:
@@ -51,15 +106,14 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("WebSocket 代理初始化失败（不影响 REST API）: %s", exc)
 
-    # 自动 seed 策略模板（首次启动时）
-    if not settings.setup_required:
-        try:
-            from app.seed_data import init_strategy_templates
+    # 自动 seed 策略模板
+    try:
+        from app.seed_data import init_strategy_templates
 
-            await init_strategy_templates()
-            logger.info("策略模板数据已就绪")
-        except Exception as exc:
-            logger.warning("策略模板初始化失败: %s", exc)
+        await init_strategy_templates()
+        logger.info("策略模板数据已就绪")
+    except Exception as exc:
+        logger.warning("策略模板初始化失败: %s", exc)
 
     # 启动策略运行器
     try:
@@ -289,11 +343,9 @@ def create_app() -> FastAPI:
             content={"status": "healthy" if is_healthy else "degraded", **checks},
         )
 
-    # 根路径：根据安装状态跳转
+    # 根路径
     @app.get("/")
     async def root():
-        if get_settings().setup_required:
-            return RedirectResponse(url="/web/setup")
         return RedirectResponse(url="/web/")
 
     # 注册路由
