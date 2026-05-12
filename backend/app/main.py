@@ -98,6 +98,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("admin 种子失败: %s", exc)
 
+    # 把 .env 中的运行时配置灌入 runtime_config 表（已存在的 key 不覆盖）
+    try:
+        from app.database import get_session_maker
+        from app.services.runtime_config_service import bootstrap_runtime_config_from_env
+
+        session_maker = await get_session_maker()
+        async with session_maker() as session:
+            await bootstrap_runtime_config_from_env(session)
+    except Exception as exc:
+        logger.warning("runtime_config bootstrap 失败: %s", exc)
+
     # 启动 WebSocket 行情代理
     try:
         from app.api.v1.ws_market import init_ws_proxies
