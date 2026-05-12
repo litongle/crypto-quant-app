@@ -32,15 +32,19 @@ def reset_runner_singleton():
 @pytest.fixture
 def fake_settings(monkeypatch):
     """注入测试专用阈值 — 让计数器更快触发"""
-    settings = MagicMock(
-        auto_pause_consecutive_errors=5,
-        auto_pause_consecutive_order_failures=3,
-        auto_pause_heartbeat_multiplier=5,
-        auto_pause_heartbeat_min_seconds=300,
-        auto_pause_watchdog_interval_seconds=1,
-    )
-    monkeypatch.setattr("app.core.strategy_runner.get_settings", lambda: settings)
-    return settings
+    config = {
+        "consecutive_errors": 5,
+        "consecutive_order_failures": 3,
+        "heartbeat_multiplier": 5,
+        "heartbeat_min_seconds": 300,
+        "watchdog_interval_seconds": 1,
+    }
+
+    async def fake_read(self):
+        return config
+
+    monkeypatch.setattr(StrategyRunner, "_read_auto_pause_config", fake_read)
+    return config
 
 
 def _make_config(**params) -> StrategyConfig:

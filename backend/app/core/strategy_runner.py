@@ -30,7 +30,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from app.config import get_settings
 from app.core.instrument_resolution import adapter_symbol_for_klines, resolve_execution_context
 from app.core.strategy_engine import (
     BaseStrategy,
@@ -55,6 +54,52 @@ _KLINE_INTERVAL_TO_POLL_SECONDS = {
     "4h": 300,
     "1d": 300,
 }
+
+
+_AUTO_PAUSE_DEFAULTS = {
+    "consecutive_errors": 5,
+    "consecutive_order_failures": 3,
+    "heartbeat_multiplier": 5,
+    "heartbeat_min_seconds": 300,
+    "watchdog_interval_seconds": 30,
+}
+
+
+async def _get_auto_pause_config(session) -> dict[str, int]:
+    """从 runtime_config 拉取风控阈值；缺失字段回退到 _AUTO_PAUSE_DEFAULTS。
+
+    每次需要时调用，让前端保存立即生效（最长延迟 = watchdog 周期）。
+    """
+    from app.services.runtime_config_service import RuntimeConfigService
+
+    cfg = await RuntimeConfigService(session).get_many(
+        [
+            "AUTO_PAUSE_CONSECUTIVE_ERRORS",
+            "AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES",
+            "AUTO_PAUSE_HEARTBEAT_MULTIPLIER",
+            "AUTO_PAUSE_HEARTBEAT_MIN_SECONDS",
+            "AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS",
+        ]
+    )
+    return {
+        "consecutive_errors": int(
+            cfg["AUTO_PAUSE_CONSECUTIVE_ERRORS"] or _AUTO_PAUSE_DEFAULTS["consecutive_errors"]
+        ),
+        "consecutive_order_failures": int(
+            cfg["AUTO_PAUSE_CONSECUTIVE_ORDER_FAILURES"]
+            or _AUTO_PAUSE_DEFAULTS["consecutive_order_failures"]
+        ),
+        "heartbeat_multiplier": int(
+            cfg["AUTO_PAUSE_HEARTBEAT_MULTIPLIER"] or _AUTO_PAUSE_DEFAULTS["heartbeat_multiplier"]
+        ),
+        "heartbeat_min_seconds": int(
+            cfg["AUTO_PAUSE_HEARTBEAT_MIN_SECONDS"] or _AUTO_PAUSE_DEFAULTS["heartbeat_min_seconds"]
+        ),
+        "watchdog_interval_seconds": int(
+            cfg["AUTO_PAUSE_WATCHDOG_INTERVAL_SECONDS"]
+            or _AUTO_PAUSE_DEFAULTS["watchdog_interval_seconds"]
+        ),
+    }
 
 
 def _normalize_kline_timestamp(value: Any) -> int:
@@ -159,6 +204,13 @@ class StrategyRunner:
         self._consecutive_order_failures: dict[int, int] = {}
         self._poll_interval: dict[int, int] = {}  # 心跳超时阈值计算用
         self._watchdog_task: asyncio.Task | None = None
+
+    async def _read_auto_pause_config(self) -> dict[str, int]:
+        """从 runtime_config 拉取风控阈值，缺失字段回退默认值。"""
+        if self._session_maker is None:
+            return dict(_AUTO_PAUSE_DEFAULTS)
+        async with self._session_maker() as session:
+            return await _get_auto_pause_config(session)
 
     async def start(self, session_maker) -> None:
         """启动运行器，加载所有 running 状态的策略实例"""
@@ -400,10 +452,11 @@ class StrategyRunner:
 
         超时阈值 = max(poll_interval × multiplier, min_seconds)
         """
-        settings = get_settings()
         while self._running:
             try:
-                await asyncio.sleep(settings.auto_pause_watchdog_interval_seconds)
+                # 每轮重读 runtime_config，让前端改的阈值即时生效
+                cfg = await self._read_auto_pause_config()
+                await asyncio.sleep(cfg["watchdog_interval_seconds"])
                 if not self._running or not self._session_maker:
                     continue
 
@@ -422,8 +475,8 @@ class StrategyRunner:
 
                     interval = self._poll_interval.get(inst.id, 60)
                     threshold_seconds = max(
-                        interval * settings.auto_pause_heartbeat_multiplier,
-                        settings.auto_pause_heartbeat_min_seconds,
+                        interval * cfg["heartbeat_multiplier"],
+                        cfg["heartbeat_min_seconds"],
                     )
                     age_seconds = (now - inst.last_run_at).total_seconds()
                     if age_seconds > threshold_seconds:
@@ -569,7 +622,8 @@ class StrategyRunner:
                 self._consecutive_errors[instance_id] = (
                     self._consecutive_errors.get(instance_id, 0) + 1
                 )
-                threshold = get_settings().auto_pause_consecutive_errors
+                cfg = await self._read_auto_pause_config()
+                threshold = cfg["consecutive_errors"]
                 if self._consecutive_errors[instance_id] >= threshold:
                     await self._auto_pause(
                         instance_id,
@@ -989,7 +1043,7 @@ class StrategyRunner:
             self._consecutive_order_failures[instance_id] = (
                 self._consecutive_order_failures.get(instance_id, 0) + 1
             )
-            threshold = get_settings().auto_pause_consecutive_order_failures
+            threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
             if self._consecutive_order_failures[instance_id] >= threshold:
                 await self._auto_pause(
                     instance_id,
@@ -1025,7 +1079,7 @@ class StrategyRunner:
             self._consecutive_order_failures[instance_id] = (
                 self._consecutive_order_failures.get(instance_id, 0) + 1
             )
-            threshold = get_settings().auto_pause_consecutive_order_failures
+            threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
             if self._consecutive_order_failures[instance_id] >= threshold:
                 await self._auto_pause(
                     instance_id,
@@ -1112,7 +1166,7 @@ class StrategyRunner:
             self._consecutive_order_failures[instance_id] = (
                 self._consecutive_order_failures.get(instance_id, 0) + 1
             )
-            threshold = get_settings().auto_pause_consecutive_order_failures
+            threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
             if self._consecutive_order_failures[instance_id] >= threshold:
                 await self._auto_pause(
                     instance_id,
@@ -1512,7 +1566,7 @@ class StrategyRunner:
                     self._consecutive_order_failures[instance_id] = (
                         self._consecutive_order_failures.get(instance_id, 0) + 1
                     )
-                    threshold = get_settings().auto_pause_consecutive_order_failures
+                    threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
                     if self._consecutive_order_failures[instance_id] >= threshold:
                         await self._auto_pause(
                             instance_id,
@@ -1542,7 +1596,7 @@ class StrategyRunner:
                 self._consecutive_order_failures[instance_id] = (
                     self._consecutive_order_failures.get(instance_id, 0) + 1
                 )
-                threshold = get_settings().auto_pause_consecutive_order_failures
+                threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
                 if self._consecutive_order_failures[instance_id] >= threshold:
                     await self._auto_pause(
                         instance_id,
@@ -1573,7 +1627,7 @@ class StrategyRunner:
                 self._consecutive_order_failures[instance_id] = (
                     self._consecutive_order_failures.get(instance_id, 0) + 1
                 )
-                threshold = get_settings().auto_pause_consecutive_order_failures
+                threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
                 if self._consecutive_order_failures[instance_id] >= threshold:
                     await self._auto_pause(
                         instance_id,
@@ -1629,7 +1683,7 @@ class StrategyRunner:
             self._consecutive_order_failures[instance_id] = (
                 self._consecutive_order_failures.get(instance_id, 0) + 1
             )
-            threshold = get_settings().auto_pause_consecutive_order_failures
+            threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
             if self._consecutive_order_failures[instance_id] >= threshold:
                 await self._auto_pause(
                     instance_id,
