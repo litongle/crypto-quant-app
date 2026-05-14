@@ -393,6 +393,36 @@
       </div>
     </aside>
 
+    <aside class="cq-drawer cq-drawer--right" id="instance-logs-drawer" hidden>
+      <div class="cq-drawer__overlay" onclick="closeInstanceLogsDrawer()"></div>
+      <div class="cq-drawer__panel">
+        <div class="cq-drawer__header">
+          <span id="instance-logs-drawer-title">日志</span>
+          <button class="cq-icon-btn" onclick="closeInstanceLogsDrawer()" aria-label="关闭">✕</button>
+        </div>
+        <div class="cq-drawer__body">
+          <div class="cq-event-filters" style="margin-bottom:var(--cq-space-3);">
+            <select id="instance-logs-filter-type" class="cq-input" aria-label="事件类型筛选" onchange="reloadInstanceLogs()">
+              <option value="">全部类型</option>
+              <option value="signal">信号</option>
+              <option value="order">订单</option>
+              <option value="risk">风险</option>
+              <option value="auto_pause">自停</option>
+              <option value="error">错误</option>
+            </select>
+            <select id="instance-logs-filter-since" class="cq-input" aria-label="时间范围筛选" onchange="reloadInstanceLogs()">
+              <option value="1h">最近 1 小时</option>
+              <option value="24h" selected>最近 24 小时</option>
+              <option value="7d">最近 7 天</option>
+              <option value="30d">最近 30 天</option>
+            </select>
+          </div>
+          <div id="instance-logs-list"></div>
+          <div id="instance-logs-pagination" style="margin-top:var(--cq-space-3);"></div>
+        </div>
+      </div>
+    </aside>
+
   </main>
 </div>
 
@@ -470,13 +500,14 @@
 <script src="/web/static/js/dashboard.js?v=2026-05-14d"></script>
 <script src="/web/static/js/kline.js?v=2026-05-13a"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-14d"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-14g"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-14h"></script>
 <script src="/web/static/js/backtest.js?v=2026-05-14a"></script>
 <script src="/web/static/js/accounts.js?v=2026-05-14b"></script>
 <script src="/web/static/js/paper.js?v=2026-05-14c"></script>
 <script src="/web/static/js/settings-drawer.js?v=2026-05-14b"></script>
-<script src="/web/static/js/instance-drawer.js?v=2026-05-14f"></script>
+<script src="/web/static/js/instance-drawer.js?v=2026-05-14g"></script>
 <script src="/web/static/js/events.js?v=2026-05-14b"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-14a"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;

@@ -188,9 +188,10 @@ async function instanceDrawerStop() {
 
 function instanceDrawerViewLogs() {
   if (!instanceDrawerState.instance) return;
-  const id = instanceDrawerState.instance.id;
+  const inst = instanceDrawerState.instance;
+  const name = inst.name || inst.templateName || `实例 #${inst.id}`;
   closeInstanceDrawer();
-  viewInstanceLogs(id);
+  openInstanceLogsDrawer(inst.id, name);
 }
 
 function formatEventDateTime(value) {
