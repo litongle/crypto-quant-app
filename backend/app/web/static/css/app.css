@@ -2619,7 +2619,8 @@ select.cq-input:not([multiple]) {
 .cq-drawer {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* 高于 .cq-header 的 z-index:100，否则 sticky header 会盖住 drawer 顶部 64px */
+  z-index: 150;
 }
 
 .cq-drawer__overlay {
@@ -2860,6 +2861,10 @@ select.cq-input:not([multiple]) {
   .cq-cond-indicator, .cq-cond-operator, .cq-cond-value { width: 100%; }
   .cq-cond-remove { margin-left: 0; align-self: flex-end; }
   .cq-rule-risk-grid { grid-template-columns: 1fr; }
+
+  /* Drawer 在窄/半屏下：上限 520px，留至少 64px overlay 让用户能瞥到背景 +
+     点空白关闭；desktop 480px 固定宽在 700px 窗口下既挡左侧又散，半屏更糟 */
+  .cq-drawer__panel { width: min(520px, calc(100vw - 64px)); max-width: none; }
 }
 
 /* Small phone (≤480px) — tight spacing only */

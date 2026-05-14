@@ -1,5 +1,5 @@
 // Alpha-7 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v43';
+const CACHE_NAME = 'cq-sw-v46';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
