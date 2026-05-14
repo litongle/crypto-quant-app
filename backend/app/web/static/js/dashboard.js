@@ -90,7 +90,7 @@ function renderInstanceList(instances) {
             <span class="cq-instance-row__status cq-instance-row__status--${escapeHtml(item.status)}"></span>
             <span class="cq-instance-row__main">
               <span class="cq-instance-row__title">${escapeHtml(item.name || item.templateName || `实例 #${item.id}`)}</span>
-              <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(item.status)}</span>
+              <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(getInstanceStatusLabel(item.status))}</span>
             </span>
             <span class="cq-instance-row__metric">${formatSignedPnl(item.totalPnl)}</span>
             <span class="cq-instance-row__metric">${item.runtimeActive ? '在线' : '闲置'}</span>

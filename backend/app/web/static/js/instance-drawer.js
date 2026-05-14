@@ -74,7 +74,7 @@ async function loadInstanceDrawerKline() {
 function renderInstanceSummary(instance) {
   return `
     <div class="cq-instance-summary__grid">
-      <div><span>状态</span><strong>${escapeHtml(instance.status || '--')}</strong></div>
+      <div><span>状态</span><strong>${escapeHtml(getInstanceStatusLabel(instance.status))}</strong></div>
       <div><span>交易对</span><strong>${escapeHtml(instance.symbol || '--')}</strong></div>
       <div><span>盈亏</span><strong>${formatSignedPnl(instance.totalPnl)}</strong></div>
       <div><span>启动时间</span><strong>${escapeHtml(instance.lastStartedAt ? formatEventDateTime(instance.lastStartedAt) : '--')}</strong></div>
@@ -120,7 +120,7 @@ function renderInstancePositions(positions) {
             ${positions.map((position) => `
               <tr>
                 <td>${escapeHtml(position.symbol)}</td>
-                <td>${escapeHtml(position.side || '--')}</td>
+                <td>${escapeHtml(getOrderSideLabel(position.side))}</td>
                 <td class="cq-num">${escapeHtml(position.quantity)}</td>
                 <td class="cq-num">${escapeHtml(position.entryPrice ?? position.entry_price ?? '--')}</td>
                 <td class="cq-num">${escapeHtml(position.currentPrice ?? position.current_price ?? '--')}</td>
@@ -143,10 +143,10 @@ function renderInstanceOrders(events) {
             ${events.map((item) => `
               <tr>
                 <td>${escapeHtml(item.createdAt ? formatEventDateTime(item.createdAt) : '--')}</td>
-                <td>${escapeHtml(item.side || '--')}</td>
+                <td>${escapeHtml(getOrderSideLabel(item.side))}</td>
                 <td class="cq-num">${escapeHtml(item.filledQuantity || item.quantity || '--')}</td>
                 <td class="cq-num">${escapeHtml(item.avgFillPrice || item.price || '--')}</td>
-                <td>${escapeHtml(item.status || '--')}</td>
+                <td>${escapeHtml(getOrderStatusLabel(item.status))}</td>
               </tr>
             `).join('')}
           </tbody>

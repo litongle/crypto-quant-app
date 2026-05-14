@@ -53,6 +53,23 @@ function getExchangeLabel(exchange) {
   return { binance: '币安', okx: '欧易', htx: '火币', huobi: '火币' }[exchange] || exchange || '-';
 }
 
+function getInstanceStatusLabel(status) {
+  return { running: '运行中', paused: '已暂停', stopped: '已停止', draft: '未启动', idle: '未运行' }[status] || status || '--';
+}
+
+function getOrderStatusLabel(status) {
+  return { pending: '待处理', submitted: '已提交', partial: '部分成交', filled: '已成交', cancelled: '已取消', rejected: '已拒绝' }[status] || status || '--';
+}
+
+function getOrderSideLabel(side) {
+  // 现货订单用 buy/sell；合约持仓用 long/short；两套都映射
+  return { buy: '买入', sell: '卖出', long: '多头', short: '空头' }[String(side || '').toLowerCase()] || side || '--';
+}
+
+function getEventTypeLabel(type) {
+  return { signal: '信号', order: '订单', risk: '风险', auto_pause: '自停', error: '错误' }[type] || type || '--';
+}
+
 function getStatusTag(status, instance = null) {
   if (status === 'running' && instance?.runtimeActive === false) {
     return '<span class="cq-tag cq-tag--warn">运行异常</span>';
@@ -586,7 +603,7 @@ function filterAccountsByExchange() {
 
   accountSelect.disabled = false;
   accountSelect.innerHTML = '<option value="">模拟模式(不下单)</option>'
-    + filtered.map(account => `<option value="${account.id}">${escapeHtml(account.account_name || account.exchange)} (${escapeHtml(account.exchange)})</option>`).join('');
+    + filtered.map(account => `<option value="${account.id}">${escapeHtml(account.account_name || getExchangeLabel(account.exchange))} (${escapeHtml(getExchangeLabel(account.exchange))})</option>`).join('');
 
   if (filtered.length === 0) {
     const opt = document.createElement('option');

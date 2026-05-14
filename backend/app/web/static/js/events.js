@@ -73,7 +73,7 @@ function renderEventsResults(items) {
       ${items.map((item) => `
         <button type="button" class="cq-event-table__row" onclick="${item.instance_id ? `openInstanceDrawer(${item.instance_id})` : 'void(0)'}">
           <span>${escapeHtml(formatEventDateTime(item.at))}</span>
-          <span>${escapeHtml(item.type)}</span>
+          <span>${escapeHtml(getEventTypeLabel(item.type))}</span>
           <span>${item.instance_id ? `#${escapeHtml(item.instance_id)}` : '--'}</span>
           <span>${escapeHtml(item.summary || '--')}</span>
         </button>
