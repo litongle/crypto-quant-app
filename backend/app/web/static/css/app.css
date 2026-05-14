@@ -1240,20 +1240,6 @@ select.cq-input:not([multiple]) {
   gap: var(--cq-space-3);
 }
 
-.cq-workbench-toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--cq-space-4);
-}
-
-.cq-workbench-toolbar__block {
-  padding: var(--cq-space-4);
-  border: 1px solid var(--cq-border-default);
-  border-radius: var(--cq-radius-lg);
-  background: var(--cq-bg-l2);
-}
-
-
 .cq-template-group {
   padding: var(--cq-space-3);
   border: 1px solid var(--cq-border-subtle);
@@ -2765,8 +2751,6 @@ select.cq-input:not([multiple]) {
     flex: 1 1 calc(33.333% - 8px);
     justify-content: center;
   }
-  .cq-workbench-toolbar { grid-template-columns: 1fr; }
-  .cq-workbench-toolbar__block { padding: var(--cq-space-4); }
   .cq-template-group__header {
     flex-direction: column;
     gap: 2px;
