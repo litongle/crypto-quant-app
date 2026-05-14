@@ -964,6 +964,28 @@ select.cq-input:not([multiple]) {
 .cq-input--error { border-color: var(--cq-color-loss); }
 .cq-input--error:focus { box-shadow: 0 0 0 2px var(--cq-color-loss-muted); }
 
+/* iOS Safari 把 input[type=date|time|datetime-local|month|week] 当 native atomic 控件渲染：
+   忽略 box-sizing:border-box / min-width:0，padding 算在 width 外，导致 width:100% 的 date
+   input 比父 cell 实际宽出左右 padding 总和，溢出 card。安卓 Chromium 没这个 quirk。
+   appearance:none 强制走通用 input 渲染路径，box-sizing 等 CSS 生效；点击仍弹 iOS native picker。
+   代价：iOS 显示 ISO 格式 (2025-05-15) 而非中文本地化 (2025年5月15日)。 */
+input[type="date"].cq-input,
+input[type="time"].cq-input,
+input[type="datetime-local"].cq-input,
+input[type="month"].cq-input,
+input[type="week"].cq-input {
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="date"].cq-input::-webkit-date-and-time-value,
+input[type="datetime-local"].cq-input::-webkit-date-and-time-value,
+input[type="time"].cq-input::-webkit-date-and-time-value,
+input[type="month"].cq-input::-webkit-date-and-time-value,
+input[type="week"].cq-input::-webkit-date-and-time-value {
+  text-align: left;
+  min-width: 0;
+}
+
 /* Label(配合 Input 使用) */
 .cq-label {
   display: block;
