@@ -188,11 +188,9 @@ async function instanceDrawerStop() {
 
 function instanceDrawerViewLogs() {
   if (!instanceDrawerState.instance) return;
-  if (typeof presetEventsFilters === 'function') {
-    presetEventsFilters({ instanceId: instanceDrawerState.instance.id });
-  }
+  const id = instanceDrawerState.instance.id;
   closeInstanceDrawer();
-  navigate('events');
+  viewInstanceLogs(id);
 }
 
 function formatEventDateTime(value) {

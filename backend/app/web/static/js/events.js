@@ -13,6 +13,13 @@ function presetEventsFilters({ instanceId = '' } = {}) {
   eventsPageState.page = 1;
 }
 
+// 跳到事件流并预设实例 id 过滤；策略卡片「日志」按钮、instance-drawer「查看完整日志」共用
+function viewInstanceLogs(instanceId) {
+  if (!instanceId) return;
+  presetEventsFilters({ instanceId });
+  navigate('events');
+}
+
 async function loadEventsPage() {
   syncEventsControls();
   await reloadEvents();
