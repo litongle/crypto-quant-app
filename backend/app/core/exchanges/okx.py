@@ -63,14 +63,19 @@ class OKXAdapter(BaseExchangeAdapter):
         self._time_synced = False
 
     def _to_inst_id(self, symbol: str) -> str:
-        if "-SWAP" in symbol.upper():
+        # 已经是 OKX 原生格式（BTC-USDT / BTC-USDT-SWAP）则幂等返回，
+        # 否则把 BTCUSDT 这种紧凑格式拆成 BTC-USDT。
+        # 没有这条 idempotent 分支时，BTC-USDT.endswith("USDT")=True 会被切成
+        # base="BTC-"，再拼成 "BTC--USDT" 双横杠，OKX 报 51001 instrument 不存在。
+        if "-" in symbol:
             return symbol.upper()
         stablecoins = ("USDT", "USDC", "BUSD")
+        upper = symbol.upper()
         for sc in stablecoins:
-            if symbol.endswith(sc):
-                base = symbol[: -len(sc)]
+            if upper.endswith(sc):
+                base = upper[: -len(sc)]
                 return f"{base}-{sc}"
-        return symbol
+        return upper
 
     @staticmethod
     def _is_perpetual_inst(inst_id: str) -> bool:
