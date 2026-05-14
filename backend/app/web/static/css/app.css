@@ -914,6 +914,10 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
   font-size: var(--cq-text-base);
   font-family: var(--cq-font-sans);
   width: 100%;
+  /* iOS Safari 对 input[type=date] 有 intrinsic min-content（中文 yyyy年m月d日 + native picker icon 实测 ~190px），
+     即使 width:100% + box-sizing:border-box 仍会撑大父 grid/flex cell 导致溢出。
+     min-width:0 强制 input 服从外层容器宽度。 */
+  min-width: 0;
   outline: none;
   transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
               box-shadow var(--cq-duration-fast) var(--cq-ease-default),
