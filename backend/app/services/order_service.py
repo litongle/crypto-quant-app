@@ -1013,13 +1013,14 @@ class OrderService:
             closing_position=position,
         )
 
-        # 计算盈亏
+        # 计算盈亏并回写到平仓订单（让绩效报告能基于 orders.pnl 统计）
         realized_pnl = Decimal("0")
         if order.avg_fill_price and position.entry_price:
             if position.side == "long":
                 realized_pnl = (order.avg_fill_price - position.entry_price) * position.quantity
             else:
                 realized_pnl = (position.entry_price - order.avg_fill_price) * position.quantity
+        order.pnl = realized_pnl
 
         # 在同一事务里更新策略实例：统计回写（total_trades / total_pnl / win_rate）
         # + 按需暂停。一次 commit 保证"仓位 closed / 统计 / 暂停状态"一致。

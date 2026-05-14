@@ -657,8 +657,22 @@ async def get_strategy_performance(
     # 计算绩效
     initial_capital = Decimal(str(instance.params.get("initial_capital", 100000)))
     report = PerformanceCalculator.from_order_models(orders, initial_capital)
+    payload = report.to_dict()
 
-    return APIResponse(data=report.to_dict())
+    # 历史 fallback：旧订单未填 orders.pnl（2026-05-14 之前 close_position 没回写 pnl
+    # 字段），导致 PerformanceCalculator 收到空 trades 列表 → 全部指标为 0。
+    # 此时退回 StrategyInstance 表已有的汇总字段，至少基础指标能反映真实交易。
+    # 高级指标（sharpe/max_drawdown/calmar 等）需要逐笔 pnl 序列，留 0 不可恢复。
+    if report.total_trades == 0 and (instance.total_trades or 0) > 0:
+        payload["total_trades"] = instance.total_trades
+        payload["total_pnl"] = str(instance.total_pnl or Decimal("0"))
+        payload["total_return_pct"] = str(instance.total_pnl_percent or Decimal("0"))
+        payload["win_rate"] = str(instance.win_rate or Decimal("0"))
+        wins = int(round(float(instance.win_rate or 0) * (instance.total_trades or 0) / 100))
+        payload["winning_trades"] = wins
+        payload["losing_trades"] = max(0, (instance.total_trades or 0) - wins)
+
+    return APIResponse(data=payload)
 
 
 # ============ 规则引擎 API ============

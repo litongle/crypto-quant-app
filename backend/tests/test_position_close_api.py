@@ -17,6 +17,7 @@ from httpx import AsyncClient
 from app.core.exchanges.base import OrderResult
 from app.core.security import hash_password
 from app.models.exchange import ExchangeAccount, Position
+from app.models.order import Order
 from app.models.strategy import StrategyInstance, StrategyTemplate
 from app.models.user import User
 from app.services.asset_service import AssetService
@@ -346,6 +347,19 @@ class TestClosePositionAPI:
         assert inst.total_trades == 1
         assert inst.total_pnl == Decimal("100.00000000")
         assert inst.win_rate == Decimal("100.00")  # 单笔盈利 → 100% 胜率
+
+        # 平仓订单的 pnl 字段必须同步落库（绩效报告依赖 orders.pnl 计算高级指标）
+        from sqlalchemy import select
+
+        closing_order = (
+            await db_session.execute(
+                select(Order)
+                .where(Order.strategy_instance_id == inst.id)
+                .order_by(Order.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        assert closing_order.pnl == Decimal("100.00000000")
 
     async def test_external_close_does_not_touch_stats(
         self,

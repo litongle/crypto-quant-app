@@ -1344,6 +1344,7 @@ function renderStrategyPerformance(perf) {
   if (!body) return;
 
   const totalReturn = Number(perf.total_return_pct ?? perf.totalReturn ?? perf.total_return ?? 0);
+  const totalPnl = Number(perf.total_pnl ?? perf.totalPnl ?? 0);
   const sharpeRatio = Number(perf.sharpe_ratio ?? perf.sharpeRatio ?? 0);
   const maxDrawdown = Number(perf.max_drawdown_pct ?? perf.maxDrawdown ?? perf.max_drawdown ?? 0);
   const winRate = Number(perf.win_rate ?? perf.winRate ?? 0);
@@ -1360,7 +1361,7 @@ function renderStrategyPerformance(perf) {
 
   body.innerHTML = `
     <div class="cq-grid-3" style="margin-bottom:var(--cq-space-4);">
-      <div class="stat-card"><div class="stat-label">总收益率</div><div class="stat-value cq-num" style="color:${totalReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div></div>
+      <div class="stat-card"><div class="stat-label">累计盈亏</div><div class="stat-value cq-num" style="color:${totalPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}</div><div class="stat-sub cq-num" style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:var(--cq-space-1);">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(4)}%</div></div>
       <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value cq-num" style="color:var(--cq-color-primary-hover);">${sharpeRatio.toFixed(2)}</div></div>
       <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value cq-num" style="color:var(--cq-color-loss);">${maxDrawdown.toFixed(2)}%</div></div>
       <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value cq-num" style="color:var(--cq-color-profit);">${winRate.toFixed(1)}%</div></div>
