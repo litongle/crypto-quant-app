@@ -1,6 +1,7 @@
 """Models package - 所有数据模型"""
 
 from app.models.backtest import BacktestResult
+from app.models.equity_snapshot import DailyEquitySnapshot
 from app.models.exchange import ExchangeAccount, Position
 from app.models.order import Order, Signal
 from app.models.runtime_config import RuntimeConfig
@@ -23,4 +24,6 @@ __all__ = [
     "BacktestResult",
     # 运行时配置
     "RuntimeConfig",
+    # 每日权益快照
+    "DailyEquitySnapshot",
 ]

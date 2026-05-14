@@ -181,6 +181,62 @@ class SyncScheduler:
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 持仓同步失败: %s", account.id, exc)
 
+        # 3. upsert 当天权益快照 — 每 5 分钟覆盖一次，最后一次同步即当日收盘
+        try:
+            await self._upsert_today_snapshot(session, account)
+        except Exception as exc:
+            logger.warning("[SyncScheduler] 账户 #%d 权益快照失败: %s", account.id, exc)
+
+    async def _upsert_today_snapshot(self, session, account) -> None:
+        """upsert 当天权益快照 (UNIQUE on account_id+snapshot_date)"""
+        from decimal import Decimal
+
+        from sqlalchemy import select
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from app.models.equity_snapshot import DailyEquitySnapshot
+        from app.models.exchange import Position
+
+        # 计算持仓估值 = sum(qty * current_price + unrealized_pnl)
+        # 对永续合约 unrealized_pnl 已经反映了价差；不重复加，只用 (qty * current_price) 表示市值
+        # 对现货 unrealized_pnl 不一定 != 0，但 qty * current_price 仍正确
+        positions_q = await session.execute(
+            select(Position).where(
+                Position.account_id == account.id,
+                Position.status == "open",
+            )
+        )
+        positions_value = Decimal("0")
+        for p in positions_q.scalars():
+            if p.current_price and p.quantity:
+                positions_value += p.current_price * p.quantity
+        balance = account.balance or Decimal("0")
+        frozen = account.frozen_balance or Decimal("0")
+        total = balance + frozen + positions_value
+        today = datetime.now(UTC).date()
+
+        stmt = (
+            pg_insert(DailyEquitySnapshot)
+            .values(
+                account_id=account.id,
+                snapshot_date=today,
+                balance=balance,
+                frozen_balance=frozen,
+                positions_value=positions_value,
+                total_equity=total,
+            )
+            .on_conflict_do_update(
+                index_elements=["account_id", "snapshot_date"],
+                set_={
+                    "balance": balance,
+                    "frozen_balance": frozen,
+                    "positions_value": positions_value,
+                    "total_equity": total,
+                },
+            )
+        )
+        await session.execute(stmt)
+
 
 # 全局单例
 _sync_scheduler: SyncScheduler | None = None

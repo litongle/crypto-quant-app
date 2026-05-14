@@ -219,6 +219,10 @@ class AssetService:
         """
         获取权益曲线数据
 
+        优先用 daily_equity_snapshot 表里的真快照（SyncScheduler 每 5 分钟 upsert
+        当天值）。snapshot 没数据的早期日子用反推 fallback：
+            equity[day] = today_total_equity - sum(orders.pnl filled_at in (day, today])
+
         Args:
             user_id: 用户ID
             days: 查询天数
@@ -227,57 +231,93 @@ class AssetService:
         Returns:
             dict: 权益曲线及统计数据
         """
-        # 获取用户账户
+        from app.models.equity_snapshot import DailyEquitySnapshot
+
         accounts = await self.account_repo.get_active_by_user(user_id)
         if exchange != "all":
             accounts = [a for a in accounts if a.exchange == exchange]
+        account_ids = [a.id for a in accounts]
 
-        # P0-1: 修复权益曲线 - 使用真实订单数据计算
+        # 1. 收集所有 filled 订单（按日期 group 用于反推 + PerformanceCalculator）
         all_trades = []
+        trades_by_date: dict = {}
         for account in accounts:
-            # 获取账户的所有历史成交订单
             orders = await self.order_repo.get_by_account(account.id, status="filled", limit=2000)
             for o in orders:
                 if o.pnl is not None and o.filled_at:
-                    # 简化：假设 entry_time 是 filled_at 之前的一个占位时间，如果模型中没有开仓时间的话
-                    # 实际上 Order 模型应该记录 open_at 或类似的。这里我们主要关注 pnl 发生的时间
-                    all_trades.append(
-                        TradeRecord(
-                            entry_price=o.price or Decimal("0"),
-                            exit_price=o.avg_fill_price or Decimal("0"),
-                            quantity=o.filled_quantity,
-                            side=o.side,
-                            entry_time=o.created_at,
-                            exit_time=o.filled_at,
-                            pnl=o.pnl,
-                            commission=o.commission,
-                        )
+                    rec = TradeRecord(
+                        entry_price=o.price or Decimal("0"),
+                        exit_price=o.avg_fill_price or Decimal("0"),
+                        quantity=o.filled_quantity,
+                        side=o.side,
+                        entry_time=o.created_at,
+                        exit_time=o.filled_at,
+                        pnl=o.pnl,
+                        commission=o.commission,
                     )
+                    all_trades.append(rec)
+                    trades_by_date.setdefault(o.filled_at.date(), []).append(rec)
 
-        # 使用 PerformanceCalculator 计算绩效
-        report = PerformanceCalculator.calculate(
-            trades=all_trades, initial_capital=self.DEFAULT_INITIAL_CAPITAL
+        # 2. 拉账户当前合计权益（balance + frozen + 持仓估值）
+        today = datetime.now(UTC).date()
+        positions_value = Decimal("0")
+        for account in accounts:
+            for p in await self.position_repo.get_open_by_account(account.id):
+                if p.current_price and p.quantity:
+                    positions_value += p.current_price * p.quantity
+        today_total_equity = (
+            sum((a.balance or Decimal("0")) + (a.frozen_balance or Decimal("0")) for a in accounts)
+            + positions_value
         )
 
-        # 生成每日权益点
-        points = []
-        trades_by_date = {}
-        for t in all_trades:
-            d = t.exit_time.date()
-            trades_by_date.setdefault(d, []).append(t)
+        # 3. 拉 [today-days, today] 范围内的 snapshot，按 (account_id, date) 索引
+        start_date = today - timedelta(days=days)
+        snapshot_map: dict = {}  # date -> {account_id: total_equity}
+        if account_ids:
+            stmt = (
+                select(DailyEquitySnapshot)
+                .where(DailyEquitySnapshot.account_id.in_(account_ids))
+                .where(DailyEquitySnapshot.snapshot_date >= start_date)
+            )
+            result = await self.session.execute(stmt)
+            for snap in result.scalars():
+                snapshot_map.setdefault(snap.snapshot_date, {})[snap.account_id] = snap.total_equity
 
-        current_equity = self.DEFAULT_INITIAL_CAPITAL
+        # 4. 生成每日点：snapshot 命中则用 sum；缺失则从 today_total_equity 反推
+        # 反推公式：equity[d] = today_total_equity - sum(pnl filled_at in (d, today])
+        points = []
+        fallback_initial = today_total_equity
         for i in range(days, -1, -1):
-            date = (datetime.now(UTC) - timedelta(days=i)).date()
-            daily_pnl = sum((t.pnl for t in trades_by_date.get(date, [])), Decimal("0"))
-            current_equity += daily_pnl
+            d = today - timedelta(days=i)
+            daily_pnl = sum((t.pnl for t in trades_by_date.get(d, [])), Decimal("0"))
+
+            if d in snapshot_map and len(snapshot_map[d]) == len(account_ids):
+                equity_val = sum(snapshot_map[d].values(), Decimal("0"))
+            else:
+                # fallback：用今天总权益减去 d+1 到 today 的累计 PnL
+                fwd_pnl = Decimal("0")
+                for j in range(i):
+                    fwd_d = today - timedelta(days=j)
+                    fwd_pnl += sum((t.pnl for t in trades_by_date.get(fwd_d, [])), Decimal("0"))
+                equity_val = today_total_equity - fwd_pnl
+                if not fallback_initial or i == days:
+                    fallback_initial = equity_val
+
             points.append(
                 {
-                    "date": date.strftime("%Y-%m-%d"),
-                    "equity": float(current_equity),
+                    "date": d.strftime("%Y-%m-%d"),
+                    "equity": float(equity_val),
                     "pnl": float(daily_pnl),
                 }
             )
+
+        # 5. 绩效指标用真实起点（曲线第一个点）算 PerformanceCalculator
+        initial_capital = (
+            Decimal(str(points[0]["equity"])) if points else self.DEFAULT_INITIAL_CAPITAL
+        )
+        if initial_capital <= 0:
+            initial_capital = self.DEFAULT_INITIAL_CAPITAL
+        report = PerformanceCalculator.calculate(trades=all_trades, initial_capital=initial_capital)
 
         return {
             "points": points,
