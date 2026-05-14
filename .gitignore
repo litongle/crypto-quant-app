@@ -76,15 +76,8 @@ AGENTS.md
 mcp.json
 
 # Screenshots (testing artifacts)
-screenshot-*.png
-dashboard-screenshot.png
-alpha7-*.png
-dashboard-*.png
-desktop-*.png
-drawer-*.png
-mobile-*.png
-notifications-*.png
-repro-*.png
+# 项目根所有 png 都视为测试/调试截图统一忽略；子目录的图标资源（如 web/static/icons/*.png）不受影响
+/*.png
 backend/test_ws.py
 backend/test_ws_ticker.py
 
