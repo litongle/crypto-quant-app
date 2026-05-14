@@ -951,8 +951,23 @@ class OrderService:
 
         return all_positions
 
-    async def close_position(self, position_id: int, user_id: int) -> Position:
-        """平仓 — P1-1: 交易所成功后再标记 closed，使用事务安全顺序"""
+    async def close_position(
+        self,
+        position_id: int,
+        user_id: int,
+        *,
+        pause_running_strategy: bool = False,
+        pause_reason: str = "manual_close",
+    ) -> Position:
+        """平仓 — P1-1: 交易所成功后再标记 closed，使用事务安全顺序
+
+        当 ``pause_running_strategy=True`` 且本仓位由策略开出时，会在标记 closed
+        的同一事务里把仍在 running 的策略实例切到 paused —— 单次 commit 保证
+        "仓位已平 / 策略仍在跑"这种不一致状态不会落库。
+
+        默认 ``False`` 是为了不影响 strategy_runner 自我平仓（take-profit 等）的
+        正常流程：策略主动平自己的仓位不应该让策略自己暂停。
+        """
         position = await self.position_repo.get_by_id(position_id)
         if not position:
             raise HTTPException(
@@ -1000,11 +1015,58 @@ class OrderService:
             else:
                 realized_pnl = (position.entry_price - order.avg_fill_price) * position.quantity
 
+        # 在同一事务里更新策略实例：统计回写（total_trades / total_pnl / win_rate）
+        # + 按需暂停。一次 commit 保证"仓位 closed / 统计 / 暂停状态"一致。
+        strategy_paused = False
+        instance = None
+        if position.strategy_instance_id:
+            instance = await self.strategy_repo.get_by_id(position.strategy_instance_id)
+
+        if instance is not None:
+            # 统计回写：close_position 即"一笔完整交易终结"
+            prev_trades = instance.total_trades or 0
+            prev_wins = int(round(float(instance.win_rate or 0) * prev_trades / 100))
+            new_trades = prev_trades + 1
+            new_wins = prev_wins + (1 if realized_pnl > 0 else 0)
+            instance.total_trades = new_trades
+            instance.total_pnl = (instance.total_pnl or Decimal("0")) + realized_pnl
+            instance.win_rate = Decimal(str(round(new_wins / new_trades * 100, 2)))
+            try:
+                initial_capital = Decimal(str(instance.params.get("initial_capital", 100000)))
+                if initial_capital > 0:
+                    instance.total_pnl_percent = instance.total_pnl / initial_capital * 100
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.debug("[OrderService] 计算 total_pnl_percent 跳过: %s", exc)
+
+            if pause_running_strategy and instance.status == "running":
+                instance.status = "paused"
+                instance.last_pause_reason = pause_reason
+                strategy_paused = True
+                logger.info(
+                    "[OrderService] 手动平策略 #%d 的仓位 #%d → 已同事务暂停该策略 (reason=%s)",
+                    instance.id,
+                    position.id,
+                    pause_reason,
+                )
+
         # 只有交易所确认成功后才标记平仓
         position.status = "closed"
         position.closed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(position)
+
+        if instance is not None:
+            logger.info(
+                "[OrderService] 策略 #%d 平仓 #%d 盈亏=%s, 累计交易=%d, 累计盈亏=%s",
+                instance.id,
+                position.id,
+                realized_pnl,
+                instance.total_trades,
+                instance.total_pnl,
+            )
+
+        # 把暂停结果作为 transient 属性挂到 position 上供调用方读取（非持久化字段）
+        position.strategy_paused = strategy_paused  # type: ignore[attr-defined]
 
         # P0-1: 止损/止盈触发通知
         try:

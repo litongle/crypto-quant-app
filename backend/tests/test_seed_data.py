@@ -112,18 +112,23 @@ class TestRsiLayeredTemplate:
         assert p["type"] == "array_int"
         assert len(p["default"]) == 3
 
-    def test_profit_taking_config_pct_is_json(self):
+    def test_profit_taking_config_pct_is_json_table(self):
         p = get_param(self.tmpl, "profit_taking_config_pct")
-        assert p["type"] == "json"
+        assert p["type"] == "json_table"
         # 默认值应是 [[窗口,回撤百分比,最小盈利百分比], ...] 形式
         assert isinstance(p["default"], list)
         assert all(isinstance(row, list) and len(row) == 3 for row in p["default"])
+        # columns 元数据描述每列含义
+        assert isinstance(p.get("columns"), list)
+        assert len(p["columns"]) == 3
 
-    def test_profit_taking_config_atr_is_json(self):
+    def test_profit_taking_config_atr_is_json_table(self):
         p = get_param(self.tmpl, "profit_taking_config_atr")
-        assert p["type"] == "json"
+        assert p["type"] == "json_table"
         assert isinstance(p["default"], list)
         assert all(isinstance(row, list) and len(row) == 3 for row in p["default"])
+        assert isinstance(p.get("columns"), list)
+        assert len(p["columns"]) == 3
 
     def test_auto_trade_is_bool_default_false(self):
         """auto_trade 必须默认关闭(安全默认)"""

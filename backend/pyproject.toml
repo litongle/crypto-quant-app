@@ -1,7 +1,7 @@
 [project]
 name = "crypto-quant-backend"
 version = "1.0.0"
-description = "币钱袋量化交易后端服务"
+description = "Alpha-7 量化交易后端服务"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

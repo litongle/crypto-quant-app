@@ -1,6 +1,6 @@
 {
-  "name": "币钱袋 - 量化交易控制台",
-  "short_name": "币钱袋",
+  "name": "Alpha-7 - 量化交易控制台",
+  "short_name": "Alpha-7",
   "description": "数字货币量化交易平台 — 策略、回测、实盘交易",
   "start_url": "/web/",
   "scope": "/web/",

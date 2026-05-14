@@ -1,7 +1,16 @@
 /* ================================================================
-   币钱袋 (CryptoQuant) Web Console — Design System v3.0
+   Alpha-7 Web Console — Design System v3.0
    基于 Impeccable + design-taste-frontend 审计升级
    ================================================================ */
+
+/* Self-hosted Geist Sans (variable font, 1 file covers 100-900) */
+@font-face {
+  font-family: 'Geist Sans';
+  src: url('/web/static/fonts/geist/Geist-Variable.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* ── 1. Design Tokens — Semi Design v2 调色板 ──────────────────
    Default: Dark mode(深色模式)
@@ -260,7 +269,7 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: var(--cq-header-height);
+  height: calc(var(--cq-header-height) + env(safe-area-inset-top));
   background: var(--cq-header-bg);
   -webkit-backdrop-filter: var(--cq-header-blur);
           backdrop-filter: var(--cq-header-blur);
@@ -269,7 +278,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--cq-space-4);
+  padding: env(safe-area-inset-top) max(var(--cq-space-4), env(safe-area-inset-right)) 0 max(var(--cq-space-4), env(safe-area-inset-left));
   gap: var(--cq-space-4);
 }
 
@@ -344,6 +353,10 @@ body {
   color: var(--cq-text-primary);
 }
 .cq-icon-btn:active { background: var(--cq-color-primary-muted); }
+
+@media (pointer: coarse) {
+  .cq-icon-btn { width: 44px; height: 44px; }
+}
 
 .cq-header__user {
   display: inline-flex;
@@ -560,8 +573,8 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 .main-content {
   margin-left: var(--cq-sidebar-current-width);
   flex: 1;
-  padding: var(--cq-space-6);
-  min-height: calc(100dvh - var(--cq-header-height));
+  padding: var(--cq-space-6) max(var(--cq-space-6), env(safe-area-inset-right)) max(var(--cq-space-6), env(safe-area-inset-bottom)) max(var(--cq-space-6), env(safe-area-inset-left));
+  min-height: calc(100dvh - var(--cq-header-height) - env(safe-area-inset-top));
   transition: margin-left var(--cq-duration-normal) var(--cq-ease-default);
 }
 
@@ -2619,8 +2632,11 @@ select.cq-input:not([multiple]) {
   position: absolute;
   top: 0;
   right: 0;
-  width: min(480px, 100vw);
+  width: min(480px, calc(100vw - 80px));
   height: 100%;
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
   background: var(--cq-bg-l1);
   border-left: 1px solid var(--cq-border-default);
   display: flex;
@@ -2828,7 +2844,6 @@ select.cq-input:not([multiple]) {
   .cq-create-card__body { padding: var(--cq-space-4); }
   .cq-create-card__actions { justify-content: flex-start; }
   .cq-workbench-actions .cq-btn { flex: 1 1 100%; min-width: 0; }
-  .cq-drawer__panel { width: 100vw; }
   .cq-instance-summary__grid { grid-template-columns: 1fr; }
   .cq-instance-actions { flex-direction: column; }
 
@@ -3059,6 +3074,19 @@ select.cq-input:not([multiple]) {
   margin-bottom: var(--cq-space-1);
 }
 
+.cq-settings-section-title {
+  font-size: var(--cq-text-base);
+  font-weight: 600;
+  color: var(--cq-text-primary);
+  margin: 0 0 var(--cq-space-2) 0;
+}
+
+.cq-settings-section-title--divider {
+  margin-top: var(--cq-space-5);
+  padding-top: var(--cq-space-5);
+  border-top: 1px solid var(--cq-border-default);
+}
+
 .cq-settings-form label {
   display: flex;
   flex-direction: column;
@@ -3160,5 +3188,240 @@ select.cq-input:not([multiple]) {
   -webkit-text-fill-color: var(--cq-text-primary) !important;
   transition: background-color 9999s ease-in-out 0s;
   caret-color: var(--cq-text-primary);
+}
+
+/* ── 账户卡片：持仓折叠区 ───────────────────────────────────── */
+
+.cq-account-positions {
+  margin-top: var(--cq-space-3);
+  padding-top: var(--cq-space-3);
+  border-top: 1px solid var(--cq-border-default);
+}
+
+.cq-account-positions__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  margin-left: -6px;
+  color: var(--cq-text-secondary);
+  font-size: var(--cq-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--cq-radius-sm);
+  transition: color var(--cq-duration-fast) var(--cq-ease-default),
+              background var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-account-positions__toggle:hover {
+  color: var(--cq-text-primary);
+  background: var(--cq-bg-l2);
+}
+
+.cq-account-positions__chevron {
+  transition: transform var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-account-positions__toggle.is-open .cq-account-positions__chevron {
+  transform: rotate(90deg);
+}
+
+.cq-account-positions__count {
+  color: var(--cq-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cq-account-positions__body {
+  margin-top: var(--cq-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-2);
+}
+
+/* [hidden] 的 UA 默认 display:none 会被上面的 display:flex 覆盖，需显式恢复 */
+.cq-account-positions__body[hidden] {
+  display: none;
+}
+
+.cq-account-positions__empty {
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-tertiary);
+  padding: var(--cq-space-3);
+  text-align: center;
+  background: var(--cq-bg-l2);
+  border-radius: var(--cq-radius-md);
+}
+
+.cq-account-position-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cq-space-3);
+  padding: var(--cq-space-3);
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-md);
+}
+
+.cq-account-position-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cq-account-position-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+  flex-wrap: wrap;
+}
+
+.cq-account-position-row__symbol {
+  font-weight: 600;
+  font-size: var(--cq-text-md);
+  color: var(--cq-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cq-account-position-row__meta {
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cq-account-position-row__sub {
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+}
+
+.cq-text-profit { color: var(--cq-color-profit); }
+.cq-text-loss   { color: var(--cq-color-loss); }
+
+/* 窄屏（含设置抽屉、手机端）允许换行，避免按钮挤出可视区或被截断 */
+@media (max-width: 600px) {
+  .cq-account-position-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── json_table 控件（分层止盈 等三列数值配置） ─────────────── */
+
+.cq-json-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-2);
+  padding: var(--cq-space-3);
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-md);
+}
+
+.cq-json-table__head,
+.cq-json-table__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 32px;
+  gap: var(--cq-space-2);
+  align-items: center;
+}
+
+.cq-json-table__th {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 0 2px;
+}
+
+.cq-json-table__th small {
+  font-size: 10px;
+  color: var(--cq-text-disabled);
+  font-weight: 400;
+}
+
+.cq-json-table__th--actions {
+  /* 占位，与行尾删除按钮对齐 */
+}
+
+.cq-json-table__input {
+  width: 100%;
+  min-width: 0;          /* 让 input 可以在 grid cell 里被压缩，不撑爆列宽 */
+  box-sizing: border-box;
+  height: 32px;
+  padding: 4px 8px;
+  background: var(--cq-bg-l5);
+  border: 1px solid var(--cq-border-default);
+  border-radius: var(--cq-radius-sm);
+  color: var(--cq-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cq-text-sm);
+  appearance: textfield;
+  transition: border-color var(--cq-duration-fast) var(--cq-ease-default),
+              box-shadow var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-json-table__input::-webkit-outer-spin-button,
+.cq-json-table__input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.cq-json-table__input:focus,
+.cq-json-table__input:focus-visible {
+  outline: none;
+  border-color: var(--cq-color-primary);
+  box-shadow: 0 0 0 2px var(--cq-color-primary-muted);
+}
+
+.cq-json-table__remove {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cq-radius-sm);
+  color: var(--cq-text-tertiary);
+  cursor: pointer;
+  transition: background var(--cq-duration-fast) var(--cq-ease-default),
+              color var(--cq-duration-fast) var(--cq-ease-default),
+              border-color var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-json-table__remove:hover {
+  background: var(--cq-color-loss-muted);
+  color: var(--cq-color-loss);
+  border-color: var(--cq-color-loss-muted);
+}
+
+.cq-json-table__add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px dashed var(--cq-border-default);
+  border-radius: var(--cq-radius-sm);
+  color: var(--cq-text-secondary);
+  font-size: var(--cq-text-sm);
+  cursor: pointer;
+  transition: color var(--cq-duration-fast) var(--cq-ease-default),
+              border-color var(--cq-duration-fast) var(--cq-ease-default),
+              background var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-json-table__add:hover {
+  color: var(--cq-color-primary);
+  border-color: var(--cq-color-primary);
+  background: var(--cq-color-primary-muted);
 }
 

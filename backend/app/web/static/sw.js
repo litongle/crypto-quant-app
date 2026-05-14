@@ -1,5 +1,5 @@
-// 币钱袋 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v9';
+// Alpha-7 PWA Service Worker v1
+const CACHE_NAME = 'cq-sw-v24';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -22,7 +22,8 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then(async (cache) => {
       for (const url of STATIC_ASSETS) {
         try {
-          await cache.add(url);
+          // cache: 'reload' 强制绕过 HTTP cache，避免 install 时拿到旧版
+          await cache.add(new Request(url, { cache: 'reload' }));
         } catch {
           /* 忽略单项预缓存失败 */
         }

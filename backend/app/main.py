@@ -10,6 +10,7 @@ FastAPI 主入口
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -19,6 +20,19 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.core.exceptions import AppException
+
+# ── 日志配置 ──────────────────────────────────────────────────────────
+# Python 默认 root logger = WARNING 会把策略 tick / 启动 / 信号判断这些 INFO
+# 日志全吞掉，导致"策略不动"这类问题在生产里完全 debug 不了。这里在模块
+# 加载时显式拉到 INFO，并把过吵的第三方库压回 WARNING。可通过环境变量
+# LOG_LEVEL=DEBUG/INFO/WARNING 覆盖。
+_log_level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, _log_level_name, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+for _noisy in ("httpx", "httpcore", "urllib3", "sqlalchemy.engine", "websockets"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +217,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        description="币钱袋量化交易后端 API",
+        description="Alpha-7 量化交易后端 API",
         lifespan=lifespan,
     )
 

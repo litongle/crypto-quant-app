@@ -1,5 +1,5 @@
 /**
- * 币钱袋 Web API 客户端 v2
+ * Alpha-7 Web API 客户端 v2
  * 封装所有后端 API 调用，自动处理认证和刷新
  */
 const API_BASE = '/api/v1';
@@ -172,6 +172,18 @@ class ApiClient {
   // 资产页:账户全持仓视图(跨账户聚合)
   async getPortfolioPositions(exchange = 'all', side = 'all') {
     const json = await this.get(`/asset/positions?exchange=${exchange}&side=${side}`);
+    return json.data || json;
+  }
+
+  // 单账户持仓（含 source / strategyInstanceId / strategyName 字段）
+  async getAccountPositions(accountId) {
+    const json = await this.get(`/asset/positions?account_id=${accountId}`);
+    return json.data || json;
+  }
+
+  // 平掉指定持仓；策略仓位平掉后后端会自动暂停对应策略
+  async closePosition(positionId) {
+    const json = await this.post(`/trading/positions/${positionId}/close`);
     return json.data || json;
   }
 

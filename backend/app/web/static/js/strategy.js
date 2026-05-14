@@ -813,6 +813,12 @@ function applyParamValues(paramDefs, values) {
   for (const param of paramDefs || []) {
     if (param.type === 'rules') continue;
     const value = values[param.key] ?? param.default;
+
+    if (param.type === 'json_table') {
+      applyJsonTableValue(param.key, param.columns || [], value);
+      continue;
+    }
+
     const input = document.getElementById(`param-${param.key}`) || document.getElementById(`sl-${param.key}`);
     if (!input) continue;
 
@@ -901,6 +907,19 @@ function renderParamSliders(params) {
         </div>`;
     }
 
+    if (t === 'json_table') {
+      const cols = Array.isArray(p.columns) ? p.columns : [];
+      const rows = Array.isArray(p.default) ? p.default : [];
+      return `
+        <div class="cq-param-group">
+          <div class="cq-param-header">
+            <span class="cq-param-label">${p.name}</span>
+          </div>
+          ${renderJsonTable(p.key, cols, rows)}
+          ${desc}
+        </div>`;
+    }
+
     if (t === 'select') {
       const options = Array.isArray(p.options) ? p.options : [];
       const optsHtml = options.map(opt => {
@@ -973,6 +992,11 @@ function collectStrategyParams() {
     }
   });
 
+  // json_table: 二维数组（每行一档配置）
+  root.querySelectorAll('.cq-json-table[data-key]').forEach(table => {
+    out[table.dataset.key] = readJsonTable(table);
+  });
+
   // int / double: range slider
   root.querySelectorAll('input[type="range"][data-key]').forEach(el => {
     const t = el.dataset.type;
@@ -981,6 +1005,88 @@ function collectStrategyParams() {
 
   return out;
 }
+
+/* ── json_table 控件 ──────────────────────────────────────────
+   一类专用于"每行 N 个数值"配置（如分层浮动止盈）的可视化表格。
+   schema 形如 {type:'json_table', columns:[{key,name,type,step,suffix}], default:[[...],...]}
+   收集时输出二维数组，与旧的 type='json' 数据形态完全兼容。 */
+
+function renderJsonTable(key, cols, rows, idPrefix = 'param') {
+  const safeCols = encodeURIComponent(JSON.stringify(cols));
+  const head = cols.map(c => `
+    <div class="cq-json-table__th">
+      <span>${escapeHtml(c.name)}</span>
+      ${c.suffix ? `<small>${escapeHtml(c.suffix)}</small>` : ''}
+    </div>`).join('');
+  return `
+    <div class="cq-json-table" id="${idPrefix}-${key}" data-key="${key}" data-type="json_table" data-columns="${safeCols}">
+      <div class="cq-json-table__head">
+        ${head}
+        <div class="cq-json-table__th cq-json-table__th--actions"></div>
+      </div>
+      <div class="cq-json-table__body">
+        ${rows.map(r => renderJsonTableRow(cols, r)).join('')}
+      </div>
+      <button type="button" class="cq-json-table__add" onclick="addJsonTableRow(this)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        增加一档
+      </button>
+    </div>`;
+}
+
+function renderJsonTableRow(cols, rowValues) {
+  const cells = cols.map((c, i) => {
+    const v = rowValues?.[i];
+    const step = c.step ?? (c.type === 'int' ? 1 : 0.01);
+    const min = c.min !== undefined ? `min="${c.min}"` : '';
+    const max = c.max !== undefined ? `max="${c.max}"` : '';
+    return `<input type="number" class="cq-json-table__input" value="${v ?? ''}" ${min} ${max} step="${step}" data-col-type="${c.type || 'double'}">`;
+  }).join('');
+  return `
+    <div class="cq-json-table__row">
+      ${cells}
+      <button type="button" class="cq-json-table__remove" onclick="removeJsonTableRow(this)" title="删除这一档">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`;
+}
+
+function addJsonTableRow(btn) {
+  const table = btn.closest('.cq-json-table');
+  if (!table) return;
+  const cols = JSON.parse(decodeURIComponent(table.dataset.columns));
+  const defaults = cols.map(c => c.default ?? 0);
+  table.querySelector('.cq-json-table__body')
+    .insertAdjacentHTML('beforeend', renderJsonTableRow(cols, defaults));
+}
+
+function removeJsonTableRow(btn) {
+  const row = btn.closest('.cq-json-table__row');
+  if (row) row.remove();
+}
+
+function applyJsonTableValue(key, cols, value, idPrefix = 'param') {
+  const table = document.getElementById(`${idPrefix}-${key}`);
+  if (!table) return;
+  const body = table.querySelector('.cq-json-table__body');
+  if (!body) return;
+  const rows = Array.isArray(value) ? value : [];
+  body.innerHTML = rows.map(r => renderJsonTableRow(cols, r)).join('');
+}
+
+function readJsonTable(table) {
+  const cols = JSON.parse(decodeURIComponent(table.dataset.columns));
+  return [...table.querySelectorAll('.cq-json-table__row')].map(rowEl => {
+    const inputs = rowEl.querySelectorAll('input');
+    return cols.map((c, i) => {
+      const raw = inputs[i]?.value ?? '';
+      return c.type === 'int' ? parseInt(raw, 10) : parseFloat(raw);
+    });
+  });
+}
+
+window.addJsonTableRow = addJsonTableRow;
+window.removeJsonTableRow = removeJsonTableRow;
 
 function buildCurrentWorkbenchSnapshot() {
   if (!selectedTemplateId) return null;

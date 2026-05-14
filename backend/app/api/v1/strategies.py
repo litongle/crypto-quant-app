@@ -101,6 +101,8 @@ class ParamSchema(BaseModel):
       array_int         -> 逗号分隔文本,解析为 int 列表
       array_double      -> 逗号分隔文本,解析为 float 列表
       json              -> textarea + JSON.parse
+      json_table        -> 可视化表格(每行 N 列数值),与 json 数据形态一致
+                          配套 columns 字段定义每列含义
     """
 
     key: str
@@ -114,6 +116,7 @@ class ParamSchema(BaseModel):
         "array_int",
         "array_double",
         "json",
+        "json_table",
     ]
     # default 容纳标量 / 列表 / 嵌套(json/array_*) / bool
     default: int | float | str | bool | list | dict | None = None
@@ -121,6 +124,7 @@ class ParamSchema(BaseModel):
     max: int | float | None = None
     step: int | float | None = None
     options: list[dict] | None = None
+    columns: list[dict] | None = None  # json_table 专用：列定义
     description: str | None = None
 
 
@@ -234,6 +238,7 @@ def _build_predefined_templates() -> list[dict]:
                     max=p.get("max"),
                     step=p.get("step"),
                     options=p.get("options"),
+                    columns=p.get("columns"),
                     description=p.get("description"),
                 ).model_dump()
             )

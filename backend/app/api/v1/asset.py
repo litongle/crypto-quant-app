@@ -38,17 +38,20 @@ async def get_positions(
     session: AsyncSession = Depends(get_session),
     exchange: str = Query("all", description="交易所筛选"),
     side: str = Query("all", description="方向筛选 (long/short/all)"),
+    account_id: int | None = Query(None, description="指定账户ID；不传则返回全部"),
 ) -> APIResponse:
     """
     获取持仓列表
 
     返回用户当前所有持仓，包括现货和合约持仓。
+    每条持仓含 source 字段："strategy"（策略开仓）/ "external"（交易所外部已有）。
     """
     service = AssetService(session)
     data = await service.get_positions(
         user_id=current_user.id,
         exchange=exchange,
         side=side,
+        account_id=account_id,
     )
     return APIResponse(data=data)
 

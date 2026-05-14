@@ -619,12 +619,34 @@ STRATEGY_TEMPLATES = [
                 {
                     "key": "profit_taking_config_pct",
                     "name": "分层浮动止盈（百分比）",
-                    "type": "json",
+                    "type": "json_table",
                     "default": [[10, 0.003, 0.002], [30, 0.005, 0.003], [60, 0.010, 0.005]],
+                    "columns": [
+                        {
+                            "key": "window",
+                            "name": "持仓 K 线数 ≥",
+                            "type": "int",
+                            "min": 1,
+                            "step": 1,
+                        },
+                        {
+                            "key": "drawdown",
+                            "name": "最大浮盈回撤 ≥",
+                            "type": "double",
+                            "step": 0.001,
+                            "suffix": "（小数；0.005 = 0.5%）",
+                        },
+                        {
+                            "key": "min_profit",
+                            "name": "当前浮盈 ≥",
+                            "type": "double",
+                            "step": 0.001,
+                            "suffix": "（小数；0.002 = 0.2%）",
+                        },
+                    ],
                     "description": (
-                        "size_mode=pct 时生效。每行 [窗口K线数, 回撤百分比, 最低盈利百分比]。"
-                        "持仓数≥窗口 且 浮盈从最高点回撤≥入场价×回撤% 且 当前浮盈≥入场价×最低盈利%——"
-                        "三者同时满足才平仓。"
+                        "size_mode=pct 时生效。每行一档「持仓 K 线数 / 回撤阈值 / 最低盈利阈值」，"
+                        "三者同时满足才平仓。建议自下而上递增——越后期越宽松。"
                     ),
                 },
                 {
@@ -653,11 +675,34 @@ STRATEGY_TEMPLATES = [
                 {
                     "key": "profit_taking_config_atr",
                     "name": "分层浮动止盈（ATR 倍数）",
-                    "type": "json",
+                    "type": "json_table",
                     "default": [[10, 1.0, 0.7], [30, 1.5, 1.0], [60, 3.0, 1.5]],
+                    "columns": [
+                        {
+                            "key": "window",
+                            "name": "持仓 K 线数 ≥",
+                            "type": "int",
+                            "min": 1,
+                            "step": 1,
+                        },
+                        {
+                            "key": "drawdown",
+                            "name": "最大浮盈回撤 ≥",
+                            "type": "double",
+                            "step": 0.1,
+                            "suffix": "× ATR",
+                        },
+                        {
+                            "key": "min_profit",
+                            "name": "当前浮盈 ≥",
+                            "type": "double",
+                            "step": 0.1,
+                            "suffix": "× ATR",
+                        },
+                    ],
                     "description": (
-                        "size_mode=atr 时生效。每行 [窗口K线数, 回撤×ATR, 最低盈利×ATR]。"
-                        "三者同时满足才平仓，单位是入场时锁定的 ATR。"
+                        "size_mode=atr 时生效。每行一档「持仓 K 线数 / 回撤倍数 / 最低盈利倍数」，"
+                        "倍数单位是入场时锁定的 ATR，三者同时满足才平仓。"
                     ),
                 },
                 {

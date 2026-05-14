@@ -133,9 +133,10 @@ _INTERVAL_CONFIG = [
 
 # 最大K线数量（可配置）
 _MAX_KLINES = 50000  # 从 5000 提升到 50000
+_FETCH_KLINES_TIMEOUT = 60  # 整体拉K线超时秒数（包含所有分页 + 网络往返）
 
 # 回测超时（秒，可配置）
-_BACKTEST_TIMEOUT = 300  # 从 60 秒提升到 300 秒（5分钟）
+_BACKTEST_TIMEOUT = 120  # 回测引擎超时（不含拉K线），缩短到 2 分钟避免前端长 hang
 
 
 class BacktestService:
@@ -673,7 +674,34 @@ class BacktestService:
             unreal = position["quantity"] * (position["entry_price"] - cp)
             return capital + mlocked + unreal
 
+        engine_t0 = time.monotonic()
+        total_bars = len(klines) - min_history
+        # 每 ~5% 一次心跳；max(50,...) 让 1000 根以内的小回测也能看见进度
+        progress_step = max(50, total_bars // 20)
+        logger.info(
+            "[backtest] 引擎开始处理 %d 根 K 线（min_history=%d, 总待处理=%d）",
+            len(klines),
+            min_history,
+            total_bars,
+        )
+
         for i in range(min_history, len(klines)):
+            processed = i - min_history
+            if processed > 0 and processed % progress_step == 0:
+                elapsed = time.monotonic() - engine_t0
+                pct = processed / total_bars * 100 if total_bars else 100
+                rate = processed / elapsed if elapsed > 0 else 0
+                eta = (total_bars - processed) / rate if rate > 0 else -1
+                logger.info(
+                    "[backtest] 进度 %d/%d (%.1f%%)，速度 %.0f bar/s，已用 %.1fs，预计还需 %.1fs",
+                    processed,
+                    total_bars,
+                    pct,
+                    rate,
+                    elapsed,
+                    eta,
+                )
+
             current_price = klines[i]["close"]
             current_time = klines[i]["timestamp"]
 
@@ -788,6 +816,13 @@ class BacktestService:
                 }
             )
 
+        logger.info(
+            "[backtest] 引擎完成：处理 %d 根 K 线，%d 笔交易，引擎耗时 %.1fs",
+            len(klines),
+            len(trades),
+            time.monotonic() - engine_t0,
+        )
+
         return {
             "totalReturn": float(report.total_pnl),
             "totalReturnPercent": float(report.total_return_pct),
@@ -839,10 +874,17 @@ class BacktestService:
         try:
             return await asyncio.wait_for(
                 self._fetch_klines_impl(symbol, start_date, end_date, interval, exchange, market),
-                timeout=45.0,
+                timeout=_FETCH_KLINES_TIMEOUT,
             )
         except TimeoutError:
-            logger.warning("获取K线超时（45秒），切换为模拟数据")
+            logger.warning(
+                "[backtest] 获取K线超时（%d秒，%s %s %s~%s），切换为模拟数据",
+                _FETCH_KLINES_TIMEOUT,
+                interval,
+                symbol,
+                start_date,
+                end_date,
+            )
             return self._generate_mock_klines(symbol, start_date, end_date, interval), True
 
     async def _fetch_klines_impl(
@@ -861,12 +903,22 @@ class BacktestService:
         """
         all_klines = []
         is_mock = False
+        fetch_t0 = time.monotonic()
+        page_index = 0
         try:
             start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
             end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
 
             client = await self._get_client()
             current_start = start_ts
+            logger.info(
+                "[backtest] 开始拉 K 线 %s %s %s~%s (market=%s)",
+                exchange,
+                symbol,
+                start_date,
+                end_date,
+                market,
+            )
 
             while current_start < end_ts and len(all_klines) < _MAX_KLINES:
                 if exchange != "binance":
@@ -885,11 +937,20 @@ class BacktestService:
                     "limit": 1000,
                 }
 
+                page_index += 1
+                page_t0 = time.monotonic()
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 data = resp.json()
+                page_elapsed_ms = int((time.monotonic() - page_t0) * 1000)
 
                 if not data:
+                    logger.info(
+                        "[backtest] 第 %d 页空响应，结束分页（累计 %d 根，总耗时 %.1fs）",
+                        page_index,
+                        len(all_klines),
+                        time.monotonic() - fetch_t0,
+                    )
                     break
 
                 for k in data:
@@ -904,6 +965,15 @@ class BacktestService:
                             "close_time": datetime.fromtimestamp(k[6] / 1000, tz=UTC),
                         }
                     )
+
+                logger.info(
+                    "[backtest] 第 %d 页 %d 根 K 线，本页 %dms，累计 %d 根，总 %.1fs",
+                    page_index,
+                    len(data),
+                    page_elapsed_ms,
+                    len(all_klines),
+                    time.monotonic() - fetch_t0,
+                )
 
                 current_start = data[-1][6] + 1
 
@@ -921,11 +991,23 @@ class BacktestService:
                     break
 
         except Exception as e:
-            logger.warning("获取K线数据失败: %s，使用模拟数据", e)
+            logger.warning(
+                "[backtest] 获取K线数据失败（已分页 %d 次，累计 %d 根，耗时 %.1fs）: %s，使用模拟数据",
+                page_index,
+                len(all_klines),
+                time.monotonic() - fetch_t0,
+                e,
+            )
             all_klines = self._generate_mock_klines(symbol, start_date, end_date, interval)
             is_mock = True
         else:
             is_mock = False
+            logger.info(
+                "[backtest] 拉 K 线完成：%d 根，%d 次分页，总耗时 %.1fs",
+                len(all_klines),
+                page_index,
+                time.monotonic() - fetch_t0,
+            )
 
         return all_klines, is_mock
 

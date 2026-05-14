@@ -1,4 +1,4 @@
-# 💎 币钱袋 (CryptoQuant) — 数字货币量化交易 App
+# 💎 Alpha-7 — 数字货币量化交易 App
 
 > 面向加密货币投资者的量化交易平台 — 不写代码也能使用专业策略，支持实盘下单与风控管理。
 
@@ -70,8 +70,7 @@ crypto-quant-app/
 ├── deploy/
 │   └── Caddyfile.example       ← VPS 反向代理模板（自动 HTTPS）
 ├── docs/
-│   ├── DEPLOY-VPS.md           ← VPS 部署指南
-│   └── superpowers/            ← 实施记录（specs + plans）
+│   └── DEPLOY-VPS.md           ← VPS 部署指南
 ├── setup.sh                    ← 一键装机脚本（首次部署 3 问 1 跑）
 ├── backend/
 │   ├── Dockerfile              ← Python 3.12-slim
@@ -99,7 +98,7 @@ crypto-quant-app/
 │   │       ├── routes.py
 │   │       └── static/         # index.html + css + js（控制台 + 设置抽屉）
 │   └── tests/
-└── .claude/                    ← Claude Code 配置 + 钩子（git-guardrails）
+└── .claude/                    ← Claude Code 配置
 ```
 
 ---
@@ -150,7 +149,6 @@ crypto-quant-app/
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | 设计系统 v3.1 —— 色彩/字体/组件/动效规范 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 开发参考手册 —— 代码规范/Docker/架构/环境变量 |
 | [CLAUDE.md](CLAUDE.md) | Claude Code 项目级指令（开发协作约定） |
-| [docs/superpowers/](docs/superpowers/) | 设计 spec 与实施 plan 历史档案 |
 
 ---
 

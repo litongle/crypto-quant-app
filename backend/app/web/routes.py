@@ -26,5 +26,10 @@ async def web_static(path: str):
         raise HTTPException(status_code=404, detail="Not found") from None
 
     if candidate.is_file():
-        return FileResponse(candidate)
+        headers = {}
+        # SW 文件位于 /web/static/sw.js，但实际要控制 /web/ 主页面；
+        # 浏览器只在响应带 Service-Worker-Allowed 时才允许 scope 高于 sw.js 路径
+        if path == "sw.js":
+            headers["Service-Worker-Allowed"] = "/web/"
+        return FileResponse(candidate, headers=headers)
     raise HTTPException(status_code=404, detail="Not found")

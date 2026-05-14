@@ -190,6 +190,35 @@ async def get_positions(
     )
 
 
+@router.post("/positions/{position_id}/close")
+async def close_position(
+    position_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> APIResponse:
+    """
+    手动平仓（适用于外部仓位 / 共用账户场景）。
+
+    若该仓位由策略开出（strategy_instance_id 非空），平仓成功后会自动把
+    对应策略实例切到 paused 状态，避免策略基于过期状态继续下单。
+    平仓 + 暂停在同一事务内完成。
+    """
+    service = OrderService(session)
+    position = await service.close_position(
+        position_id,
+        current_user.id,
+        pause_running_strategy=True,
+        pause_reason="manual_close_via_ui",
+    )
+    return APIResponse(
+        data={
+            "positionId": position.id,
+            "strategyInstanceId": position.strategy_instance_id,
+            "instancePaused": getattr(position, "strategy_paused", False),
+        }
+    )
+
+
 @router.get("/symbol-rules")
 async def get_trading_symbol_rules(
     current_user: Annotated[User, Depends(get_current_user)],

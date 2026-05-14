@@ -44,30 +44,33 @@ async function loadSettingsDrawerTab(tab) {
     await renderNotificationsPane();
     return;
   }
-  if (tab === 'smtp') {
-    await renderSmtpPane();
-    return;
-  }
   if (tab === 'risk') {
     await renderRiskSettingsPane();
   }
 }
 
-// ── 通知通道（Telegram）────────────────────────────────────────
+// ── 通知通道（Telegram + 邮箱 SMTP）────────────────────────────
 
 async function renderNotificationsPane() {
   const container = document.getElementById('settings-pane-notifications');
   if (!container) return;
-  let data;
+  let tg, smtp;
   try {
-    data = await api.getNotificationsSettings();
+    [tg, smtp] = await Promise.all([api.getNotificationsSettings(), api.getSmtpSettings()]);
   } catch (err) {
     container.innerHTML = `<p class="cq-settings-error">加载失败：${escapeHtml(err.message)}</p>`;
     return;
   }
+  container.innerHTML = renderTelegramSection(tg) + renderSmtpSection(smtp);
+  bindTelegramForm(container);
+  bindSmtpForm(container);
+}
+
+function renderTelegramSection(data) {
   const tokenPh = data.telegram_bot_token_is_set ? '已设置（输入新值覆盖；输入 - 清空）' : '未设置';
-  container.innerHTML = `
-    <form class="cq-settings-form" data-form="notifications">
+  return `
+    <form class="cq-settings-form" data-form="telegram">
+      <h3 class="cq-settings-section-title">Telegram</h3>
       <label>Telegram Bot Token
         <input type="password" name="telegram_bot_token" placeholder="${escapeHtml(tokenPh)}" autocomplete="off">
         <small>留空 = 不修改；输入 <code>-</code> = 清空；其他 = 覆盖</small>
@@ -82,56 +85,13 @@ async function renderNotificationsPane() {
       <div class="cq-settings-form__status" data-status></div>
     </form>
   `;
-  bindNotificationsForm(container);
 }
 
-function bindNotificationsForm(container) {
-  const form = container.querySelector('form');
-  const status = container.querySelector('[data-status]');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const token = fd.get('telegram_bot_token');
-    const chatId = fd.get('telegram_chat_id');
-    const body = {
-      telegram_bot_token: token === '' ? null : token === '-' ? '' : token,
-      telegram_chat_id: chatId === '' ? null : chatId,
-    };
-    status.textContent = '保存中…';
-    try {
-      await api.putNotificationsSettings(body);
-      status.textContent = '✅ 已保存（即时生效）';
-      await renderNotificationsPane();
-    } catch (err) {
-      status.textContent = `❌ 保存失败：${err.message}`;
-    }
-  });
-  container.querySelector('[data-action="test-telegram"]').addEventListener('click', async () => {
-    status.textContent = '发送中…';
-    try {
-      await api.testNotification('telegram');
-      status.textContent = '✅ 测试通知已发送，请检查 Telegram';
-    } catch (err) {
-      status.textContent = `❌ ${err.message}`;
-    }
-  });
-}
-
-// ── 邮箱 SMTP ────────────────────────────────────────────────
-
-async function renderSmtpPane() {
-  const container = document.getElementById('settings-pane-smtp');
-  if (!container) return;
-  let data;
-  try {
-    data = await api.getSmtpSettings();
-  } catch (err) {
-    container.innerHTML = `<p class="cq-settings-error">加载失败：${escapeHtml(err.message)}</p>`;
-    return;
-  }
+function renderSmtpSection(data) {
   const passPh = data.smtp_password_is_set ? '已设置（输入新值覆盖；输入 - 清空）' : '未设置';
-  container.innerHTML = `
+  return `
     <form class="cq-settings-form" data-form="smtp">
+      <h3 class="cq-settings-section-title cq-settings-section-title--divider">邮箱 SMTP</h3>
       <div class="cq-settings-form__group">
         <div class="cq-settings-form__group-title">服务器</div>
         <label>SMTP Host
@@ -175,12 +135,43 @@ async function renderSmtpPane() {
       <div class="cq-settings-form__status" data-status></div>
     </form>
   `;
-  bindSmtpForm(container);
+}
+
+function bindTelegramForm(container) {
+  const form = container.querySelector('form[data-form="telegram"]');
+  const status = form.querySelector('[data-status]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const token = fd.get('telegram_bot_token');
+    const chatId = fd.get('telegram_chat_id');
+    const body = {
+      telegram_bot_token: token === '' ? null : token === '-' ? '' : token,
+      telegram_chat_id: chatId === '' ? null : chatId,
+    };
+    status.textContent = '保存中…';
+    try {
+      await api.putNotificationsSettings(body);
+      status.textContent = '✅ 已保存（即时生效）';
+      await renderNotificationsPane();
+    } catch (err) {
+      status.textContent = `❌ 保存失败：${err.message}`;
+    }
+  });
+  form.querySelector('[data-action="test-telegram"]').addEventListener('click', async () => {
+    status.textContent = '发送中…';
+    try {
+      await api.testNotification('telegram');
+      status.textContent = '✅ 测试通知已发送，请检查 Telegram';
+    } catch (err) {
+      status.textContent = `❌ ${err.message}`;
+    }
+  });
 }
 
 function bindSmtpForm(container) {
-  const form = container.querySelector('form');
-  const status = container.querySelector('[data-status]');
+  const form = container.querySelector('form[data-form="smtp"]');
+  const status = form.querySelector('[data-status]');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -198,12 +189,12 @@ function bindSmtpForm(container) {
     try {
       await api.putSmtpSettings(body);
       status.textContent = '✅ 已保存（即时生效）';
-      await renderSmtpPane();
+      await renderNotificationsPane();
     } catch (err) {
       status.textContent = `❌ 保存失败：${err.message}`;
     }
   });
-  container.querySelector('[data-action="test-email"]').addEventListener('click', async () => {
+  form.querySelector('[data-action="test-email"]').addEventListener('click', async () => {
     status.textContent = '发送中…';
     try {
       await api.testNotification('email');

@@ -178,6 +178,13 @@ function renderAccounts() {
           </div>
         </div>
         ${errorHtml}
+        <div class="cq-account-positions">
+          <button type="button" class="cq-account-positions__toggle" onclick="toggleAccountPositions(${acc.id})" aria-expanded="false" id="pos-toggle-${acc.id}">
+            <svg class="cq-account-positions__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <span>持仓 <span class="cq-account-positions__count" id="pos-count-${acc.id}">—</span></span>
+          </button>
+          <div class="cq-account-positions__body" id="pos-body-${acc.id}" hidden></div>
+        </div>
       </div>`;
     }
     html += '</div>';
@@ -321,5 +328,114 @@ async function deleteAccount(id) {
     renderAccounts();
   } catch (err) {
     showToast(err.message || '删除失败', 'error');
+  }
+}
+
+/* ── 账户持仓折叠区 ──────────────────────────────────────────── */
+
+async function toggleAccountPositions(accountId) {
+  const body = document.getElementById(`pos-body-${accountId}`);
+  const toggle = document.getElementById(`pos-toggle-${accountId}`);
+  if (!body || !toggle) return;
+  const willOpen = body.hidden;
+  body.hidden = !willOpen;
+  toggle.setAttribute('aria-expanded', String(willOpen));
+  toggle.classList.toggle('is-open', willOpen);
+  if (willOpen) await loadAccountPositions(accountId);
+}
+
+async function loadAccountPositions(accountId) {
+  const body = document.getElementById(`pos-body-${accountId}`);
+  const countEl = document.getElementById(`pos-count-${accountId}`);
+  if (!body) return;
+  body.innerHTML = '<div class="cq-skeleton" style="height:48px;"></div>';
+  try {
+    const positions = await api.getAccountPositions(accountId);
+    if (countEl) countEl.textContent = `(${positions.length})`;
+    if (!positions.length) {
+      body.innerHTML = '<div class="cq-account-positions__empty">该账户当前无持仓</div>';
+      return;
+    }
+    body.innerHTML = positions.map(renderAccountPositionRow).join('');
+  } catch (err) {
+    body.innerHTML = `<div class="cq-account-positions__empty" style="color:var(--cq-color-loss);">加载失败：${escapeHtml(err.message || '')}</div>`;
+  }
+}
+
+function renderAccountPositionRow(p) {
+  const isStrategy = p.source === 'strategy';
+  const sourceChip = isStrategy
+    ? `<span class="cq-tag cq-tag--info" title="策略实例 #${p.strategyInstanceId}">策略 · ${escapeHtml(p.strategyName || `#${p.strategyInstanceId}`)}</span>`
+    : '<span class="cq-tag cq-tag--neutral">外部</span>';
+  const sideChip = p.side === 'long'
+    ? '<span class="cq-tag cq-tag--profit">多</span>'
+    : '<span class="cq-tag cq-tag--loss">空</span>';
+  const pnl = Number(p.unrealizedPnl || 0);
+  const pnlPct = Number(p.unrealizedPnlPercent || 0);
+  const pnlSign = pnl >= 0 ? '+' : '';
+  const pnlClass = pnl >= 0 ? 'cq-text-profit' : 'cq-text-loss';
+  const lev = p.leverage && p.leverage > 1 ? ` · ${p.leverage}x` : '';
+  return `
+    <div class="cq-account-position-row" data-position-id="${p.positionId}">
+      <div class="cq-account-position-row__main">
+        <div class="cq-account-position-row__head">
+          <span class="cq-account-position-row__symbol">${escapeHtml(p.symbol)}</span>
+          ${sideChip}
+          ${sourceChip}
+          <span class="cq-account-position-row__meta">${formatBalance(p.quantity)}${lev}</span>
+        </div>
+        <div class="cq-account-position-row__sub">
+          入场 <span class="cq-num">${formatBalance(p.entryPrice)}</span>
+          · 现价 <span class="cq-num">${formatBalance(p.currentPrice)}</span>
+          · <span class="cq-num ${pnlClass}">${pnlSign}${formatBalance(pnl)} (${pnlSign}${pnlPct.toFixed(2)}%)</span>
+        </div>
+      </div>
+      <button class="cq-btn cq-btn--danger cq-btn--sm"
+              data-position-id="${p.positionId}"
+              data-is-strategy="${isStrategy ? 'true' : 'false'}"
+              data-strategy-name="${escapeHtml(p.strategyName || '')}"
+              onclick="confirmClosePositionFromBtn(this)">
+        平仓
+      </button>
+    </div>`;
+}
+
+// onclick="..." 内嵌 JSON.stringify(name) 会让字符串里的 " 提前关闭 onclick 属性 →
+// 按钮点了无反应。改成 data-* 属性 + 这个 thin wrapper 读 dataset，规避属性边界问题。
+function confirmClosePositionFromBtn(btn) {
+  return confirmClosePosition(
+    parseInt(btn.dataset.positionId, 10),
+    btn.dataset.isStrategy === 'true',
+    btn.dataset.strategyName || ''
+  );
+}
+window.confirmClosePositionFromBtn = confirmClosePositionFromBtn;
+
+async function confirmClosePosition(positionId, isStrategy, strategyName) {
+  const warn = isStrategy
+    ? `<div class="cq-alert cq-alert--warn" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);margin-bottom:8px;">
+         <span style="font-weight:600;">⚠️ 该仓位由策略「${escapeHtml(strategyName || '未命名')}」开出</span><br/>
+         平仓成功后系统会自动把该策略切到「已暂停」，避免策略基于过期状态继续下单。
+       </div>`
+    : `<div class="cq-alert cq-alert--info" style="padding:8px 12px;border-radius:4px;font-size:var(--cq-text-sm);margin-bottom:8px;">
+         平掉本账户上一笔外部持仓。订单将以市价对手方向送出。
+       </div>`;
+  const confirmed = await confirmDangerous(
+    '确认平仓？',
+    `${warn}<p style="color:var(--cq-text-secondary);">本操作不可撤销，需输入 <code>confirm</code> 确认。</p>`
+  );
+  if (!confirmed) return;
+  try {
+    const result = await api.closePosition(positionId);
+    if (result.instancePaused) {
+      showToast('已平仓，对应策略已暂停', 'success');
+    } else {
+      showToast('已平仓', 'success');
+    }
+    // 触发一次余额同步 + 重新渲染整个 accounts pane
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
+  } catch (err) {
+    showToast(err.message || '平仓失败', 'error');
   }
 }

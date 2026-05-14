@@ -1,6 +1,15 @@
 /**
  * 回测页面逻辑 v2 — 使用设计令牌
  */
+
+/** 本地日期 YYYY-MM-DD（避免 toISOString 的 UTC 时区偏差） */
+function localDate(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 async function loadBacktestPage() {
   if (typeof preloadSymbolSelectorData === 'function') {
     await preloadSymbolSelectorData();
@@ -36,9 +45,13 @@ async function loadBacktestPage() {
   }
 
   try {
-    const templates = await api.getStrategyTemplates();
+    const [templates, instances] = await Promise.all([
+      api.getStrategyTemplates(),
+      api.getStrategyInstances('all').catch(() => []),
+    ]);
     window._backtestTemplates = templates;
-    renderBacktestTemplateSelect(templates);
+    window._backtestInstances = Array.isArray(instances) ? instances : [];
+    renderBacktestTemplateSelect(templates, window._backtestInstances);
   } catch {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
   }
@@ -289,15 +302,45 @@ function buildBacktestRulesDSL() {
   };
 }
 
-function renderBacktestTemplateSelect(templates) {
+function renderBacktestTemplateSelect(templates, instances = []) {
   const sel = document.getElementById('backtest-template-select');
-  sel.innerHTML = '<option value="">选择策略模板</option>' +
-    templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  const templateById = new Map((templates || []).map(t => [t.id, t]));
+  const templateOpts = (templates || [])
+    .map(t => `<option value="tmpl:${t.id}" data-kind="template" data-template-id="${t.id}">${escapeHtml(t.name)}</option>`)
+    .join('');
+  const instanceOpts = (instances || [])
+    .map(inst => {
+      const tmplName = templateById.get(inst.templateId)?.name || inst.templateName || inst.templateId;
+      const label = `${inst.name} · ${tmplName}`;
+      return `<option value="inst:${inst.id}" data-kind="instance" data-instance-id="${inst.id}" data-template-id="${inst.templateId}">${escapeHtml(label)}</option>`;
+    })
+    .join('');
+  const groups = [
+    `<optgroup label="策略模板">${templateOpts}</optgroup>`,
+    instanceOpts ? `<optgroup label="我的策略">${instanceOpts}</optgroup>` : '',
+  ].join('');
+  sel.innerHTML = '<option value="">选择策略 / 模板</option>' + groups;
+}
+
+/** 解析当前选中的下拉项，统一成 {kind, templateId, instanceId, instance} 形态。 */
+function _getSelectedBacktestSource() {
+  const sel = document.getElementById('backtest-template-select');
+  const opt = sel?.selectedOptions?.[0];
+  if (!opt || !opt.value) return null;
+  const kind = opt.dataset.kind;
+  const templateId = opt.dataset.templateId;
+  if (kind === 'instance') {
+    const instanceId = parseInt(opt.dataset.instanceId, 10);
+    const instance = (window._backtestInstances || []).find(i => i.id === instanceId);
+    return { kind: 'instance', templateId, instanceId, instance };
+  }
+  return { kind: 'template', templateId };
 }
 
 async function runBacktest() {
-  const templateId = document.getElementById('backtest-template-select').value;
-  if (!templateId) { showToast('请选择策略模板', 'warn'); return; }
+  const source = _getSelectedBacktestSource();
+  if (!source) { showToast('请选择策略模板或我的策略', 'warn'); return; }
+  const templateId = source.templateId;
 
   const symbolValue = window._backtestSymbolSel ? window._backtestSymbolSel.getValue() : 'BTCUSDT';
   const parsedSymbol = (typeof splitMarket === 'function')
@@ -673,22 +716,26 @@ window.addEventListener('cq:theme-change', () => {
   }
 });
 
-// 监听模板选择变化，渲染参数
+// 监听模板/实例选择变化，渲染参数（选实例时还自动填入实例的 params + symbol）
 document.addEventListener('DOMContentLoaded', () => {
   const sel = document.getElementById('backtest-template-select');
   if (sel) {
     sel.addEventListener('change', async () => {
-      const templateId = sel.value;
-      if (!templateId) { document.getElementById('backtest-params').innerHTML = ''; return; }
+      const source = _getSelectedBacktestSource();
+      if (!source) { document.getElementById('backtest-params').innerHTML = ''; return; }
       try {
         const templates = window._backtestTemplates || await api.getStrategyTemplates();
         window._backtestTemplates = templates;
-        const tmpl = templates.find(t => t.id === templateId);
+        const tmpl = templates.find(t => t.id === source.templateId);
         if (tmpl && tmpl.strategyType === 'rule') {
           resetBacktestRuleState();
           renderBacktestRuleBuilder();
         } else if (tmpl && tmpl.params && tmpl.params.length > 0) {
           renderBacktestParamControls(tmpl.params);
+          // 选了"我的策略"实例 → 把实例的参数和 symbol 自动带入
+          if (source.kind === 'instance' && source.instance) {
+            applyBacktestInstanceValues(tmpl.params, source.instance);
+          }
         } else {
           document.getElementById('backtest-params').innerHTML = '<div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">此策略无需配置参数</div>';
         }
@@ -696,6 +743,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+/** 选中策略实例后，把实例的 params 填入回测参数控件，symbol 同步到符号选择器。 */
+function applyBacktestInstanceValues(paramDefs, instance) {
+  const values = instance.params || {};
+  for (const param of paramDefs || []) {
+    if (param.type === 'rules') continue;
+    const value = values[param.key];
+    if (value === undefined || value === null) continue;
+
+    if (param.type === 'json_table') {
+      applyJsonTableValue(param.key, param.columns || [], value, 'bt-param');
+      continue;
+    }
+
+    const input = document.getElementById(`bt-param-${param.key}`)
+      || document.getElementById(`sl-bt-${param.key}`);
+    if (!input) continue;
+
+    if (param.type === 'bool') {
+      input.checked = Boolean(value);
+    } else if (param.type === 'array_int' || param.type === 'array_double') {
+      input.value = Array.isArray(value) ? value.join(', ') : String(value);
+    } else if (param.type === 'json') {
+      input.value = typeof value === 'string' ? value : JSON.stringify(value);
+    } else {
+      input.value = value;
+      const valueLabel = document.getElementById(`val-bt-${param.key}`);
+      if (valueLabel) valueLabel.textContent = value;
+    }
+  }
+  // 同步 symbol 到回测页符号选择器
+  if (instance.symbol && window._backtestSymbolSel?.setValue) {
+    try { window._backtestSymbolSel.setValue(instance.symbol); } catch {}
+  }
+}
 
 /**
  * 渲染回测历史列表
@@ -832,6 +914,17 @@ function renderBacktestParamControls(params) {
         </div>`;
     }
 
+    if (t === 'json_table') {
+      const cols = Array.isArray(p.columns) ? p.columns : [];
+      const rows = Array.isArray(p.default) ? p.default : [];
+      return `
+        <div style="margin-bottom:var(--cq-space-3);">
+          <label class="cq-label">${p.name}</label>
+          ${renderJsonTable(p.key, cols, rows, 'bt-param')}
+          ${desc}
+        </div>`;
+    }
+
     if (t === 'select') {
       const options = Array.isArray(p.options) ? p.options : [];
       const optsHtml = options.map(opt => {
@@ -888,6 +981,9 @@ function collectBacktestParams() {
     } catch (e) {
       throw new Error(`参数 "${el.dataset.key}" JSON 格式错误: ${e.message}`);
     }
+  });
+  root.querySelectorAll('.cq-json-table[data-key]').forEach(table => {
+    out[table.dataset.key] = readJsonTable(table);
   });
   root.querySelectorAll('input[type="range"][data-key]').forEach(el => {
     const t = el.dataset.type;

@@ -5,10 +5,12 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.performance import PerformanceCalculator, TradeRecord
 from app.models.exchange import Position
+from app.models.strategy import StrategyInstance
 from app.repositories.strategy_repo import StrategyInstanceRepository
 from app.repositories.trading_repo import (
     ExchangeAccountRepository,
@@ -58,8 +60,6 @@ class AssetService:
         account_ids = [a.id for a in accounts]
         all_positions = []
         if account_ids:
-            from sqlalchemy import select
-
             pos_result = await self.session.execute(
                 select(Position).where(
                     Position.account_id.in_(account_ids),
@@ -118,7 +118,11 @@ class AssetService:
         }
 
     async def get_positions(
-        self, user_id: int, exchange: str = "all", side: str = "all"
+        self,
+        user_id: int,
+        exchange: str = "all",
+        side: str = "all",
+        account_id: int | None = None,
     ) -> list[dict]:
         """
         获取持仓列表
@@ -127,21 +131,20 @@ class AssetService:
             user_id: 用户ID
             exchange: 交易所筛选
             side: 方向筛选 (long/short/all)
+            account_id: 指定账户筛选；None 表示全部
 
         Returns:
-            list[dict]: 持仓列表
+            list[dict]: 持仓列表（含 source 标签区分策略仓 / 外部仓）
         """
-        # 获取用户账户
         accounts = await self.account_repo.get_active_by_user(user_id)
         if exchange != "all":
             accounts = [a for a in accounts if a.exchange == exchange]
+        if account_id is not None:
+            accounts = [a for a in accounts if a.id == account_id]
 
-        # PRF-04: 批量加载持仓
         account_ids = [a.id for a in accounts]
         all_positions = []
         if account_ids:
-            from sqlalchemy import select
-
             pos_result = await self.session.execute(
                 select(Position).where(
                     Position.account_id.in_(account_ids),
@@ -150,45 +153,65 @@ class AssetService:
             )
             all_positions = list(pos_result.scalars().all())
 
-        positions_by_account: dict[int, list[Position]] = {}
-        for pos in all_positions:
-            positions_by_account.setdefault(pos.account_id, []).append(pos)
+        # 批量预取所有涉及的策略实例名称（避免 N+1）
+        instance_ids = {p.strategy_instance_id for p in all_positions if p.strategy_instance_id}
+        instance_names: dict[int, str] = {}
+        if instance_ids:
+            inst_result = await self.session.execute(
+                select(StrategyInstance.id, StrategyInstance.name).where(
+                    StrategyInstance.id.in_(instance_ids)
+                )
+            )
+            instance_names = dict(inst_result.all())
+
+        accounts_by_id = {a.id: a for a in accounts}
 
         positions_data = []
-        for account in accounts:
-            for pos in positions_by_account.get(account.id, []):
-                # 方向筛选
-                if side != "all" and pos.side != side:
-                    continue
+        for pos in all_positions:
+            if side != "all" and pos.side != side:
+                continue
 
-                # 计算盈亏
-                price_diff = pos.current_price - pos.entry_price
-                if pos.side == "short":
-                    price_diff = -price_diff
-                pnl = price_diff * pos.quantity
-                pnl_percent = (
-                    (price_diff / pos.entry_price * 100) if pos.entry_price > 0 else Decimal("0")
-                )
+            account = accounts_by_id.get(pos.account_id)
+            if account is None:
+                continue
 
-                positions_data.append(
-                    {
-                        "id": f"pos_{pos.id}",
-                        "symbol": pos.symbol,
-                        "side": pos.side,
-                        "quantity": float(pos.quantity),
-                        "entryPrice": float(pos.entry_price),
-                        "currentPrice": float(pos.current_price),
-                        "unrealizedPnl": float(pnl),
-                        "unrealizedPnlPercent": float(pnl_percent),
-                        "leverage": pos.leverage,
-                        "exchange": account.exchange,
-                        "updatedAt": (
-                            pos.updated_at.isoformat() + "Z"
-                            if pos.updated_at
-                            else datetime.now(UTC).isoformat() + "Z"
-                        ),
-                    }
-                )
+            price_diff = pos.current_price - pos.entry_price
+            if pos.side == "short":
+                price_diff = -price_diff
+            pnl = price_diff * pos.quantity
+            pnl_percent = (
+                (price_diff / pos.entry_price * 100) if pos.entry_price > 0 else Decimal("0")
+            )
+
+            positions_data.append(
+                {
+                    "id": f"pos_{pos.id}",
+                    "positionId": pos.id,
+                    "accountId": account.id,
+                    "accountName": account.account_name or account.exchange,
+                    "symbol": pos.symbol,
+                    "side": pos.side,
+                    "quantity": float(pos.quantity),
+                    "entryPrice": float(pos.entry_price),
+                    "currentPrice": float(pos.current_price),
+                    "unrealizedPnl": float(pnl),
+                    "unrealizedPnlPercent": float(pnl_percent),
+                    "leverage": pos.leverage,
+                    "exchange": account.exchange,
+                    "strategyInstanceId": pos.strategy_instance_id,
+                    "strategyName": (
+                        instance_names.get(pos.strategy_instance_id)
+                        if pos.strategy_instance_id
+                        else None
+                    ),
+                    "source": "strategy" if pos.strategy_instance_id else "external",
+                    "updatedAt": (
+                        pos.updated_at.isoformat() + "Z"
+                        if pos.updated_at
+                        else datetime.now(UTC).isoformat() + "Z"
+                    ),
+                }
+            )
 
         return positions_data
 

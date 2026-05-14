@@ -33,7 +33,7 @@ async function refreshDashboard({ silent = false } = {}) {
   ] = await Promise.all([
     api.getStrategyInstances('all').catch(() => []),
     api.getEvents({ limit: 50 }).catch(() => ({ items: [] })),
-    api.getEvents({ event_type: 'risk', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
+    api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
     api.getEquityCurve(dashboardEquityDays).catch(() => null),
     api.getRunnerStatus().catch(() => null),
   ]);

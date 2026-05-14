@@ -1,5 +1,5 @@
 /**
- * 币钱袋 - 交易对选择器组件
+ * Alpha-7 - 交易对选择器组件
  * 可搜索、分类（现货/永续合约）、带币种图标
  */
 
@@ -257,7 +257,7 @@ class SymbolSelector {
         <div class="sym-sel__dropdown" style="display:none;">
           <div class="sym-sel__search-wrap">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" class="sym-sel__search" placeholder="搜索币种..." autocomplete="off">
+            <input type="text" class="sym-sel__search" name="symbolSearch" aria-label="搜索币种" placeholder="搜索币种..." autocomplete="off">
           </div>
           <div class="sym-sel__filters">
             <button class="sym-sel__filter active" data-type="all">全部</button>

@@ -78,5 +78,15 @@ mcp.json
 # Screenshots (testing artifacts)
 screenshot-*.png
 dashboard-screenshot.png
+alpha7-*.png
+dashboard-*.png
+desktop-*.png
+drawer-*.png
+mobile-*.png
+notifications-*.png
+repro-*.png
 backend/test_ws.py
 backend/test_ws_ticker.py
+
+# Playwright MCP runtime artifacts
+.playwright-mcp/
