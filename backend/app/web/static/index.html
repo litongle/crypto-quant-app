@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-15b">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-15c">
 </head>
 <body>
 
@@ -326,10 +326,7 @@
           <select id="events-filter-type" class="cq-input" aria-label="事件类型筛选" onchange="reloadEvents()">
             <option value="">全部类型</option>
             <option value="signal">信号</option>
-            <option value="order">订单</option>
-            <option value="risk">风险</option>
             <option value="auto_pause">自停</option>
-            <option value="error">错误</option>
           </select>
           <select id="events-filter-since" class="cq-input" aria-label="时间范围筛选" onchange="reloadEvents()">
             <option value="1h">最近 1 小时</option>
@@ -396,10 +393,7 @@
             <select id="instance-logs-filter-type" class="cq-input" aria-label="事件类型筛选" onchange="reloadInstanceLogs()">
               <option value="">全部类型</option>
               <option value="signal">信号</option>
-              <option value="order">订单</option>
-              <option value="risk">风险</option>
               <option value="auto_pause">自停</option>
-              <option value="error">错误</option>
             </select>
             <select id="instance-logs-filter-since" class="cq-input" aria-label="时间范围筛选" onchange="reloadInstanceLogs()">
               <option value="1h">最近 1 小时</option>
@@ -498,7 +492,7 @@
 <script src="/web/static/js/settings-drawer.js?v=2026-05-14b"></script>
 <script src="/web/static/js/instance-drawer.js?v=2026-05-14g"></script>
 <script src="/web/static/js/events.js?v=2026-05-14b"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-14a"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-15b"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;

@@ -79,15 +79,39 @@ function renderInstanceLogsResults(items) {
     return;
   }
   container.innerHTML = `
-    <div class="cq-event-table">
-      ${items.map((item) => `
-        <div class="cq-event-table__row" style="cursor:default;grid-template-columns:auto auto 1fr;">
-          <span>${escapeHtml(formatEventDateTime(item.at))}</span>
-          <span>${escapeHtml(getEventTypeLabel(item.type))}</span>
-          <span>${escapeHtml(item.summary || '--')}</span>
-        </div>
-      `).join('')}
+    <div class="cq-log-feed">
+      ${items.map(renderLogCard).join('')}
     </div>
+  `;
+}
+
+function renderLogCard(item) {
+  const detail = item.detail && typeof item.detail === 'object' ? item.detail : {};
+  // 中文字段名映射：API detail 用英文 key（symbol/action/status/reason/instance_name），抽屉里翻成中文显示
+  const labels = {
+    symbol: '交易对',
+    action: '动作',
+    status: '状态',
+    reason: '原因',
+    instance_name: '实例',
+  };
+  const detailRows = Object.entries(detail)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => {
+      const label = labels[k] || k;
+      const value = String(v);
+      return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${escapeHtml(value)}</span></div>`;
+    }).join('');
+
+  return `
+    <article class="cq-log-card">
+      <header class="cq-log-card__head">
+        <span class="cq-log-card__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(getEventTypeLabel(item.type))}</span>
+        <time class="cq-log-card__time">${escapeHtml(formatEventDateTime(item.at))}</time>
+      </header>
+      <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
+      ${detailRows ? `<div class="cq-log-card__detail">${detailRows}</div>` : ''}
+    </article>
   `;
 }
 

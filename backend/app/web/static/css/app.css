@@ -3382,3 +3382,88 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   background: var(--cq-color-primary-muted);
 }
 
+/* ── 日志抽屉 / 单实例日志卡片 ─────────────────────────────────── */
+.cq-log-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-3);
+}
+
+.cq-log-card {
+  border: 1px solid var(--cq-border-subtle);
+  background: var(--cq-bg-l2);
+  border-radius: 10px;
+  padding: var(--cq-space-3) var(--cq-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-2);
+}
+
+.cq-log-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--cq-space-2);
+}
+
+.cq-log-card__type {
+  font-size: var(--cq-text-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cq-bg-l4);
+  color: var(--cq-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.cq-log-card__type--signal {
+  background: var(--cq-color-info-muted, rgba(56, 132, 255, 0.14));
+  color: var(--cq-color-info, #3884ff);
+}
+
+.cq-log-card__type--auto_pause {
+  background: var(--cq-color-warning-muted, rgba(245, 158, 11, 0.14));
+  color: var(--cq-color-warning, #f59e0b);
+}
+
+.cq-log-card__time {
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cq-log-card__summary {
+  font-size: var(--cq-text-base);
+  color: var(--cq-text-primary);
+  margin: 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.cq-log-card__detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--cq-space-1) var(--cq-space-3);
+  padding-top: var(--cq-space-2);
+  border-top: 1px dashed var(--cq-border-subtle);
+}
+
+.cq-log-card__kv {
+  display: flex;
+  gap: var(--cq-space-2);
+  align-items: baseline;
+  font-size: var(--cq-text-xs);
+  min-width: 0;
+}
+
+.cq-log-card__k {
+  color: var(--cq-text-tertiary);
+  flex-shrink: 0;
+}
+
+.cq-log-card__v {
+  color: var(--cq-text-secondary);
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
