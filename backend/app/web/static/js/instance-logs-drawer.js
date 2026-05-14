@@ -1,5 +1,5 @@
-// 单实例日志抽屉 — 点策略卡片「日志」打开，只展示该 instance 的事件流（含类型/时间筛选 + 分页）。
-// 与 events 全局事件页解耦，不污染该页 filter 状态。
+// 单实例日志抽屉 — 点策略卡片「日志」打开，只展示该 instance 的日志（含类型/时间筛选 + 分页）。
+// 与全局「日志」页解耦，不污染该页 filter 状态。
 
 const instanceLogsState = {
   instanceId: null,
