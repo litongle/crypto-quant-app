@@ -61,7 +61,7 @@ function renderPaperPage() {
               </div>
               <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.7;">
                 账户 ID：<span class="cq-num">${account.id}</span><br>
-                交易所标识：<span class="cq-num">${escapeHtml(account.exchange || 'paper')}</span>
+                账户类型：<span class="cq-num">${escapeHtml(account.exchange === 'paper' || !account.exchange ? '模拟' : account.exchange)}</span>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:var(--cq-space-2);flex-wrap:wrap;">

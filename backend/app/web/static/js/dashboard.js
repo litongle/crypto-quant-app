@@ -127,7 +127,7 @@ function renderSystemStatus(status) {
       ${runnerLine}
       ${exchanges.map((item) => `
         <div class="cq-status-list__item">
-          <span>${escapeHtml(item.name)}</span>
+          <span>${escapeHtml(getExchangeLabel(item.name))}</span>
           <span>${item.ws_connected ? `${item.rest_latency_ms ?? '--'}ms` : '离线'}</span>
         </div>
       `).join('')}

@@ -49,7 +49,8 @@ function resetRuleBuilderState() {
 }
 
 function getExchangeLabel(exchange) {
-  return { binance: '币安', okx: '欧易', htx: '火币' }[exchange] || exchange || '-';
+  // 后端 system_status 用 'huobi'、策略表单 select 用 'htx'，两边都映射到「火币」
+  return { binance: '币安', okx: '欧易', htx: '火币', huobi: '火币' }[exchange] || exchange || '-';
 }
 
 function getStatusTag(status, instance = null) {
