@@ -57,9 +57,18 @@ async function loadInstanceDrawerKline() {
   const market = String(instance.symbol || '').endsWith('.P') ? 'perp' : 'spot';
   const symbol = String(instance.symbol || '').replace(/\.P$/, '');
   const exchange = instance.exchange || 'binance';
-  const response = await api.getKline(symbol, '1h', 120, exchange, market);
-  renderKlineChart('instance-drawer-kline-wrap', response.klines || response || [], { height: 320 });
-  instanceDrawerState.klineLoaded = true;
+  try {
+    const response = await api.getKline(symbol, '1h', 120, exchange, market);
+    renderKlineChart('instance-drawer-kline-wrap', response.klines || response || [], { height: 320 });
+    instanceDrawerState.klineLoaded = true;
+  } catch (err) {
+    // 调用方吞错防 unhandled rejection；这里负责给用户反馈，避免 K 线区一片空白没解释
+    const wrap = document.getElementById('instance-drawer-kline-wrap');
+    if (wrap) {
+      wrap.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--cq-text-tertiary);font-size:var(--cq-text-sm);">K 线加载失败：${escapeHtml(err?.message || '未知错误')}</div>`;
+    }
+    throw err;
+  }
 }
 
 function renderInstanceSummary(instance) {
@@ -76,6 +85,9 @@ function renderInstanceSummary(instance) {
 function syncInstanceDrawerActions(instance) {
   const pauseBtn = document.getElementById('instance-drawer-pause-btn');
   const stopBtn = document.getElementById('instance-drawer-stop-btn');
+  const logsBtn = document.getElementById('instance-drawer-logs-btn');
+  // 在 events 页打开 drawer 时隐藏「查看完整日志」，避免回路（点事件 → drawer → 又回到 events）
+  if (logsBtn) logsBtn.hidden = _currentPage === 'events';
   if (!pauseBtn || !stopBtn) return;
 
   if (instance.status === 'running') {

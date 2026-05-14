@@ -1,5 +1,5 @@
 // Alpha-7 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v25';
+const CACHE_NAME = 'cq-sw-v35';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -13,6 +13,7 @@ const STATIC_ASSETS = [
   '/web/static/js/settings-drawer.js',
   '/web/static/js/instance-drawer.js',
   '/web/static/js/events.js',
+  '/web/static/js/symbol-selector.js',
   '/web/static/manifest.json',
   '/web/static/fonts/geist/Geist-Variable.woff2',
 ];

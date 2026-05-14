@@ -2632,7 +2632,7 @@ select.cq-input:not([multiple]) {
   position: absolute;
   top: 0;
   right: 0;
-  width: min(480px, calc(100vw - 80px));
+  width: min(480px, calc(100vw - 64px));
   height: 100%;
   padding-top: env(safe-area-inset-top);
   padding-right: env(safe-area-inset-right);
@@ -2775,6 +2775,10 @@ select.cq-input:not([multiple]) {
 }
 
 /* ── 20. Responsive ─────────────────────────────────────────── */
+
+/* grid item 默认 min-width:auto = min-content，会被内部 cq-grid-3 等 min-content 撑出 1fr track。
+   显式 min-width:0 后 1fr 才按容器宽度真实分配 */
+.backtest-layout > * { min-width: 0; }
 
 /* Tablet & compact desktop (≤1080px) — structural only */
 @media (max-width: 1080px) {

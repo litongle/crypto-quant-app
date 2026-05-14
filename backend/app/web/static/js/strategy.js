@@ -93,11 +93,6 @@ function formatTimestamp(ts) {
   });
 }
 
-function normalizeWorkbenchValue(value) {
-  if (value === undefined || value === null || value === '') return null;
-  return value;
-}
-
 function stableStringify(value) {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(',')}]`;
@@ -1368,21 +1363,6 @@ function renderStrategyPerformance(perf) {
 
 function closeStrategyPerfModal() {
   const modal = document.getElementById('strategy-perf-modal');
-  if (modal) modal.classList.remove('is-visible');
-}
-
-async function showStrategyEdit(instanceId) {
-  return cloneStrategyToWorkbench(instanceId);
-}
-
-async function submitStrategyEdit() {
-  showToast('旧编辑弹窗已下线，请在工作台中编辑策略', 'warn');
-  closeStrategyEditModal();
-  document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function closeStrategyEditModal() {
-  const modal = document.getElementById('strategy-edit-modal');
   if (modal) modal.classList.remove('is-visible');
 }
 

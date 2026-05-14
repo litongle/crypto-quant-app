@@ -286,8 +286,15 @@ async function submitAddAccount() {
       showToast(msg, 'error');
     }
   } finally {
-    // renderAccounts() 会全量重建 DOM
-    accounts = await api.getExchangeAccounts();
+    // 先恢复按钮状态，避免 reload 失败时按钮永远 disabled + spinner（renderAccounts 成功时 DOM 重建会覆盖）
+    btn.disabled = false;
+    btn.innerHTML = origText;
+    // 列表 reload 失败不该覆盖前面已经显示的成功/失败 toast，单独 try/catch
+    try {
+      accounts = await api.getExchangeAccounts();
+    } catch (err) {
+      showToast(err.message || '账户列表刷新失败', 'error');
+    }
     renderAccounts();
   }
 }

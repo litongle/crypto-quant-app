@@ -426,10 +426,15 @@ class SymbolSelector {
     const container = document.getElementById(this.containerId);
     if (!container) return;
 
-    // 更新触发器显示
+    // 更新触发器显示。若内部结构被外部销毁（page 切换全量 innerHTML 等场景），整体重建。
     const trigger = container.querySelector('.sym-sel__trigger');
-    const chevron = trigger.querySelector('.sym-sel__chevron').outerHTML;
-    trigger.innerHTML = this._renderSelected(symbol, displayName) + chevron;
+    if (!trigger) {
+      this._build();
+    } else {
+      const chevronEl = trigger.querySelector('.sym-sel__chevron');
+      const chevron = chevronEl ? chevronEl.outerHTML : '';
+      trigger.innerHTML = this._renderSelected(symbol, displayName) + chevron;
+    }
 
     // 更新列表激活态
     this._renderList();

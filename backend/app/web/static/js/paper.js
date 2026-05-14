@@ -66,7 +66,7 @@ function renderPaperPage() {
             </div>
             <div style="display:flex;align-items:center;gap:var(--cq-space-2);flex-wrap:wrap;">
               <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="refreshPaperAccounts()">刷新</button>
-              <button class="cq-btn cq-btn--danger cq-btn--sm" onclick="resetPaperAccount(${account.id}, '${escapeHtml(account.name || '模拟盘账户')}')">重置账户</button>
+              <button class="cq-btn cq-btn--danger cq-btn--sm" data-account-id="${account.id}" data-account-name="${escapeHtml(account.name || '模拟盘账户')}" onclick="resetPaperAccountFromBtn(this)">重置账户</button>
             </div>
           </div>
         </div>`).join('')}
@@ -90,6 +90,12 @@ async function refreshPaperAccounts() {
   } catch (err) {
     showToast(err.message || '刷新模拟盘账户失败', 'error');
   }
+}
+
+function resetPaperAccountFromBtn(btn) {
+  // 走 data-* 而非 inline 字符串参数：onclick 是 HTML attribute，浏览器会对其再解码一次，
+  // 直接把 escapeHtml 后的 ' (&#39;) 还原成 '，撑破 JS 字符串字面量
+  return resetPaperAccount(Number(btn.dataset.accountId), btn.dataset.accountName || '');
 }
 
 async function resetPaperAccount(accountId, accountName) {

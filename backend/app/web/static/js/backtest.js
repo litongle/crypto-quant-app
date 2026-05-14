@@ -541,7 +541,7 @@ function renderBacktestResults(result) {
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${formatAxisValue(initialCapital)} → ${formatAxisValue(finalCapital)}</span></div>
+          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
         </div>
       </div>
     </div>
