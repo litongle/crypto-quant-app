@@ -90,6 +90,17 @@ class UpdateStrategyRequest(BaseModel):
 # ============ 响应模型 ============
 
 
+class ColumnDef(BaseModel):
+    """json_table 类型参数的列定义"""
+
+    key: str = Field(..., description="列字段名（数据 row 字典里的 key）")
+    name: str = Field(..., description="列显示名")
+    type: Literal["int", "double"] = Field("double", description="单元格数值类型")
+    min: int | float | None = None
+    max: int | float | None = None
+    step: int | float | None = None
+
+
 class ParamSchema(BaseModel):
     """参数定义
 
@@ -124,7 +135,7 @@ class ParamSchema(BaseModel):
     max: int | float | None = None
     step: int | float | None = None
     options: list[dict] | None = None
-    columns: list[dict] | None = None  # json_table 专用：列定义
+    columns: list[ColumnDef] | None = None  # json_table 专用：列定义
     description: str | None = None
 
 

@@ -967,6 +967,12 @@ class OrderService:
 
         默认 ``False`` 是为了不影响 strategy_runner 自我平仓（take-profit 等）的
         正常流程：策略主动平自己的仓位不应该让策略自己暂停。
+
+        返回值约定：
+            返回的 Position 对象额外挂载一个 ``strategy_paused: bool`` transient
+            属性（非持久化字段），表示本次调用是否真的把策略切到 paused。
+            调用方应使用 ``getattr(position, "strategy_paused", False)`` 读取，
+            以容忍未来移除此契约的可能。
         """
         position = await self.position_repo.get_by_id(position_id)
         if not position:
@@ -1035,7 +1041,7 @@ class OrderService:
                 initial_capital = Decimal(str(instance.params.get("initial_capital", 100000)))
                 if initial_capital > 0:
                     instance.total_pnl_percent = instance.total_pnl / initial_capital * 100
-            except (KeyError, TypeError, ValueError) as exc:
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
                 logger.debug("[OrderService] 计算 total_pnl_percent 跳过: %s", exc)
 
             if pause_running_strategy and instance.status == "running":
