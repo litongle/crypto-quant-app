@@ -1972,6 +1972,26 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   overflow: hidden;
 }
 
+/* 解除继承自 .cq-metrics-detail__body 的 max-height:2000px 限制（43+笔 trade 会被
+   切掉无法滚动），改为表格内部容器自身限高 + 垂直滚动条。折叠瞬切牺牲掉，但 60+
+   笔回测能看全。 */
+.cq-trades-detail .cq-metrics-detail__body {
+  max-height: none;
+}
+
+.cq-trades-detail .cq-table-wrap {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* 表头 sticky，长列表滚动时仍能看到列名 */
+.cq-trades-detail .cq-trades-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--cq-bg-l1);
+  z-index: 1;
+}
+
 .cq-trades-table {
   min-width: 720px;
 }
