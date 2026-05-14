@@ -76,7 +76,7 @@ function renderInstanceSummary(instance) {
     <div class="cq-instance-summary__grid">
       <div><span>状态</span><strong>${escapeHtml(instance.status || '--')}</strong></div>
       <div><span>交易对</span><strong>${escapeHtml(instance.symbol || '--')}</strong></div>
-      <div><span>PnL</span><strong>${formatSignedPnl(instance.totalPnl)}</strong></div>
+      <div><span>盈亏</span><strong>${formatSignedPnl(instance.totalPnl)}</strong></div>
       <div><span>启动时间</span><strong>${escapeHtml(instance.lastStartedAt ? formatEventDateTime(instance.lastStartedAt) : '--')}</strong></div>
     </div>
   `;

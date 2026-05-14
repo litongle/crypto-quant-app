@@ -49,7 +49,7 @@ function resetRuleBuilderState() {
 }
 
 function getExchangeLabel(exchange) {
-  return { binance: 'Binance', okx: 'OKX', htx: 'HTX' }[exchange] || exchange || '-';
+  return { binance: '币安', okx: '欧易', htx: '火币' }[exchange] || exchange || '-';
 }
 
 function getStatusTag(status, instance = null) {
@@ -367,7 +367,7 @@ function renderLibraryCard(instance) {
         <span>启动时间 ${escapeHtml(lastStarted)}</span>`
     : isZombie
     ? `
-        <span>Runner 未活跃</span>
+        <span>执行器未活跃</span>
         <span class="sep">·</span>
         <span>最近成功执行 ${escapeHtml(lastRun)}</span>
         <span class="sep">·</span>
@@ -653,9 +653,9 @@ async function ensureWorkbenchFormInfra() {
     if (exSelect && !exSelect.dataset.initialized) {
       const connectedExchanges = [...new Set(accounts.map(account => account.exchange).filter(Boolean))];
       const allExchanges = [
-        { value: 'binance', label: 'Binance' },
-        { value: 'okx', label: 'OKX' },
-        { value: 'htx', label: 'HTX' },
+        { value: 'binance', label: '币安' },
+        { value: 'okx', label: '欧易' },
+        { value: 'htx', label: '火币' },
       ];
       exSelect.innerHTML = allExchanges.map(exchange => {
         const connected = connectedExchanges.includes(exchange.value);

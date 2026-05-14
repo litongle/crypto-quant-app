@@ -93,7 +93,7 @@ function renderInstanceList(instances) {
               <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(item.status)}</span>
             </span>
             <span class="cq-instance-row__metric">${formatSignedPnl(item.totalPnl)}</span>
-            <span class="cq-instance-row__metric">${item.runtimeActive ? 'online' : 'idle'}</span>
+            <span class="cq-instance-row__metric">${item.runtimeActive ? '在线' : '闲置'}</span>
             <span class="cq-instance-row__action">${canStop ? stopLabel : '查看'}</span>
           </button>
         `;
@@ -120,15 +120,15 @@ function renderSystemStatus(status) {
   const runner = status?.strategy_runner;
   const exchanges = Array.isArray(status?.exchanges) ? status.exchanges : [];
   const runnerLine = runner
-    ? `<div class="cq-status-list__item"><span>Runner</span><span>${runner.alive_count}/${runner.task_count} ok</span></div>`
-    : '<div class="cq-status-list__item"><span>Runner</span><span>--</span></div>';
+    ? `<div class="cq-status-list__item"><span>执行器</span><span>${runner.alive_count}/${runner.task_count} 就绪</span></div>`
+    : '<div class="cq-status-list__item"><span>执行器</span><span>--</span></div>';
   container.innerHTML = `
     <div class="cq-status-list">
       ${runnerLine}
       ${exchanges.map((item) => `
         <div class="cq-status-list__item">
           <span>${escapeHtml(item.name)}</span>
-          <span>${item.ws_connected ? `${item.rest_latency_ms ?? '--'}ms` : 'offline'}</span>
+          <span>${item.ws_connected ? `${item.rest_latency_ms ?? '--'}ms` : '离线'}</span>
         </div>
       `).join('')}
     </div>

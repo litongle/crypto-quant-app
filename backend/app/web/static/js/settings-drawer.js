@@ -120,10 +120,10 @@ function renderSmtpSection(data) {
 
       <div class="cq-settings-form__group">
         <div class="cq-settings-form__group-title">收发</div>
-        <label>发件人 From
+        <label>发件人地址
           <input name="smtp_from" value="${escapeHtml(data.smtp_from || '')}" placeholder="留空则用用户名">
         </label>
-        <label>收件人 To
+        <label>收件人地址
           <input name="smtp_to" value="${escapeHtml(data.smtp_to || '')}" placeholder="me@example.com">
         </label>
       </div>
@@ -235,9 +235,9 @@ async function renderRiskSettingsPane() {
         <input name="heartbeat_min_seconds" type="number" value="${data.heartbeat_min_seconds}" min="10" max="3600">
         <small>心跳超时阈值的下限秒数</small>
       </label>
-      <label>Watchdog 间隔秒
+      <label>守护扫描间隔（秒）
         <input name="watchdog_interval_seconds" type="number" value="${data.watchdog_interval_seconds}" min="5" max="600">
-        <small>watchdog 扫描周期，越短发现卡死越快</small>
+        <small>守护扫描周期，越短发现卡死越快</small>
       </label>
       <div class="cq-settings-form__actions">
         <button type="submit" class="cq-btn cq-btn--primary">保存</button>
@@ -264,7 +264,7 @@ function bindRiskForm(container) {
     status.textContent = '保存中…';
     try {
       await api.putRiskSettings(body);
-      status.textContent = '✅ 已保存（下次 watchdog 周期生效）';
+      status.textContent = '✅ 已保存（下次守护周期生效）';
     } catch (err) {
       status.textContent = `❌ 保存失败：${err.message}`;
     }

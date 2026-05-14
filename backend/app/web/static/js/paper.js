@@ -56,7 +56,7 @@ function renderPaperPage() {
             <div>
               <div style="display:flex;align-items:center;gap:var(--cq-space-2);margin-bottom:var(--cq-space-2);">
                 <span style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);">${escapeHtml(account.name || '模拟盘账户')}</span>
-                <span class="cq-tag cq-tag--warn">Paper</span>
+                <span class="cq-tag cq-tag--warn">模拟</span>
                 ${account.isActive ? '<span class="cq-tag cq-tag--profit">启用中</span>' : '<span class="cq-tag cq-tag--neutral">已停用</span>'}
               </div>
               <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.7;">

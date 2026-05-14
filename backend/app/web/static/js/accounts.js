@@ -7,9 +7,9 @@ let accountsMountSelector = '#accounts-content';
 
 /* ── 交易所品牌色和图标 ── */
 const EXCHANGE_META = {
-  binance: { label: 'Binance', color: 'var(--cq-color-binance)', letter: 'B', icon: 'B' },
-  okx:     { label: 'OKX',     color: 'var(--cq-color-okx)',     letter: 'O', icon: 'O' },
-  huobi:   { label: 'HTX',     color: 'var(--cq-color-htx)',     letter: 'H', icon: 'H' },
+  binance: { label: '币安', color: 'var(--cq-color-binance)', letter: 'B', icon: 'B' },
+  okx:     { label: '欧易', color: 'var(--cq-color-okx)',     letter: 'O', icon: 'O' },
+  huobi:   { label: '火币', color: 'var(--cq-color-htx)',     letter: 'H', icon: 'H' },
 };
 
 /* ── 状态映射 ── */
@@ -44,7 +44,7 @@ function renderAccounts() {
       <div class="cq-card cq-empty-state">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-disabled)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
         <h3>还没有添加交易所账户</h3>
-        <p>添加 Binance / OKX / HTX 账户以开始交易</p>
+        <p>添加 币安 / 欧易 / 火币 账户以开始交易</p>
         <button class="cq-btn cq-btn--primary" onclick="toggleAddForm()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           添加交易所账户
@@ -70,9 +70,9 @@ function renderAccounts() {
         <div>
           <label class="cq-label">交易所</label>
           <select class="cq-input" id="acc-exchange" onchange="onExchangeChange()">
-            <option value="binance">Binance</option>
-            <option value="okx">OKX</option>
-            <option value="huobi">HTX (火币)</option>
+            <option value="binance">币安</option>
+            <option value="okx">欧易</option>
+            <option value="huobi">火币</option>
           </select>
         </div>
         <div>
