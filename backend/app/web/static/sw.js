@@ -1,5 +1,5 @@
 // Alpha-7 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v36';
+const CACHE_NAME = 'cq-sw-v37';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -80,6 +80,14 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(async () => {
+        const matched = await caches.match(event.request);
+        if (matched) return matched;
+        // SPA deep link 离线兜底：/web/<page> 没缓存时 fallback 到 /web/ (index.html)
+        if (url.pathname.startsWith('/web/') && !url.pathname.startsWith('/web/static/')) {
+          return caches.match('/web/');
+        }
+        return undefined;
+      })
   );
 });

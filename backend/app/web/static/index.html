@@ -529,17 +529,20 @@ window.addEventListener('resize', () => {
 const _VALID_PAGES = new Set(['dashboard', 'strategy', 'backtest', 'events']);
 const _LEGACY_PAGES = new Set(['accounts', 'paper', 'security', 'market', 'trading']);
 
-function normalizeHashPage() {
-  let raw = (location.hash || '').replace(/^#/, '').trim();
-  raw = raw.replace(/^\/+/, '');
-  const slug = raw.split('/')[0] || '';
+function normalizeRoutePage() {
+  // 路径形式：/web 或 /web/ → dashboard；/web/<page> → page；旧 hash 链接（/web/#strategy）→ hash slug
+  const path = location.pathname || '';
+  const tail = path.replace(/^\/web\/?/, '').replace(/^\/+/, '');
+  const slug = tail.split('/')[0] || '';
   if (_VALID_PAGES.has(slug)) return slug;
   if (_LEGACY_PAGES.has(slug)) return 'dashboard';
+  const hashSlug = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+  if (_VALID_PAGES.has(hashSlug)) return hashSlug;
+  if (_LEGACY_PAGES.has(hashSlug)) return 'dashboard';
   return 'dashboard';
 }
 
-let _currentPage = normalizeHashPage();
-let _suppressHashSync = false;
+let _currentPage = normalizeRoutePage();
 
 async function canLeaveCurrentPage(nextPage) {
   if (_currentPage !== 'strategy' || nextPage === 'strategy') return true;
@@ -548,11 +551,11 @@ async function canLeaveCurrentPage(nextPage) {
   return confirmWorkbenchLeave('离开策略中心？', '当前工作台还有未保存的修改，离开策略中心会丢失这些内容。');
 }
 
-async function navigate(page, pushHash = true) {
+async function navigate(page, pushRoute = true) {
   if (!await canLeaveCurrentPage(page)) {
-    if (!pushHash && normalizeHashPage() !== _currentPage) {
-      _suppressHashSync = true;
-      location.hash = _currentPage;
+    // 取消导航：浏览器 back/forward 触发时 URL 已经变了，需要 replaceState 推回当前页
+    if (!pushRoute && normalizeRoutePage() !== _currentPage) {
+      history.replaceState(null, '', '/web/' + _currentPage);
     }
     return false;
   }
@@ -565,11 +568,9 @@ async function navigate(page, pushHash = true) {
   if (pageEl) pageEl.classList.add('active');
   if (navEl) navEl.classList.add('active');
 
-  // 记住当前页面到 URL hash
   _currentPage = page;
-  if (pushHash) {
-    _suppressHashSync = true;
-    location.hash = page;
+  if (pushRoute) {
+    history.pushState(null, '', '/web/' + page);
   }
 
   closeSidebar();
@@ -592,12 +593,8 @@ async function navigate(page, pushHash = true) {
 }
 
 // 浏览器前进/后退时跟随
-window.addEventListener('hashchange', async () => {
-  if (_suppressHashSync) {
-    _suppressHashSync = false;
-    return;
-  }
-  const page = normalizeHashPage();
+window.addEventListener('popstate', async () => {
+  const page = normalizeRoutePage();
   await navigate(page, false);
 });
 
@@ -652,12 +649,7 @@ async function handleLogout() {
   api.logout();
   showLoggedOutView();
   _currentPage = 'dashboard';
-  if (location.hash !== '#dashboard') {
-    _suppressHashSync = true;
-    location.hash = 'dashboard';
-  } else {
-    _suppressHashSync = false;
-  }
+  history.replaceState(null, '', '/web/dashboard');
 }
 
 async function enterApp() {
@@ -675,16 +667,11 @@ async function enterApp() {
     showToast('获取用户信息失败，请刷新重试', 'warn');
   }
 
-  // 从 hash 恢复上次页面；非法或带前缀斜杠的 hash 纠正为 #<page>，避免白屏
-  const savedPage = normalizeHashPage();
-  const hashBody = (location.hash || '').replace(/^#/, '').trim();
-  const hashSlug = hashBody.replace(/^\/+/, '').split('/')[0] || '';
-  if (location.hash && !_VALID_PAGES.has(hashSlug)) {
-    _suppressHashSync = true;
-    location.hash = savedPage;
-  } else if (location.hash && _VALID_PAGES.has(hashSlug) && location.hash !== `#${hashSlug}`) {
-    _suppressHashSync = true;
-    location.hash = hashSlug;
+  // 从路径恢复上次页面；旧 hash 链接（/web/#strategy）或非法路径会被 normalizeRoutePage 兜底，再 replaceState 迁移到 /web/<page>
+  const savedPage = normalizeRoutePage();
+  const expectedPath = '/web/' + savedPage;
+  if (location.pathname !== expectedPath || location.hash) {
+    history.replaceState(null, '', expectedPath);
   }
   navigate(savedPage, false);
 }

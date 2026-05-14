@@ -9,6 +9,10 @@ router = APIRouter()
 
 STATIC_DIR = (Path(__file__).parent / "static").resolve()
 
+# SPA history routing：前端用 history.pushState，刷新 /web/<page> 时后端要返回 index.html
+# 由前端 _VALID_PAGES 校验非法 slug
+_SPA_PAGES = {"dashboard", "strategy", "backtest", "events"}
+
 
 @router.get("/web")
 @router.get("/web/")
@@ -42,3 +46,11 @@ async def web_static(path: str):
     if candidate.is_file():
         return FileResponse(candidate)
     raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.get("/web/{page}")
+async def web_spa_page(page: str):
+    """SPA deep link：刷新 /web/dashboard 等路径时返回 index.html，由前端路由解析"""
+    if page not in _SPA_PAGES:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(STATIC_DIR / "index.html")
