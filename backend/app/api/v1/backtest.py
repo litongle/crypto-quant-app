@@ -10,7 +10,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -75,14 +75,15 @@ async def run_backtest(
     基于给定的策略参数和时间范围，运行历史数据回测并返回绩效指标。
     使用真实策略引擎（StrategyFactory）+ Binance 公开 API K线数据。
     """
-    # 解析日期
-    end_date = request.end_date or datetime.now().strftime("%Y-%m-%d")
+    # 解析日期 — 用 UTC 当系统"今天"，最大允许日期再 +1 天容差，
+    # 让客户端在 UTC+1 ~ UTC+14 时区时本地"今天"不会被误判为 future
+    # (北京时间 UTC+8 早上 00:00-08:00 本地今天 = UTC 明天，没容差就拒)
+    today_local_max = (datetime.now(UTC).date() + timedelta(days=1)).strftime("%Y-%m-%d")
+    end_date = request.end_date or today_local_max
 
-    # 日期校验 — 返回正确的 HTTP 4xx 状态码
-    today = datetime.now().strftime("%Y-%m-%d")
-    if request.start_date > today:
+    if request.start_date > today_local_max:
         raise HTTPException(status_code=422, detail="开始日期不能是未来日期")
-    if end_date > today:
+    if end_date > today_local_max:
         raise HTTPException(status_code=422, detail="结束日期不能是未来日期")
     if request.start_date > end_date:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
