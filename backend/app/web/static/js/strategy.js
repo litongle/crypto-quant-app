@@ -211,12 +211,10 @@ function getTemplateName(instance) {
 function renderLoadingSkeletons() {
   const libraryList = document.getElementById('strategy-library-list');
   const libraryFilters = document.getElementById('strategy-library-filters');
-  const draftList = document.getElementById('workbench-draft-list');
   const emptyState = document.getElementById('workbench-empty');
   const formWrap = document.getElementById('create-form-wrap');
   if (libraryFilters) libraryFilters.innerHTML = '<div class="cq-skeleton" style="height:36px;width:220px;border-radius:999px;"></div>';
   if (libraryList) libraryList.innerHTML = '<div class="cq-skeleton" style="height:140px;border-radius:var(--cq-radius-lg);"></div>';
-  if (draftList) draftList.innerHTML = '<div class="cq-skeleton" style="height:44px;width:220px;border-radius:999px;"></div>';
   if (emptyState) emptyState.style.display = 'none';
   if (formWrap) formWrap.style.display = 'none';
   workbenchInitialSnapshot = null;
@@ -243,7 +241,6 @@ async function loadStrategyPage() {
     const groups = groupStrategyInstances(instances);
     renderStrategyLibrary(getFormalStrategies(instances));
     renderTemplatePills(templates);
-    renderWorkbenchDraftList(groups.drafts);
 
     const draftId = chooseWorkbenchDraft(groups.drafts);
     if (draftId) {
@@ -262,7 +259,6 @@ async function loadStrategyPage() {
     document.getElementById('strategy-library-list').innerHTML = message;
     const filterEl = document.getElementById('strategy-library-filters');
     if (filterEl) filterEl.innerHTML = '';
-    document.getElementById('workbench-draft-list').innerHTML = '';
     showWorkbenchEmpty();
   }
 }
@@ -526,28 +522,6 @@ function renderTemplateBanner(template) {
     </div>`;
 }
 
-function renderWorkbenchDraftList(drafts) {
-  const el = document.getElementById('workbench-draft-list');
-  if (!el) return;
-
-  if (!drafts || drafts.length === 0) {
-    el.innerHTML = '<span style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);">暂无草案</span>';
-    return;
-  }
-
-  el.innerHTML = drafts.map(draft => {
-    const isActive = Number(window._editingInstanceId) === Number(draft.id);
-    return `
-      <button class="cq-workbench-draft-pill${isActive ? ' is-active' : ''}" onclick="selectTemplate('draft_${draft.id}')">
-        <div class="cq-pill__icon">${getStrategyIcon(draft.templateId)}</div>
-        <span class="cq-workbench-draft-pill__text">
-          <span class="cq-workbench-draft-pill__name">${escapeHtml(draft.name)}</span>
-          <span class="cq-workbench-draft-pill__meta">${escapeHtml(getTemplateName(draft))}</span>
-        </span>
-      </button>`;
-  }).join('');
-}
-
 function showWorkbenchEmpty() {
   const emptyState = document.getElementById('workbench-empty');
   const formWrap = document.getElementById('create-form-wrap');
@@ -584,7 +558,6 @@ function markTemplateSelection(templateId) {
 
 function markDraftSelection(draftId) {
   window._editingInstanceId = draftId ? Number(draftId) : null;
-  renderWorkbenchDraftList(groupStrategyInstances(window._strategyInstances || []).drafts);
 }
 
 /** 根据当前选中的交易所过滤账户下拉 */
@@ -712,7 +685,6 @@ function deselectTemplate(options = {}) {
   resetRuleBuilderState();
   workbenchInitialSnapshot = null;
   markTemplateSelection(null);
-  renderWorkbenchDraftList(groupStrategyInstances(window._strategyInstances || []).drafts);
   showWorkbenchEmpty();
   const statusTag = document.getElementById('create-form-status');
   if (statusTag) {
