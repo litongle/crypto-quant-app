@@ -1,3 +1,5 @@
+'use strict';
+
 function normalizeKlineTime(raw) {
   if (raw == null) return null;
   if (typeof raw === 'number') return raw > 1e11 ? Math.floor(raw / 1000) : Math.floor(raw);

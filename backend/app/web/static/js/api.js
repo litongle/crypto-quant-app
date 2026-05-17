@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * Alpha-7 Web API 客户端 v2
  * 封装所有后端 API 调用，自动处理认证和刷新
@@ -151,6 +153,7 @@ class ApiClient {
     this.refreshToken = '';
     sessionStorage.removeItem('access_token');
     sessionStorage.removeItem('refresh_token');
+    this._invalidateUserCache?.();
     // 通知页面进入登出态,让所有 polling 自检停下,避免 401 死循环刷屏
     try {
       window.dispatchEvent(new CustomEvent('cq:logged-out'));
@@ -342,8 +345,29 @@ class ApiClient {
   }
 
   async getUserInfo() {
-    const json = await this.get('/auth/me');
-    return json.data || json;
+    // 去重 + 5s 短缓存：login 后 enterApp() 与 DOMContentLoaded 启动探活
+    // 都会调一次，叠加策略页/抽屉里独立调用，瞬时能打出 2-3 个相同请求
+    const now = Date.now();
+    if (this._meCache && now - this._meCache.at < 5000) {
+      return this._meCache.value;
+    }
+    if (this._meInFlight) return this._meInFlight;
+    this._meInFlight = (async () => {
+      try {
+        const json = await this.get('/auth/me');
+        const value = json.data || json;
+        this._meCache = { at: Date.now(), value };
+        return value;
+      } finally {
+        this._meInFlight = null;
+      }
+    })();
+    return this._meInFlight;
+  }
+
+  _invalidateUserCache() {
+    this._meCache = null;
+    this._meInFlight = null;
   }
 
   // ===== 策略详情/绩效/编辑 =====

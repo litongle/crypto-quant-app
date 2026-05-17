@@ -1,3 +1,5 @@
+'use strict';
+
 const settingsDrawerState = {
   activeTab: 'accounts',
   runnerStatus: null,

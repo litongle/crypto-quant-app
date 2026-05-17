@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 router = APIRouter()
 
@@ -13,12 +13,62 @@ STATIC_DIR = (Path(__file__).parent / "static").resolve()
 # 由前端 _VALID_PAGES 校验非法 slug
 _SPA_PAGES = {"dashboard", "strategy", "backtest", "events"}
 
+# 复数形态等常见手误 → 301 到规范单数路径。paper/accounts 没有独立 SPA 页（走设置抽屉），
+# 重定向到 dashboard 比直接 404 友好。
+_PAGE_ALIASES = {
+    "strategies": "strategy",
+    "backtests": "backtest",
+    "event": "events",
+    "log": "events",
+    "logs": "events",
+    "paper": "dashboard",
+    "papers": "dashboard",
+    "account": "dashboard",
+    "accounts": "dashboard",
+}
+
+_NOT_FOUND_HTML = """<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<title>页面不存在 · Alpha-7</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{color-scheme:dark light}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:#0b0d12;color:#e6e8eb;font-family:-apple-system,'Segoe UI',sans-serif}
+  .wrap{text-align:center;padding:32px;max-width:480px}
+  h1{font-size:64px;margin:0;color:#6366F1}
+  p{color:#94a3b8;line-height:1.6;margin:8px 0 24px}
+  a{display:inline-block;padding:10px 20px;background:#6366F1;color:#fff;
+    border-radius:6px;text-decoration:none;font-weight:600}
+  a:hover{background:#4f46e5}
+</style></head>
+<body><div class="wrap">
+  <h1>404</h1>
+  <p>页面 <code>__PATH__</code> 不存在。请从控制台进入。</p>
+  <a href="/web/dashboard">回到控制台</a>
+</div></body></html>"""
+
+
+def _render_not_found(path: str) -> HTMLResponse:
+    """str.format() 会被 CSS 里的 `{}` 误食，改用 replace；同时对 path 做 HTML 转义防注入"""
+    safe_path = (
+        path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    )
+    body = _NOT_FOUND_HTML.replace("__PATH__", safe_path)
+    return HTMLResponse(body, status_code=404)
+
 
 @router.get("/web")
 @router.get("/web/")
 async def web_index():
     """网页控制台入口"""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@router.get("/favicon.ico")
+async def favicon():
+    """避免浏览器每次打页面都打一次 404；用 SVG icon 即可，无需单独 ico 文件"""
+    return Response(status_code=204)
 
 
 @router.get("/web/static/sw.js")
@@ -41,16 +91,22 @@ async def web_static(path: str):
         candidate = (STATIC_DIR / path).resolve()
         candidate.relative_to(STATIC_DIR)
     except (ValueError, OSError):
-        raise HTTPException(status_code=404, detail="Not found") from None
+        return _render_not_found(f"/web/static/{path}")
 
     if candidate.is_file():
         return FileResponse(candidate)
-    raise HTTPException(status_code=404, detail="Not found")
+    return _render_not_found(f"/web/static/{path}")
 
 
 @router.get("/web/{page}")
 async def web_spa_page(page: str):
-    """SPA deep link：刷新 /web/dashboard 等路径时返回 index.html，由前端路由解析"""
-    if page not in _SPA_PAGES:
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(STATIC_DIR / "index.html")
+    """SPA deep link：刷新 /web/dashboard 等路径时返回 index.html，由前端路由解析
+
+    复数/常见手误走 301 别名；其他非法路径返回友好 HTML 404，不再裸吐 JSON detail。
+    """
+    if page in _SPA_PAGES:
+        return FileResponse(STATIC_DIR / "index.html")
+    alias = _PAGE_ALIASES.get(page)
+    if alias:
+        return RedirectResponse(url=f"/web/{alias}", status_code=301)
+    return _render_not_found(f"/web/{page}")

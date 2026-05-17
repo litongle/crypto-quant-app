@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * Alpha-7 - 交易对选择器组件
  * 可搜索、分类（现货/永续合约）、带币种图标
@@ -283,8 +285,8 @@ class SymbolSelector {
       : '';
 
     return `
-      <span class="sym-sel__icon" style="background:${color}1A;color:${color};">${info ? info.base : '?'}</span>
-      <span class="sym-sel__name">${displayName}</span>
+      <span class="sym-sel__icon" style="background:${color}1A;color:${color};">${escapeHtml(info ? info.base : '?')}</span>
+      <span class="sym-sel__name">${escapeHtml(displayName)}</span>
       ${typeTag}
     `;
   }
@@ -311,16 +313,16 @@ class SymbolSelector {
 
     let html = '';
     for (const [cat, items] of Object.entries(groups)) {
-      html += `<div class="sym-sel__group-label">${cat}</div>`;
+      html += `<div class="sym-sel__group-label">${escapeHtml(cat)}</div>`;
       for (const s of items) {
         const color = COIN_COLORS[s.base] || 'var(--cq-color-primary)';
         const isActive = s.symbol === this.value;
         const typeClass = s.type === 'perp' ? 'sym-sel__tag--perp' : 'sym-sel__tag--spot';
         const typeLabel = s.type === 'perp' ? '合约' : '现货';
         html += `
-          <div class="sym-sel__item${isActive ? ' is-active' : ''}" data-symbol="${s.symbol}">
-            <span class="sym-sel__icon" style="background:${color}1A;color:${color};">${s.base}</span>
-            <span class="sym-sel__item-name">${s.name}</span>
+          <div class="sym-sel__item${isActive ? ' is-active' : ''}" data-symbol="${escapeHtml(s.symbol)}">
+            <span class="sym-sel__icon" style="background:${color}1A;color:${color};">${escapeHtml(s.base)}</span>
+            <span class="sym-sel__item-name">${escapeHtml(s.name)}</span>
             <span class="sym-sel__tag ${typeClass}">${typeLabel}</span>
           </div>
         `;

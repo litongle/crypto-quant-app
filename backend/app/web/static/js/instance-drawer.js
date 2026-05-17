@@ -1,3 +1,5 @@
+'use strict';
+
 const instanceDrawerState = {
   instance: null,
   klineLoaded: false,

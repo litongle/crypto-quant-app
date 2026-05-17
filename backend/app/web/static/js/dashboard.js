@@ -1,5 +1,8 @@
+'use strict';
+
 let dashboardEquityDays = 30;
-let dashboardRefreshTimer = null;
+let dashboardFastTimer = null;
+let dashboardSlowTimer = null;
 let dashboardState = {
   instances: [],
   activity: [],
@@ -8,53 +11,68 @@ let dashboardState = {
   equity: null,
 };
 
+// 高频 5s：策略实例 / 实时活动 / 执行器健康（业务上需要近实时）
+// 低频 30s：权益曲线 30 天全量 / 24h 风险事件（变化慢，5s 拉是浪费）
+const DASHBOARD_FAST_MS = 5000;
+const DASHBOARD_SLOW_MS = 30000;
+
 async function loadDashboard() {
   stopDashboardPolling();
-  await refreshDashboard();
-  dashboardRefreshTimer = setInterval(() => {
-    refreshDashboard({ silent: true }).catch(() => {});
-  }, 5000);
+  await Promise.all([refreshDashboardFast(), refreshDashboardSlow()]);
+  dashboardFastTimer = setInterval(() => {
+    refreshDashboardFast({ silent: true }).catch(() => {});
+  }, DASHBOARD_FAST_MS);
+  dashboardSlowTimer = setInterval(() => {
+    refreshDashboardSlow({ silent: true }).catch(() => {});
+  }, DASHBOARD_SLOW_MS);
 }
 
 function stopDashboardPolling() {
-  if (dashboardRefreshTimer) {
-    clearInterval(dashboardRefreshTimer);
-    dashboardRefreshTimer = null;
+  if (dashboardFastTimer) {
+    clearInterval(dashboardFastTimer);
+    dashboardFastTimer = null;
+  }
+  if (dashboardSlowTimer) {
+    clearInterval(dashboardSlowTimer);
+    dashboardSlowTimer = null;
   }
 }
 
 // 登出后停止 polling — 避免 token 过期后 polling 持续打 401/400 死循环
 window.addEventListener('cq:logged-out', stopDashboardPolling);
 
-async function refreshDashboard({ silent = false } = {}) {
+async function refreshDashboardFast({ silent = false } = {}) {
   // 实时活动剔除 system 启停（这类事件下沉到日志页查）。走后端 exclude_system 比
   // 前端 filter 更准确(total/分页都对得上)。
-  const [
-    instances,
-    activityResp,
-    riskResp,
-    equity,
-    runnerStatus,
-  ] = await Promise.all([
+  const [instances, activityResp, runnerStatus] = await Promise.all([
     api.getStrategyInstances('all').catch(() => []),
     api.getEvents({ limit: 50, exclude_system: true }).catch(() => ({ items: [] })),
-    api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
-    api.getEquityCurve(dashboardEquityDays).catch(() => null),
     api.getRunnerStatus().catch(() => null),
   ]);
 
-  dashboardState = {
-    instances: Array.isArray(instances) ? instances : [],
-    activity: Array.isArray(activityResp?.items) ? activityResp.items : [],
-    riskEvents: Array.isArray(riskResp?.items) ? riskResp.items : [],
-    runnerStatus,
-    equity,
-  };
+  dashboardState.instances = Array.isArray(instances) ? instances : [];
+  dashboardState.activity = Array.isArray(activityResp?.items) ? activityResp.items : [];
+  dashboardState.runnerStatus = runnerStatus;
 
   renderInstanceList(dashboardState.instances);
   renderActivityStream(dashboardState.activity);
-  renderRiskEvents(dashboardState.riskEvents);
   renderSystemStatus(dashboardState.runnerStatus);
+
+  if (!silent && typeof window.refreshEventsPageIfVisible === 'function') {
+    window.refreshEventsPageIfVisible();
+  }
+}
+
+async function refreshDashboardSlow({ silent = false } = {}) {
+  const [riskResp, equity] = await Promise.all([
+    api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
+    api.getEquityCurve(dashboardEquityDays).catch(() => null),
+  ]);
+
+  dashboardState.riskEvents = Array.isArray(riskResp?.items) ? riskResp.items : [];
+  dashboardState.equity = equity;
+
+  renderRiskEvents(dashboardState.riskEvents);
 
   if (equity?.points?.length) {
     renderEquityCurveChart(equity, 'dashboard-equity-chart');
@@ -63,10 +81,11 @@ async function refreshDashboard({ silent = false } = {}) {
     const chartEl = document.getElementById('dashboard-equity-chart');
     if (chartEl) chartEl.innerHTML = '<div class="cq-empty-inline">暂无权益曲线数据</div>';
   }
+}
 
-  if (!silent && typeof window.refreshEventsPageIfVisible === 'function') {
-    window.refreshEventsPageIfVisible();
-  }
+// 兼容旧调用方（如登出/页面状态切换可能仍引用 refreshDashboard）
+async function refreshDashboard(opts = {}) {
+  await Promise.all([refreshDashboardFast(opts), refreshDashboardSlow(opts)]);
 }
 
 async function changeEquityDays(days) {
@@ -74,7 +93,8 @@ async function changeEquityDays(days) {
   document.querySelectorAll('.cq-day-pill').forEach((button) => {
     button.classList.toggle('is-active', String(button.dataset.days) === String(days));
   });
-  await refreshDashboard({ silent: true });
+  // 切换日期范围只影响 equity 曲线，没必要触发全量刷新
+  await refreshDashboardSlow({ silent: true });
 }
 
 function renderInstanceList(instances) {
