@@ -290,6 +290,40 @@ async def test_list_events_includes_order(client, auth_headers, db_session, test
 
 
 @pytest.mark.asyncio
+async def test_order_price_truncated_to_4_decimals(client, auth_headers, db_session, test_user):
+    """订单价格展示最多 4 位小数，避免 Numeric(20,8) 原值浮点污染。"""
+    template = await _make_template(db_session)
+    instance = await _make_instance(db_session, test_user.id, template.id, "精度实例")
+    account = await _make_account(db_session, test_user.id)
+
+    db_session.add(
+        Order(
+            account_id=account.id,
+            symbol="ETHUSDT",
+            side="sell",
+            order_type="market",
+            quantity=Decimal("0.87221"),
+            filled_quantity=Decimal("0.87221"),
+            avg_fill_price=Decimal("2230.71773658"),  # 加权平均算出来的 8 位
+            order_value=Decimal("1945.65"),
+            commission=Decimal("0"),
+            status="filled",
+            strategy_instance_id=instance.id,
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/events?event_type=order", headers=auth_headers)
+    body = resp.json()["data"]
+    item = body["items"][0]
+    # 价格被截到 4 位：2230.71773658 → 2230.7177
+    assert "2230.7177" in item["summary"]
+    assert item["detail"]["avg_fill_price"] == "2230.7177"
+    # 数量保留原精度（5 位有效，不舍）
+    assert item["detail"]["quantity"] == "0.87221"
+
+
+@pytest.mark.asyncio
 async def test_list_events_rejected_order_summary_has_error(
     client, auth_headers, db_session, test_user
 ):

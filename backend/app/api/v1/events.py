@@ -68,14 +68,34 @@ def _isoformat(value: datetime | None) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
 
-def _format_price(value: Decimal | None) -> str:
-    """Decimal 价格去尾随零（2283.50000000 → 2283.5），整数去掉小数点。"""
-    if value is None:
-        return ""
-    text = format(value, "f")
+def _strip_trailing_zeros(text: str) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text or "0"
+
+
+def _format_price(value: Decimal | None) -> str:
+    """价格展示：最多 4 位小数。
+
+    2230.71773658 → 2230.7177（去掉浮点污染）；2283.50000000 → 2283.5；
+    整数去掉小数点。4 位小数对主流币对(USDT pair) 足够精度,小币种轻微损失
+    可接受 — 展示场景而非交易场景。
+    """
+    if value is None:
+        return ""
+    quant = Decimal("0.0001")
+    quantized = value.quantize(quant)
+    return _strip_trailing_zeros(format(quantized, "f"))
+
+
+def _format_qty(value: Decimal | None) -> str:
+    """数量展示：保留 DB 精度（最多 8 位小数）去尾零。
+
+    与 _format_price 区分：数量可能是 0.00000123 BTC 这种小数,8 位精度有意义。
+    """
+    if value is None:
+        return ""
+    return _strip_trailing_zeros(format(value, "f"))
 
 
 def _translate_rsi_reason(reason: str | None) -> tuple[str, str] | None:
@@ -148,7 +168,7 @@ def _serialize_signal(signal: Signal, related_order: Order | None = None) -> dic
 def _serialize_order(order: Order) -> dict[str, Any]:
     status_label = _ORDER_STATUS_LABEL.get(order.status, order.status)
     side_label = _ORDER_SIDE_LABEL.get(order.side, order.side)
-    qty_str = _format_price(order.quantity)
+    qty_str = _format_qty(order.quantity)
 
     summary_parts = [f"{order.symbol} {side_label} {qty_str}"]
     if order.avg_fill_price is not None and order.status in ("filled", "partial"):
@@ -163,10 +183,10 @@ def _serialize_order(order: Order) -> dict[str, Any]:
         "side": order.side,
         "status": order.status,
         "order_type": order.order_type,
-        "quantity": _format_price(order.quantity),
+        "quantity": _format_qty(order.quantity),
     }
     if order.filled_quantity is not None and order.filled_quantity > 0:
-        detail["filled_quantity"] = _format_price(order.filled_quantity)
+        detail["filled_quantity"] = _format_qty(order.filled_quantity)
     if order.avg_fill_price is not None:
         detail["avg_fill_price"] = _format_price(order.avg_fill_price)
     if order.commission is not None and order.commission > 0:
