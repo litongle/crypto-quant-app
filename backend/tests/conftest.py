@@ -38,11 +38,15 @@ def test_settings():
     init kwargs 优先级最高才能强制 test 语义(影响 is_production /
     Secure cookie 等条件分支)。
     """
-    # Redis URL 优先取 Docker env (默认带密码 + hostname=redis),没有则退到 localhost。
-    # 跑在 CI / 裸机时 REDIS_URL 通常不设,会用 localhost;Docker 容器内 env 已有正确 URL。
+    # Redis URL 取 Docker env 的 host/auth(否则裸机 localhost),
+    # 但强制 db 号 = 15 隔离测试数据 — 测试会写 revoked_refresh:* 等 key,
+    # 7 天 TTL,直接打到 db=0 会污染生产数据。
     import os
+    from urllib.parse import urlparse, urlunparse
 
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
+    raw_url = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
+    parsed = urlparse(raw_url)
+    redis_url = urlunparse(parsed._replace(path="/15"))
 
     return TestSettings(
         debug=True,
