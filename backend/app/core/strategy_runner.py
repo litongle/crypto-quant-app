@@ -489,10 +489,140 @@ class StrategyRunner:
                                 "threshold_seconds": threshold_seconds,
                             },
                         )
+
+                # 心跳检查通过的实例做 DB ↔ 交易所净仓对账
+                await self._reconcile_positions_for_running(instances)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 logger.warning("[StrategyRunner] watchdog 异常: %s", exc)
+
+    @staticmethod
+    def _normalize_okx_symbol_to_compact(inst_id: str) -> str:
+        """OKX 'ETH-USDT-SWAP' / 'ETH-USDT' → 'ETHUSDT'。
+
+        与 DB Position.symbol 对齐（紧凑大写、无后缀）。
+        """
+        s = (inst_id or "").upper()
+        if s.endswith("-SWAP"):
+            s = s[:-5]
+        return s.replace("-", "")
+
+    async def _reconcile_positions_for_running(self, instances: list[StrategyInstance]) -> None:
+        """账户+symbol 维度净仓对账 — 发现漂移立即 auto_pause(state_drift)。
+
+        粒度: net = sum(long_qty) - sum(short_qty)，跨同账户同 symbol 的所有 open 持仓。
+        容差: 严格相等（OKX 返回的是最终成交数量，理论与 DB filled_quantity 一致）。
+        失败容错: 拉 OKX 持仓失败不视为漂移（log warning 后跳过），避免网络抖动误报。
+        """
+        if not instances or not self._session_maker:
+            return
+
+        from app.core.exchange_adapter import get_exchange_adapter
+        from app.models.exchange import ExchangeAccount, Position
+
+        # 按 account_id 聚合（同账户复用一次 OKX 调用）
+        targets: dict[int, set[str]] = {}
+        for inst in instances:
+            if inst.account_id is None or inst.id not in self._runners:
+                continue
+            base_sym = (inst.symbol or "").replace(".P", "").upper()
+            if base_sym:
+                targets.setdefault(inst.account_id, set()).add(base_sym)
+        if not targets:
+            return
+
+        async with self._session_maker() as session:
+            for account_id, base_symbols in targets.items():
+                account_row = (
+                    await session.execute(
+                        select(ExchangeAccount).where(ExchangeAccount.id == account_id)
+                    )
+                ).scalar_one_or_none()
+                if account_row is None:
+                    continue
+
+                try:
+                    adapter = get_exchange_adapter(
+                        exchange=account_row.exchange,
+                        api_key=account_row.get_api_key(),
+                        secret_key=account_row.get_secret_key(),
+                        passphrase=account_row.get_passphrase(),
+                        is_demo=getattr(account_row, "is_demo", False),
+                        is_futures=True,
+                    )
+                    try:
+                        exchange_positions = await adapter.get_positions()
+                    finally:
+                        with suppress(Exception):
+                            await adapter.close()
+                except Exception as exc:
+                    logger.warning(
+                        "[StrategyRunner] 对账拉 %s 持仓失败 account_id=%d: %s",
+                        account_row.exchange,
+                        account_id,
+                        exc,
+                    )
+                    continue
+
+                # 交易所端按紧凑 symbol 聚合净仓
+                exchange_net: dict[str, Decimal] = {}
+                for p in exchange_positions:
+                    base = self._normalize_okx_symbol_to_compact(p.symbol)
+                    signed = p.quantity if p.side == "long" else -p.quantity
+                    exchange_net[base] = exchange_net.get(base, Decimal(0)) + signed
+
+                for base_sym in base_symbols:
+                    db_rows = (
+                        (
+                            await session.execute(
+                                select(Position).where(
+                                    Position.account_id == account_id,
+                                    Position.symbol == base_sym,
+                                    Position.status == "open",
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    db_net = sum(
+                        (p.quantity if p.side == "long" else -p.quantity for p in db_rows),
+                        start=Decimal(0),
+                    )
+                    ex_net = exchange_net.get(base_sym, Decimal(0))
+                    if db_net == ex_net:
+                        continue
+
+                    affected = [
+                        inst
+                        for inst in instances
+                        if inst.account_id == account_id
+                        and (inst.symbol or "").replace(".P", "").upper() == base_sym
+                        and inst.id in self._runners
+                    ]
+                    for inst in affected:
+                        logger.error(
+                            "[StrategyRunner] 策略 #%d 持仓对账漂移 %s: DB=%s vs %s=%s",
+                            inst.id,
+                            base_sym,
+                            db_net,
+                            account_row.exchange,
+                            ex_net,
+                        )
+                        await self._auto_pause(
+                            inst.id,
+                            reason="auto:state_drift",
+                            detail=(
+                                f"持仓对账漂移 {base_sym}: "
+                                f"DB 净仓={db_net} / {account_row.exchange} 净仓={ex_net}"
+                            ),
+                            metrics={
+                                "symbol": base_sym,
+                                "db_net_qty": str(db_net),
+                                "exchange_net_qty": str(ex_net),
+                            },
+                        )
 
     async def _start_instance(self, inst: StrategyInstance) -> None:
         """内部：为策略实例创建运行 Task"""

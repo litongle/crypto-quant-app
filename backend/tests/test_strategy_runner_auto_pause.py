@@ -475,3 +475,186 @@ async def test_mark_instance_stopped_swallows_notification_failure(
 
     assert fake_inst.status == "stopped"
     fake_session.commit.assert_awaited_once()
+
+
+# ==================== 仓位对账 (DB ↔ 交易所) ====================
+
+
+def _make_running_instance(inst_id: int, *, account_id: int = 7, symbol: str = "ETHUSDT.P"):
+    inst = MagicMock()
+    inst.id = inst_id
+    inst.account_id = account_id
+    inst.symbol = symbol
+    inst.status = "running"
+    return inst
+
+
+def _make_db_position(*, side: str, qty: str):
+    p = MagicMock()
+    p.side = side
+    p.quantity = Decimal(qty)
+    p.status = "open"
+    return p
+
+
+def _make_exchange_position(*, symbol: str, side: str, qty: str):
+    p = MagicMock()
+    p.symbol = symbol
+    p.side = side
+    p.quantity = Decimal(qty)
+    return p
+
+
+def _stub_reconcile_session(
+    runner, *, exchange_account, db_positions: list, exchange_positions: list, monkeypatch
+):
+    """让 _reconcile_positions_for_running 看到的 session.execute 返回固定数据。
+
+    调用次序固定：先 select(ExchangeAccount)，再 select(Position)。
+    """
+    calls = {"i": 0}
+
+    async def fake_execute(stmt):
+        idx = calls["i"]
+        calls["i"] += 1
+        result = MagicMock()
+        if idx == 0:
+            result.scalar_one_or_none = MagicMock(return_value=exchange_account)
+        else:
+            result.scalars.return_value.all.return_value = db_positions
+        return result
+
+    fake_session = AsyncMock()
+    fake_session.execute = fake_execute
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    adapter = MagicMock()
+    adapter.get_positions = AsyncMock(return_value=exchange_positions)
+    adapter.close = AsyncMock()
+    monkeypatch.setattr(
+        "app.core.exchange_adapter.get_exchange_adapter",
+        MagicMock(return_value=adapter),
+    )
+    return adapter
+
+
+def test_normalize_okx_symbol_to_compact():
+    f = StrategyRunner._normalize_okx_symbol_to_compact
+    assert f("ETH-USDT-SWAP") == "ETHUSDT"
+    assert f("BTC-USDT") == "BTCUSDT"
+    assert f("ETHUSDT") == "ETHUSDT"
+    assert f("eth-usdt-swap") == "ETHUSDT"
+    assert f("") == ""
+
+
+@pytest.mark.asyncio
+async def test_reconcile_no_drift_does_not_pause(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    runner = reset_runner_singleton
+    runner._running = True
+    runner._runners[1] = MagicMock()
+
+    account = MagicMock()
+    account.exchange = "okx"
+    account.get_api_key = MagicMock(return_value="k")
+    account.get_secret_key = MagicMock(return_value="s")
+    account.get_passphrase = MagicMock(return_value="p")
+    account.is_demo = True
+
+    _stub_reconcile_session(
+        runner,
+        exchange_account=account,
+        db_positions=[_make_db_position(side="short", qty="2.5")],
+        exchange_positions=[
+            _make_exchange_position(symbol="ETH-USDT-SWAP", side="short", qty="2.5"),
+        ],
+        monkeypatch=monkeypatch,
+    )
+    runner._auto_pause = AsyncMock()
+
+    await runner._reconcile_positions_for_running([_make_running_instance(1)])
+
+    runner._auto_pause.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_drift_triggers_state_drift_pause(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """DB 净仓 0（漂移后丢失） vs OKX 净仓 -2.5（仍持空） → state_drift。"""
+    runner = reset_runner_singleton
+    runner._running = True
+    runner._runners[1] = MagicMock()
+
+    account = MagicMock()
+    account.exchange = "okx"
+    account.get_api_key = MagicMock(return_value="k")
+    account.get_secret_key = MagicMock(return_value="s")
+    account.get_passphrase = MagicMock(return_value="p")
+    account.is_demo = True
+
+    _stub_reconcile_session(
+        runner,
+        exchange_account=account,
+        db_positions=[],  # DB 没仓 — 漂移
+        exchange_positions=[
+            _make_exchange_position(symbol="ETH-USDT-SWAP", side="short", qty="2.5"),
+        ],
+        monkeypatch=monkeypatch,
+    )
+    runner._auto_pause = AsyncMock()
+
+    await runner._reconcile_positions_for_running([_make_running_instance(1)])
+
+    runner._auto_pause.assert_awaited_once()
+    kwargs = runner._auto_pause.call_args.kwargs
+    assert kwargs["reason"] == "auto:state_drift"
+    assert kwargs["metrics"]["symbol"] == "ETHUSDT"
+    assert kwargs["metrics"]["db_net_qty"] == "0"
+    assert kwargs["metrics"]["exchange_net_qty"] == "-2.5"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_adapter_error_does_not_pause(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """拉交易所持仓失败不应误判为漂移（网络抖动容错）。"""
+    runner = reset_runner_singleton
+    runner._running = True
+    runner._runners[1] = MagicMock()
+
+    account = MagicMock()
+    account.exchange = "okx"
+    account.get_api_key = MagicMock(return_value="k")
+    account.get_secret_key = MagicMock(return_value="s")
+    account.get_passphrase = MagicMock(return_value="p")
+    account.is_demo = True
+
+    async def fake_execute(stmt):
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=account)
+        return result
+
+    fake_session = AsyncMock()
+    fake_session.execute = fake_execute
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    adapter = MagicMock()
+    adapter.get_positions = AsyncMock(side_effect=RuntimeError("network"))
+    adapter.close = AsyncMock()
+    monkeypatch.setattr(
+        "app.core.exchange_adapter.get_exchange_adapter",
+        MagicMock(return_value=adapter),
+    )
+
+    runner._auto_pause = AsyncMock()
+    await runner._reconcile_positions_for_running([_make_running_instance(1)])
+
+    runner._auto_pause.assert_not_awaited()
