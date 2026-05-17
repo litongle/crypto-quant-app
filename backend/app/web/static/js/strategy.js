@@ -216,7 +216,7 @@ function getLibraryFilterCounts(instances) {
 }
 
 function findTemplate(templateId) {
-  return (window._cachedTemplates || []).find(template => template.id === templateId);
+  return (App.state.cachedTemplates || []).find(template => template.id === templateId);
 }
 
 function getTemplateName(instance) {
@@ -239,7 +239,7 @@ async function loadStrategyPage() {
   renderLoadingSkeletons();
 
   try {
-    window._connectedAccounts = await api.getExchangeAccounts();
+    App.state.connectedAccounts = await api.getExchangeAccounts();
   } catch (error) {
     console.warn('预加载交易所账户失败:', error);
   }
@@ -250,8 +250,8 @@ async function loadStrategyPage() {
       api.getStrategyInstances().catch(() => []),
     ]);
 
-    window._cachedTemplates = templates;
-    window._strategyInstances = instances;
+    App.state.cachedTemplates = templates;
+    App.state.strategyInstances = instances;
 
     const groups = groupStrategyInstances(instances);
     renderStrategyLibrary(getFormalStrategies(instances));
@@ -279,17 +279,17 @@ async function loadStrategyPage() {
 }
 
 function chooseWorkbenchDraft(drafts) {
-  const currentId = window._editingInstanceId ? Number(window._editingInstanceId) : null;
-  const focusedId = window._strategyFocusDraftId ? Number(window._strategyFocusDraftId) : null;
-  const focusedSourceId = window._strategyFocusSourceInstanceId ? Number(window._strategyFocusSourceInstanceId) : null;
+  const currentId = App.state.editingInstanceId ? Number(App.state.editingInstanceId) : null;
+  const focusedId = App.state.strategyFocusDraftId ? Number(App.state.strategyFocusDraftId) : null;
+  const focusedSourceId = App.state.strategyFocusSourceInstanceId ? Number(App.state.strategyFocusSourceInstanceId) : null;
 
   const pick = drafts.find(item => item.id === focusedId)
     || drafts.find(item => item.id === currentId)
     || drafts.find(item => focusedSourceId && Number(item.sourceInstanceId) === focusedSourceId)
     || drafts[0];
 
-  window._strategyFocusDraftId = null;
-  window._strategyFocusSourceInstanceId = null;
+  App.state.strategyFocusDraftId = null;
+  App.state.strategyFocusSourceInstanceId = null;
   return pick ? pick.id : null;
 }
 
@@ -464,11 +464,11 @@ function renderLibraryCard(instance) {
 
 function setStrategyLibraryFilter(filterKey) {
   strategyLibraryFilter = STRATEGY_LIBRARY_FILTERS.some(filter => filter.key === filterKey) ? filterKey : 'all';
-  renderStrategyLibrary(getFormalStrategies(window._strategyInstances || []));
+  renderStrategyLibrary(getFormalStrategies(App.state.strategyInstances || []));
 }
 
 function renderTemplateButton(template) {
-  const isSelected = !window._editingInstanceId && selectedTemplateId === template.id;
+  const isSelected = !App.state.editingInstanceId && selectedTemplateId === template.id;
   const desc = template.description || '';
   return `
     <button class="cq-template-card${isSelected ? ' is-selected' : ''}" id="pill-${template.id}" onclick="quickLaunchTemplate('${template.id}')" title="${escapeHtml(desc || template.name)}">
@@ -572,7 +572,7 @@ function markTemplateSelection(templateId) {
 }
 
 function markDraftSelection(draftId) {
-  window._editingInstanceId = draftId ? Number(draftId) : null;
+  App.state.editingInstanceId = draftId ? Number(draftId) : null;
 }
 
 /** 根据当前选中的交易所过滤账户下拉 */
@@ -590,7 +590,7 @@ function filterAccountsByExchange() {
   }
 
   const selectedExchange = exSelect.value;
-  const accounts = window._connectedAccounts || [];
+  const accounts = App.state.connectedAccounts || [];
   const filtered = accounts.filter(account => account.exchange === selectedExchange);
 
   accountSelect.disabled = false;
@@ -643,22 +643,22 @@ async function ensureWorkbenchFormInfra() {
     await preloadSymbolSelectorData();
   }
 
-  if (!window._strategySymbolSel) {
+  if (!App.state.strategySymbolSel) {
     const selectorHost = document.getElementById('strategy-symbol-selector');
     if (selectorHost) {
-      window._strategySymbolSel = new SymbolSelector({
+      App.state.strategySymbolSel = new SymbolSelector({
         containerId: 'strategy-symbol-selector',
         value: 'BTCUSDT',
         exchangeFilter: 'new-strategy-exchange',
       });
     }
-  } else if (typeof window._strategySymbolSel.refreshData === 'function') {
-    window._strategySymbolSel.refreshData();
+  } else if (typeof App.state.strategySymbolSel.refreshData === 'function') {
+    App.state.strategySymbolSel.refreshData();
   }
 
   try {
-    const accounts = window._connectedAccounts || await api.getExchangeAccounts();
-    window._connectedAccounts = accounts;
+    const accounts = App.state.connectedAccounts || await api.getExchangeAccounts();
+    App.state.connectedAccounts = accounts;
     const exSelect = document.getElementById('new-strategy-exchange');
     if (exSelect && !exSelect.dataset.initialized) {
       const connectedExchanges = [...new Set(accounts.map(account => account.exchange).filter(Boolean))];
@@ -696,7 +696,7 @@ async function selectTemplate(id) {
 function deselectTemplate(options = {}) {
   const { keepSelection = false, silent = false } = options;
   if (!keepSelection) selectedTemplateId = null;
-  window._editingInstanceId = null;
+  App.state.editingInstanceId = null;
   resetRuleBuilderState();
   workbenchInitialSnapshot = null;
   markTemplateSelection(null);
@@ -722,7 +722,7 @@ async function openTemplateWorkbench(templateId, options = {}) {
   }
 
   selectedTemplateId = templateId;
-  window._editingInstanceId = null;
+  App.state.editingInstanceId = null;
   await showCreateForm(templateId, {
     title: `新建草案 · ${template.name}`,
     statusText: '未保存',
@@ -806,8 +806,8 @@ async function showCreateForm(templateId, options = {}) {
   if (accountSelect && !accountSelect.disabled) {
     accountSelect.value = strategy.accountId ? String(strategy.accountId) : '';
   }
-  if (window._strategySymbolSel && strategy.symbol) {
-    try { window._strategySymbolSel.setValue(strategy.symbol); } catch {}
+  if (App.state.strategySymbolSel && strategy.symbol) {
+    try { App.state.strategySymbolSel.setValue(strategy.symbol); } catch {}
   }
   updateStrategyTradeHint(template);
   captureWorkbenchInitialSnapshot();
@@ -1097,7 +1097,7 @@ function buildCurrentWorkbenchSnapshot() {
 
   const name = document.getElementById('new-strategy-name')?.value?.trim() || '';
   const exchange = document.getElementById('new-strategy-exchange')?.value || 'binance';
-  const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
+  const symbol = App.state.strategySymbolSel ? App.state.strategySymbolSel.getValue() : 'BTCUSDT';
   const accountRaw = document.getElementById('new-strategy-account')?.value;
   const accountId = accountRaw ? parseInt(accountRaw, 10) || null : null;
 
@@ -1114,7 +1114,7 @@ function buildCurrentWorkbenchSnapshot() {
 
   return {
     templateId: selectedTemplateId,
-    editingInstanceId: window._editingInstanceId ? Number(window._editingInstanceId) : null,
+    editingInstanceId: App.state.editingInstanceId ? Number(App.state.editingInstanceId) : null,
     name,
     exchange,
     symbol,
@@ -1134,8 +1134,8 @@ function hasUnsavedWorkbenchChanges() {
 }
 
 function isSameWorkbenchTarget(targetId) {
-  const currentDraftId = window._editingInstanceId ? `draft_${window._editingInstanceId}` : null;
-  const currentTemplateId = !window._editingInstanceId ? selectedTemplateId : null;
+  const currentDraftId = App.state.editingInstanceId ? `draft_${App.state.editingInstanceId}` : null;
+  const currentTemplateId = !App.state.editingInstanceId ? selectedTemplateId : null;
   return targetId === currentDraftId || targetId === currentTemplateId;
 }
 
@@ -1162,7 +1162,7 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
   if (!name) { showToast('请输入策略名称', 'warn'); return; }
 
   const exchange = document.getElementById('new-strategy-exchange').value;
-  const symbol = window._strategySymbolSel ? window._strategySymbolSel.getValue() : 'BTCUSDT';
+  const symbol = App.state.strategySymbolSel ? App.state.strategySymbolSel.getValue() : 'BTCUSDT';
   const accountEl = document.getElementById('new-strategy-account');
   const accountId = accountEl ? (parseInt(accountEl.value) || undefined) : undefined;
 
@@ -1187,9 +1187,9 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
 
   setWorkbenchBusyState(true);
   try {
-    let instanceId = window._editingInstanceId ? Number(window._editingInstanceId) : null;
-    const isEditingDraft = Boolean(window._editingInstanceId);
-    if (window._editingInstanceId) {
+    let instanceId = App.state.editingInstanceId ? Number(App.state.editingInstanceId) : null;
+    const isEditingDraft = Boolean(App.state.editingInstanceId);
+    if (App.state.editingInstanceId) {
       const updatePayload = {
         name,
         exchange,
@@ -1200,7 +1200,7 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
       if (!startAfterSave) {
         updatePayload.workspaceState = 'library';
       }
-      await api.updateStrategy(window._editingInstanceId, {
+      await api.updateStrategy(App.state.editingInstanceId, {
         ...updatePayload,
       });
       captureWorkbenchInitialSnapshot();
@@ -1273,7 +1273,7 @@ async function toggleStrategy(instanceId, action) {
 
 async function deleteStrategyInst(instanceId) {
   const numericId = Number(instanceId);
-  const inst = window._strategyInstances?.find(i => Number(i.id) === numericId);
+  const inst = App.state.strategyInstances?.find(i => Number(i.id) === numericId);
   const isRunning = normalizeWorkspaceState(inst || {}) === 'running';
   const isDraft = normalizeWorkspaceState(inst || {}) === 'draft';
 
@@ -1303,8 +1303,8 @@ async function deleteStrategyInst(instanceId) {
       await api.stopStrategy(numericId);
     }
     await api.deleteStrategy(numericId);
-    if (Number(window._editingInstanceId) === numericId) {
-      window._editingInstanceId = null;
+    if (Number(App.state.editingInstanceId) === numericId) {
+      App.state.editingInstanceId = null;
       selectedTemplateId = null;
     }
     showToast(isDraft ? '草案已删除' : '策略已删除', 'success');
@@ -1382,12 +1382,12 @@ async function cloneStrategyToWorkbench(instanceId) {
     const result = await api.cloneStrategyToDraft(instanceId);
     const clonedId = Number(result?.id ?? result?.instanceId ?? result?.instance_id ?? 0);
     if (clonedId) {
-      window._strategyFocusDraftId = clonedId;
+      App.state.strategyFocusDraftId = clonedId;
     } else {
-      window._strategyFocusSourceInstanceId = Number(instanceId);
+      App.state.strategyFocusSourceInstanceId = Number(instanceId);
     }
     selectedTemplateId = null;
-    window._editingInstanceId = null;
+    App.state.editingInstanceId = null;
     showToast('已打开工作台草案', 'success');
     await loadStrategyPage();
     document.getElementById('workbench-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

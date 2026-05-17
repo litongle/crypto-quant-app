@@ -195,12 +195,12 @@ function formatSignedPnl(value) {
 }
 
 function disposeEquityChart(containerId = 'dashboard-equity-chart') {
-  window._equityCharts = window._equityCharts || {};
-  const current = window._equityCharts[containerId];
+  App.state.equityCharts = App.state.equityCharts || {};
+  const current = App.state.equityCharts[containerId];
   if (!current) return;
   try { current.ro?.disconnect(); } catch {}
   try { current.chart?.remove(); } catch {}
-  delete window._equityCharts[containerId];
+  delete App.state.equityCharts[containerId];
 }
 
 function renderEquityCurveChart(equity, containerId = 'dashboard-equity-chart') {
@@ -261,8 +261,8 @@ function renderEquityCurveChart(equity, containerId = 'dashboard-equity-chart') 
     }
   });
   ro.observe(container);
-  window._equityCharts = window._equityCharts || {};
-  window._equityCharts[containerId] = { chart, ro, points };
+  App.state.equityCharts = App.state.equityCharts || {};
+  App.state.equityCharts[containerId] = { chart, ro, points };
 }
 
 function parseEquityTime(raw) {
@@ -273,7 +273,7 @@ function parseEquityTime(raw) {
 }
 
 window.addEventListener('cq:theme-change', () => {
-  const chart = window._equityCharts?.['dashboard-equity-chart'];
+  const chart = App.state.equityCharts?.['dashboard-equity-chart'];
   if (chart?.points?.length && dashboardState.equity) {
     renderEquityCurveChart(dashboardState.equity, 'dashboard-equity-chart');
   }

@@ -4,6 +4,12 @@
  * Alpha-7 Web API 客户端 v2
  * 封装所有后端 API 调用，自动处理认证和刷新
  */
+
+// 全局命名空间：收敛原 window._xxx 私有状态，避免污染顶层。
+// inline onclick 仍走全局函数名（SPA 设计），改 App.state.x 是因为这些是模块间共享的"实例引用"，
+// 不是 public API。新增私有共享状态请挂在 App.state.* 下。
+window.App = window.App || { state: {} };
+
 const API_BASE = '/api/v1';
 
 /** HTML转义，防止XSS（全局工具函数，所有JS模块共享） */

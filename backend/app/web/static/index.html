@@ -249,7 +249,7 @@
                 <div class="cq-workbench-actions">
                   <button class="cq-btn cq-btn--secondary" onclick="saveStrategyToLibrary()" id="save-strategy-btn">保存为策略</button>
                   <button class="cq-btn cq-btn--primary" onclick="startStrategyFromWorkbench()" id="start-strategy-btn">启动策略</button>
-                  <button class="cq-btn cq-btn--danger" style="display:none" onclick="deleteStrategyInst(window._editingInstanceId)" id="delete-strategy-btn">删除草案</button>
+                  <button class="cq-btn cq-btn--danger" style="display:none" onclick="deleteStrategyInst(App.state.editingInstanceId)" id="delete-strategy-btn">删除草案</button>
                 </div>
               </div>
             </div>
@@ -496,18 +496,18 @@
 <div class="cq-toast" id="toast"></div>
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
-<script src="/web/static/js/api.js?v=2026-05-17f"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-17f"></script>
-<script src="/web/static/js/kline.js?v=2026-05-17f"></script>
-<script src="/web/static/js/symbol-selector.js?v=2026-05-17f"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-17f"></script>
-<script src="/web/static/js/backtest.js?v=2026-05-17f"></script>
-<script src="/web/static/js/accounts.js?v=2026-05-17f"></script>
-<script src="/web/static/js/paper.js?v=2026-05-17f"></script>
-<script src="/web/static/js/settings-drawer.js?v=2026-05-17f"></script>
-<script src="/web/static/js/instance-drawer.js?v=2026-05-17f"></script>
-<script src="/web/static/js/events.js?v=2026-05-17f"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17f"></script>
+<script src="/web/static/js/api.js?v=2026-05-17g"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-17g"></script>
+<script src="/web/static/js/kline.js?v=2026-05-17g"></script>
+<script src="/web/static/js/symbol-selector.js?v=2026-05-17g"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-17g"></script>
+<script src="/web/static/js/backtest.js?v=2026-05-17g"></script>
+<script src="/web/static/js/accounts.js?v=2026-05-17g"></script>
+<script src="/web/static/js/paper.js?v=2026-05-17g"></script>
+<script src="/web/static/js/settings-drawer.js?v=2026-05-17g"></script>
+<script src="/web/static/js/instance-drawer.js?v=2026-05-17g"></script>
+<script src="/web/static/js/events.js?v=2026-05-17g"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17g"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;
@@ -776,8 +776,8 @@ function showToast(msg, type = 'info') {
   const safeMsg = (typeof escapeHtml === 'function') ? escapeHtml(msg) : String(msg ?? '');
   t.innerHTML = (icons[type] || icons.info) + '<span>' + safeMsg + '</span>';
   t.classList.add('is-visible');
-  clearTimeout(window._toastTimer);
-  window._toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2500);
+  clearTimeout(App.state.toastTimer);
+  App.state.toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2500);
 }
 
 // ===== CSS spinner animation =====

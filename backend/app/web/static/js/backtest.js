@@ -34,16 +34,16 @@ async function loadBacktestPage() {
   if (endEl) endEl.max = today;
 
   // 初始化交易对选择器（只创建一次）
-  if (!window._backtestSymbolSel) {
+  if (!App.state.backtestSymbolSel) {
     const selEl = document.getElementById('backtest-symbol-selector');
     if (selEl) {
-      window._backtestSymbolSel = new SymbolSelector({
+      App.state.backtestSymbolSel = new SymbolSelector({
         containerId: 'backtest-symbol-selector',
         value: 'BTCUSDT',
       });
     }
-  } else if (typeof window._backtestSymbolSel.refreshData === 'function') {
-    window._backtestSymbolSel.refreshData();
+  } else if (typeof App.state.backtestSymbolSel.refreshData === 'function') {
+    App.state.backtestSymbolSel.refreshData();
   }
 
   try {
@@ -51,9 +51,9 @@ async function loadBacktestPage() {
       api.getStrategyTemplates(),
       api.getStrategyInstances('all').catch(() => []),
     ]);
-    window._backtestTemplates = templates;
-    window._backtestInstances = Array.isArray(instances) ? instances : [];
-    renderBacktestTemplateSelect(templates, window._backtestInstances);
+    App.state.backtestTemplates = templates;
+    App.state.backtestInstances = Array.isArray(instances) ? instances : [];
+    renderBacktestTemplateSelect(templates, App.state.backtestInstances);
   } catch {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
   }
@@ -333,7 +333,7 @@ function _getSelectedBacktestSource() {
   const templateId = opt.dataset.templateId;
   if (kind === 'instance') {
     const instanceId = parseInt(opt.dataset.instanceId, 10);
-    const instance = (window._backtestInstances || []).find(i => i.id === instanceId);
+    const instance = (App.state.backtestInstances || []).find(i => i.id === instanceId);
     return { kind: 'instance', templateId, instanceId, instance };
   }
   return { kind: 'template', templateId };
@@ -344,7 +344,7 @@ async function runBacktest() {
   if (!source) { showToast('请选择策略模板或我的策略', 'warn'); return; }
   const templateId = source.templateId;
 
-  const symbolValue = window._backtestSymbolSel ? window._backtestSymbolSel.getValue() : 'BTCUSDT';
+  const symbolValue = App.state.backtestSymbolSel ? App.state.backtestSymbolSel.getValue() : 'BTCUSDT';
   const parsedSymbol = (typeof splitMarket === 'function')
     ? splitMarket(symbolValue)
     : { symbol: symbolValue, market: 'spot' };
@@ -383,7 +383,7 @@ async function runBacktest() {
   const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
   if (daysDiff > 3650) { showToast('回测跨度不能超过 10 年', 'warn'); return; }
 
-  const selectedTemplate = (window._backtestTemplates || []).find(t => t.id === templateId);
+  const selectedTemplate = (App.state.backtestTemplates || []).find(t => t.id === templateId);
   const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
   let params = {};
   if (isRuleTemplate) {
@@ -623,13 +623,13 @@ function _backtestParseTime(raw) {
 }
 
 function _disposeBacktestChart() {
-  if (window._backtestChart && typeof window._backtestChart.remove === 'function') {
-    try { window._backtestChart.remove(); } catch {}
+  if (App.state.backtestChart && typeof App.state.backtestChart.remove === 'function') {
+    try { App.state.backtestChart.remove(); } catch {}
   }
-  window._backtestChart = null;
-  if (window._backtestResizeObserver) {
-    try { window._backtestResizeObserver.disconnect(); } catch {}
-    window._backtestResizeObserver = null;
+  App.state.backtestChart = null;
+  if (App.state.backtestResizeObserver) {
+    try { App.state.backtestResizeObserver.disconnect(); } catch {}
+    App.state.backtestResizeObserver = null;
   }
 }
 
@@ -706,13 +706,13 @@ function renderBacktestEquityChart(points) {
   });
   ro.observe(container);
 
-  window._backtestChart = chart;
-  window._backtestEquityData = dedup;
-  window._backtestResizeObserver = ro;
+  App.state.backtestChart = chart;
+  App.state.backtestEquityData = dedup;
+  App.state.backtestResizeObserver = ro;
 }
 
 window.addEventListener('cq:theme-change', () => {
-  const data = window._backtestEquityData;
+  const data = App.state.backtestEquityData;
   if (data && document.getElementById('backtestResultChart')) {
     renderBacktestEquityChart(data.map(p => ({ date: p.time * 1000, equity: p.value })));
   }
@@ -726,8 +726,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const source = _getSelectedBacktestSource();
       if (!source) { document.getElementById('backtest-params').innerHTML = ''; return; }
       try {
-        const templates = window._backtestTemplates || await api.getStrategyTemplates();
-        window._backtestTemplates = templates;
+        const templates = App.state.backtestTemplates || await api.getStrategyTemplates();
+        App.state.backtestTemplates = templates;
         const tmpl = templates.find(t => t.id === source.templateId);
         if (tmpl && tmpl.strategyType === 'rule') {
           resetBacktestRuleState();
@@ -776,8 +776,8 @@ function applyBacktestInstanceValues(paramDefs, instance) {
     }
   }
   // 同步 symbol 到回测页符号选择器
-  if (instance.symbol && window._backtestSymbolSel?.setValue) {
-    try { window._backtestSymbolSel.setValue(instance.symbol); } catch {}
+  if (instance.symbol && App.state.backtestSymbolSel?.setValue) {
+    try { App.state.backtestSymbolSel.setValue(instance.symbol); } catch {}
   }
 }
 

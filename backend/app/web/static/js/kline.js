@@ -25,12 +25,12 @@ function toKlineCandles(klines) {
 }
 
 function destroyKlineChart(containerId) {
-  window._klineCharts = window._klineCharts || {};
-  const current = window._klineCharts[containerId];
+  App.state.klineCharts = App.state.klineCharts || {};
+  const current = App.state.klineCharts[containerId];
   if (!current) return;
   try { current.ro?.disconnect(); } catch {}
   try { current.chart?.remove(); } catch {}
-  delete window._klineCharts[containerId];
+  delete App.state.klineCharts[containerId];
 }
 
 function renderKlineChart(containerId, klines, { chartType = 'candle', height = 320 } = {}) {
@@ -115,12 +115,12 @@ function renderKlineChart(containerId, klines, { chartType = 'candle', height = 
     }
   });
   ro.observe(container);
-  window._klineCharts = window._klineCharts || {};
-  window._klineCharts[containerId] = { chart, ro, klines, options: { chartType, height } };
+  App.state.klineCharts = App.state.klineCharts || {};
+  App.state.klineCharts[containerId] = { chart, ro, klines, options: { chartType, height } };
 }
 
 window.addEventListener('cq:theme-change', () => {
-  const charts = window._klineCharts || {};
+  const charts = App.state.klineCharts || {};
   Object.entries(charts).forEach(([containerId, state]) => {
     if (document.getElementById(containerId)) {
       renderKlineChart(containerId, state.klines, state.options);
