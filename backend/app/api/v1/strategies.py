@@ -493,6 +493,8 @@ async def update_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """更新策略参数"""
+    from app.services.audit_service import log_user_action
+
     inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
@@ -507,6 +509,15 @@ async def update_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+
+    await log_user_action(
+        session,
+        action="update_strategy",
+        user_id=current_user.id,
+        instance_id=instance.id,
+        summary=f'更新策略 "{instance.name}" 参数',
+        detail={"changed_fields": list(update_data.keys())},
+    )
     await session.commit()
 
     return APIResponse(
@@ -526,6 +537,8 @@ async def start_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """启动策略"""
+    from app.services.audit_service import log_user_action
+
     inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
@@ -533,6 +546,14 @@ async def start_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+
+    await log_user_action(
+        session,
+        action="start_strategy",
+        user_id=current_user.id,
+        instance_id=instance.id,
+        summary=f'启动策略 "{instance.name}"',
+    )
     await session.commit()
 
     return APIResponse(
@@ -550,6 +571,8 @@ async def stop_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """停止策略"""
+    from app.services.audit_service import log_user_action
+
     inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
@@ -557,6 +580,14 @@ async def stop_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+
+    await log_user_action(
+        session,
+        action="stop_strategy",
+        user_id=current_user.id,
+        instance_id=instance.id,
+        summary=f'停止策略 "{instance.name}"',
+    )
     await session.commit()
 
     return APIResponse(
@@ -574,6 +605,8 @@ async def pause_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """手动暂停策略。"""
+    from app.services.audit_service import log_user_action
+
     inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
@@ -581,6 +614,14 @@ async def pause_strategy(
 
     if not instance:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+
+    await log_user_action(
+        session,
+        action="pause_strategy",
+        user_id=current_user.id,
+        instance_id=instance.id,
+        summary=f'手动暂停策略 "{instance.name}"',
+    )
     await session.commit()
 
     return APIResponse(
@@ -614,13 +655,26 @@ async def delete_strategy(
     session: AsyncSession = Depends(get_session),
 ) -> APIResponse:
     """删除策略"""
+    from app.services.audit_service import log_user_action
+
     inst_id = _parse_instance_id(instance_id)
 
     service = StrategyService(session)
+    # 先取实例名再删除，便于审计 summary（delete_instance 自己会做所有权/状态校验）
+    inst_for_audit = await service.get_instance(inst_id)
     success = await service.delete_instance(inst_id, current_user.id)
 
     if not success:
         raise HTTPException(status_code=404, detail="策略不存在或无权限")
+
+    if inst_for_audit is not None:
+        await log_user_action(
+            session,
+            action="delete_strategy",
+            user_id=current_user.id,
+            summary=f'删除策略 "{inst_for_audit.name}" (#{inst_id})',
+            detail={"instance_id": inst_id, "instance_name": inst_for_audit.name},
+        )
     await session.commit()
 
     return APIResponse(message="删除成功")

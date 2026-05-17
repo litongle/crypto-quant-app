@@ -324,7 +324,7 @@ async def test_auto_pause_writes_paused_status_and_reason(
 
     assert fake_inst.status == "paused"
     assert fake_inst.last_pause_reason == "auto:consecutive_errors"
-    fake_session.commit.assert_awaited_once()
+    assert fake_session.commit.await_count >= 1
 
     notify_mock.assert_awaited_once()
     call_kwargs = notify_mock.call_args.kwargs
@@ -364,7 +364,7 @@ async def test_auto_pause_swallows_notification_failure(
 
     assert fake_inst.status == "paused"
     assert fake_inst.last_pause_reason == "auto:x"
-    fake_session.commit.assert_awaited_once()
+    assert fake_session.commit.await_count >= 1
 
 
 @pytest.mark.asyncio
@@ -401,7 +401,7 @@ async def test_mark_instance_stopped_pushes_crash_alert(
     await runner._mark_instance_stopped(99, "RuntimeError: 模拟崩溃")
 
     assert fake_inst.status == "stopped"
-    fake_session.commit.assert_awaited_once()
+    assert fake_session.commit.await_count >= 1
 
     notify_mock.assert_awaited_once()
     call_kwargs = notify_mock.call_args.kwargs
@@ -474,7 +474,7 @@ async def test_mark_instance_stopped_swallows_notification_failure(
     await runner._mark_instance_stopped(99, "RuntimeError: 崩溃")
 
     assert fake_inst.status == "stopped"
-    fake_session.commit.assert_awaited_once()
+    assert fake_session.commit.await_count >= 1
 
 
 # ==================== 仓位对账 (DB ↔ 交易所) ====================

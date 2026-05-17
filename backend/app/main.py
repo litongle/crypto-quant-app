@@ -168,7 +168,36 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("定时同步调度器初始化失败: %s", exc)
 
+    # 系统启动审计
+    try:
+        from app.database import get_session_maker
+        from app.services.audit_service import log_system
+
+        session_maker = await get_session_maker()
+        await log_system(
+            session_maker,
+            event="app_started",
+            summary=f"系统启动 · {settings.app_name} v{settings.app_version}",
+            detail={"environment": settings.environment, "version": settings.app_version},
+        )
+    except Exception as exc:
+        logger.warning("系统启动审计写入失败: %s", exc)
+
     yield
+
+    # 系统停止审计（在依赖关闭前写，避免 session_maker 已 reset）
+    try:
+        from app.database import get_session_maker
+        from app.services.audit_service import log_system
+
+        session_maker = await get_session_maker()
+        await log_system(
+            session_maker,
+            event="app_stopping",
+            summary=f"系统关闭 · {settings.app_name}",
+        )
+    except Exception as exc:
+        logger.warning("系统停止审计写入失败: %s", exc)
 
     # 关闭时清理
     try:

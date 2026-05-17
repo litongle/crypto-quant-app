@@ -378,6 +378,18 @@ class StrategyRunner:
         except Exception as exc:
             logger.warning("[StrategyRunner] 崩溃告警推送失败 #%d: %s", instance_id, exc)
 
+        # 写审计事件（与告警同步落库 — 即使告警发不出，事件流仍能看到）
+        from app.services.audit_service import log_risk_alert
+
+        await log_risk_alert(
+            self._session_maker,
+            alert_type="策略崩溃",
+            message=f'策略 "{instance_name}" task 异常退出: {reason}',
+            severity="critical",
+            instance_id=instance_id,
+            metrics={"reason": "task_crashed", "detail": reason},
+        )
+
     async def _auto_pause(
         self,
         instance_id: int,
@@ -432,17 +444,29 @@ class StrategyRunner:
             detail,
         )
 
-        # 3. 推送告警（失败不抛）
+        # 3. 推送告警 + 写审计事件（失败不抛，finally 保证 task cancel）
         try:
-            from app.services.notification_service import notify_risk_alert
+            try:
+                from app.services.notification_service import notify_risk_alert
 
-            await notify_risk_alert(
+                await notify_risk_alert(
+                    alert_type="策略自停",
+                    message=f'策略 "{instance_name}" (#{instance_id}) {detail}',
+                    metrics={"reason": reason, "instance_id": instance_id, **(metrics or {})},
+                )
+            except Exception as exc:
+                logger.warning("[StrategyRunner] 自停告警推送失败 #%d: %s", instance_id, exc)
+
+            from app.services.audit_service import log_risk_alert
+
+            await log_risk_alert(
+                self._session_maker,
                 alert_type="策略自停",
-                message=f'策略 "{instance_name}" (#{instance_id}) {detail}',
-                metrics={"reason": reason, "instance_id": instance_id, **(metrics or {})},
+                message=f'策略 "{instance_name}" {detail}',
+                severity="critical" if reason == "auto:state_drift" else "warning",
+                instance_id=instance_id,
+                metrics={"reason": reason, **(metrics or {})},
             )
-        except Exception as exc:
-            logger.warning("[StrategyRunner] 自停告警推送失败 #%d: %s", instance_id, exc)
         finally:
             if cancel_current_task and task and not task.done():
                 task.cancel()

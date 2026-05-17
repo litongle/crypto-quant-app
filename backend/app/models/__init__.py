@@ -1,5 +1,6 @@
 """Models package - 所有数据模型"""
 
+from app.models.audit_event import AuditEvent
 from app.models.backtest import BacktestResult
 from app.models.equity_snapshot import DailyEquitySnapshot
 from app.models.exchange import ExchangeAccount, Position
@@ -26,4 +27,6 @@ __all__ = [
     "RuntimeConfig",
     # 每日权益快照
     "DailyEquitySnapshot",
+    # 审计事件
+    "AuditEvent",
 ]
