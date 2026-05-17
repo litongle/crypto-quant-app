@@ -22,9 +22,10 @@ from app.api.deps import get_current_user
 from app.config import get_settings
 from app.core.exceptions import AuthenticationError
 from app.core.schemas import APIResponse
+from app.core.security import verify_token
 from app.database import get_session
 from app.models.user import User
-from app.services.auth_service import AuthService
+from app.services.auth_service import AuthService, _claim_refresh_jti
 
 router = APIRouter()
 
@@ -120,8 +121,26 @@ async def refresh_token(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> APIResponse:
-    """清两枚 cookie。无状态,不需要 token 也可调（避免 401 时无法 logout）。"""
+async def logout(request: Request, response: Response) -> APIResponse:
+    """清两枚 cookie + 把当前 refresh 的 jti 标记吊销。
+
+    无鉴权依赖,避免 401 时无法 logout。
+    revoke refresh:若攻击者通过 XSS / cookie 偷窃拿到了 refresh token 值,
+    单清浏览器 cookie 没用,他还能 curl 重放。这里把 jti 也 mark 死,
+    彻底封禁该 token (TTL 内不可再用)。
+    """
+    refresh = request.cookies.get("refresh_token")
+    if refresh:
+        try:
+            payload = verify_token(refresh, token_type="refresh")
+            jti = payload.get("jti")
+            exp_ts = payload.get("exp")
+            if jti:
+                # 返回值不关心 — 不管是 newly 标记还是已被旧 rotation 标记,目标都达成
+                await _claim_refresh_jti(jti, exp_ts)
+        except Exception:
+            # 即便 token 已过期 / 解码失败,仍要继续清 cookie
+            pass
     _clear_auth_cookies(response)
     return APIResponse(data={"ok": True})
 

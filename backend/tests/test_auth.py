@@ -164,6 +164,40 @@ async def test_logout_clears_cookies(client: AsyncClient, test_user):
 
 
 @pytest.mark.asyncio
+async def test_logout_revokes_refresh_token(client: AsyncClient, test_user):
+    """logout 不仅清 cookie,还应该把当前 refresh 的 jti 标记吊销 —
+    即便攻击者通过 XSS 偷了 token,logout 后该 token 也立即作废。"""
+    import app.redis as redis_mod
+
+    redis_mod._redis_client = None
+    redis_mod._pool = None
+    try:
+        r = await redis_mod.get_redis_client()
+        await r.ping()
+    except Exception:
+        pytest.skip("Redis 不可用,跳过 logout revoke 测试")
+
+    await client.post(
+        "/api/v1/auth/login",
+        data={"username": "test@example.com", "password": "testpass123"},
+    )
+    stolen_refresh = client.cookies.get("refresh_token")
+    assert stolen_refresh, "should have refresh_token after login"
+
+    # 用户 logout
+    await client.post("/api/v1/auth/logout")
+
+    # 攻击者拿着偷来的 refresh token 重放(显式 Cookie header,绕开 jar)
+    replay = await client.post(
+        "/api/v1/auth/refresh",
+        headers={"Cookie": f"refresh_token={stolen_refresh}"},
+    )
+    assert (
+        replay.status_code == 401
+    ), f"logged-out refresh should be revoked, got {replay.status_code}: {replay.text}"
+
+
+@pytest.mark.asyncio
 async def test_refresh_token_single_use(client: AsyncClient, test_user):
     """refresh token rotation:一枚 refresh 用过一次就废,防被偷复用。
 
