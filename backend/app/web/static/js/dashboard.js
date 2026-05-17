@@ -83,11 +83,6 @@ async function refreshDashboardSlow({ silent = false } = {}) {
   }
 }
 
-// 兼容旧调用方（如登出/页面状态切换可能仍引用 refreshDashboard）
-async function refreshDashboard(opts = {}) {
-  await Promise.all([refreshDashboardFast(opts), refreshDashboardSlow(opts)]);
-}
-
 async function changeEquityDays(days) {
   dashboardEquityDays = days;
   document.querySelectorAll('.cq-day-pill').forEach((button) => {
