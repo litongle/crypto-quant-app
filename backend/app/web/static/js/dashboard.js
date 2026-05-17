@@ -24,8 +24,8 @@ function stopDashboardPolling() {
 }
 
 async function refreshDashboard({ silent = false } = {}) {
-  // 拉 100 条做前端过滤 — 实时活动剔除 system 启停（这类事件应该到日志主页查），
-  // 取过滤后前 50 显示。100 这个数远超 50 即可吃掉日常 system 噪音。
+  // 实时活动剔除 system 启停（这类事件下沉到日志页查）。走后端 exclude_system 比
+  // 前端 filter 更准确(total/分页都对得上)。
   const [
     instances,
     activityResp,
@@ -34,19 +34,15 @@ async function refreshDashboard({ silent = false } = {}) {
     runnerStatus,
   ] = await Promise.all([
     api.getStrategyInstances('all').catch(() => []),
-    api.getEvents({ limit: 100 }).catch(() => ({ items: [] })),
+    api.getEvents({ limit: 50, exclude_system: true }).catch(() => ({ items: [] })),
     api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
     api.getEquityCurve(dashboardEquityDays).catch(() => null),
     api.getRunnerStatus().catch(() => null),
   ]);
 
-  const rawActivity = Array.isArray(activityResp?.items) ? activityResp.items : [];
-  // 实时活动只展示业务相关事件（system 启停太频繁刷屏，下沉到日志页）
-  const filteredActivity = rawActivity.filter((e) => e.type !== 'system').slice(0, 50);
-
   dashboardState = {
     instances: Array.isArray(instances) ? instances : [],
-    activity: filteredActivity,
+    activity: Array.isArray(activityResp?.items) ? activityResp.items : [],
     riskEvents: Array.isArray(riskResp?.items) ? riskResp.items : [],
     runnerStatus,
     equity,

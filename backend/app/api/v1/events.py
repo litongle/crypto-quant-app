@@ -277,6 +277,12 @@ async def list_events(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    exclude_system: bool = Query(
+        default=False,
+        description="过滤掉 type=system 事件(应用启停),默认 False。"
+        "前端日志页默认传 True 让业务事件不被系统启停淹没;"
+        "用户主动切到 type=system 时应当传 False 让查询生效。",
+    ),
 ) -> APIResponse[dict[str, Any]]:
     """聚合事件流：signal/order/auto_pause（派生）+ risk_alert/user_action/system（audit_events）。"""
     signal_query = (
@@ -370,6 +376,9 @@ async def list_events(
 
     if event_type is not None:
         items = [item for item in items if item["type"] == event_type]
+    elif exclude_system:
+        # 只在没显式选 event_type 时才隐藏 system；用户主动查 system 时不过滤
+        items = [item for item in items if item["type"] != "system"]
     if severity is not None:
         items = [item for item in items if item.get("severity") == severity]
     if q:

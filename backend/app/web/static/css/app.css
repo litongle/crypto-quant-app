@@ -2724,6 +2724,21 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   align-items: center;
 }
 
+.cq-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cq-space-2);
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.cq-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
 .cq-segmented {
   display: flex;
   gap: var(--cq-space-2);

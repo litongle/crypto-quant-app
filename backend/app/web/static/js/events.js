@@ -8,6 +8,8 @@ const eventsPageState = {
   limit: 20,
   total: 0,
   expandedIds: new Set(),
+  // 默认隐藏 system 启停（避免淹没业务事件）；勾选「显示系统事件」或 type=system 时关掉
+  hideSystem: true,
 };
 
 function presetEventsFilters({ instanceId = '' } = {}) {
@@ -31,10 +33,12 @@ function syncEventsControls() {
   const sevEl = document.getElementById('events-filter-severity');
   const sinceEl = document.getElementById('events-filter-since');
   const queryEl = document.getElementById('events-filter-q');
+  const sysEl = document.getElementById('events-filter-show-system');
   if (typeEl) typeEl.value = eventsPageState.type;
   if (sevEl) sevEl.value = eventsPageState.severity;
   if (sinceEl) sinceEl.value = eventsPageState.range;
   if (queryEl) queryEl.value = eventsPageState.query;
+  if (sysEl) sysEl.checked = !eventsPageState.hideSystem;
 }
 
 async function reloadEvents({ preservePage = false } = {}) {
@@ -42,10 +46,13 @@ async function reloadEvents({ preservePage = false } = {}) {
   const sevEl = document.getElementById('events-filter-severity');
   const sinceEl = document.getElementById('events-filter-since');
   const queryEl = document.getElementById('events-filter-q');
+  const sysEl = document.getElementById('events-filter-show-system');
   eventsPageState.type = typeEl?.value || '';
   eventsPageState.severity = sevEl?.value || '';
   eventsPageState.range = sinceEl?.value || '24h';
   eventsPageState.query = queryEl?.value.trim() || '';
+  // 复选框未勾 → 隐藏 system；勾上 → 显示
+  eventsPageState.hideSystem = sysEl ? !sysEl.checked : true;
   if (!preservePage) {
     eventsPageState.page = 1;
     eventsPageState.expandedIds.clear();
@@ -63,6 +70,8 @@ async function refreshEventsPage() {
     since: resolveSinceParam(eventsPageState.range),
     q: eventsPageState.query || undefined,
     instance_id: eventsPageState.instanceId || undefined,
+    // 用户选了 type=system 时复选框应被忽略（用户显式想看系统事件）
+    exclude_system: eventsPageState.hideSystem && eventsPageState.type !== 'system' ? true : undefined,
     limit: eventsPageState.limit,
     offset: (eventsPageState.page - 1) * eventsPageState.limit,
   }).catch(() => ({ items: [], total: 0, limit: eventsPageState.limit, offset: 0 }));

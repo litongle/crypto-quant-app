@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17c">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17d">
 </head>
 <body>
 
@@ -346,6 +346,10 @@
             <option value="30d">最近 30 天</option>
           </select>
           <input type="search" class="cq-input" id="events-filter-q" aria-label="搜索事件关键字" placeholder="搜索关键字..." onkeyup="if(event.key==='Enter')reloadEvents()">
+          <label class="cq-checkbox-label">
+            <input type="checkbox" id="events-filter-show-system" onchange="reloadEvents()">
+            <span>显示系统事件</span>
+          </label>
           <button class="cq-btn cq-btn--secondary" onclick="reloadEvents()">刷新</button>
         </div>
       </div>
@@ -493,7 +497,7 @@
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
 <script src="/web/static/js/api.js?v=2026-05-14a"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-17c"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-17d"></script>
 <script src="/web/static/js/kline.js?v=2026-05-13a"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-14d"></script>
 <script src="/web/static/js/strategy.js?v=2026-05-17b"></script>
@@ -502,7 +506,7 @@
 <script src="/web/static/js/paper.js?v=2026-05-14c"></script>
 <script src="/web/static/js/settings-drawer.js?v=2026-05-14b"></script>
 <script src="/web/static/js/instance-drawer.js?v=2026-05-14g"></script>
-<script src="/web/static/js/events.js?v=2026-05-17d"></script>
+<script src="/web/static/js/events.js?v=2026-05-17e"></script>
 <script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17c"></script>
 <script>
 // ===== 侧栏切换 =====

@@ -429,6 +429,51 @@ async def test_list_events_system_event_visible_without_user_filter(
 
 
 @pytest.mark.asyncio
+async def test_list_events_exclude_system_hides_app_lifecycle(
+    client, auth_headers, db_session, test_user
+):
+    """exclude_system=true 时 system 启停被过滤；business 事件保留。"""
+    template = await _make_template(db_session)
+    instance = await _make_instance(db_session, test_user.id, template.id, "业务实例")
+    db_session.add_all(
+        [
+            AuditEvent(type="system", user_id=None, summary="系统启动 1"),
+            AuditEvent(type="system", user_id=None, summary="系统启动 2"),
+            AuditEvent(type="system", user_id=None, summary="系统启动 3"),
+            AuditEvent(
+                type="user_action",
+                user_id=test_user.id,
+                instance_id=instance.id,
+                summary="启动策略",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/events?exclude_system=true", headers=auth_headers)
+    body = resp.json()["data"]
+    types = {item["type"] for item in body["items"]}
+    assert "system" not in types
+    assert "user_action" in types
+
+
+@pytest.mark.asyncio
+async def test_list_events_exclude_system_yields_to_explicit_type(
+    client, auth_headers, db_session, test_user
+):
+    """exclude_system=true 但 event_type=system 时应当返回 system（用户主动想看）。"""
+    db_session.add(AuditEvent(type="system", user_id=None, summary="启动"))
+    await db_session.commit()
+
+    resp = await client.get(
+        "/api/v1/events?exclude_system=true&event_type=system", headers=auth_headers
+    )
+    body = resp.json()["data"]
+    assert body["total"] == 1
+    assert body["items"][0]["type"] == "system"
+
+
+@pytest.mark.asyncio
 async def test_list_events_filter_by_severity(client, auth_headers, db_session, test_user):
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "等级过滤")
