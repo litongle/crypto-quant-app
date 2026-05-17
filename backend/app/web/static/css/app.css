@@ -269,6 +269,18 @@ body.is-sidebar-collapsed {
 /* ── 2. Reset & Base ─────────────────────────────────────────── */
 *, *::before, *::after { -webkit-tap-highlight-color: transparent; box-sizing: border-box; margin: 0; padding: 0; }
 
+/* a11y:键盘焦点 ring 全局兜底。
+   覆盖所有 button/a/input/select/textarea/[role=button]/[tabindex] 在 :focus-visible
+   (浏览器判定为键盘焦点)时显示 primary 蓝 ring,鼠标 click 不触发不影响视觉。
+   用 :where() 0 specificity:.cq-btn:focus-visible / .cq-input:focus 等 site 已有规则
+   specificity 更高自动 override,这里只兜未被显式定义的 ~50 个按钮 (cq-icon-btn / cq-day-pill /
+   cq-instance-row / cq-event-list__item / cq-collapse-btn 等),否则键盘用户 Tab 切焦点没视觉反馈。
+   WCAG 2.1 AA 2.4.7 Focus Visible 强制要求。 */
+:where(button, a[href], input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--cq-color-primary);
+  outline-offset: 2px;
+}
+
 body {
   font-family: var(--cq-font-sans);
   font-size: var(--cq-text-base);
