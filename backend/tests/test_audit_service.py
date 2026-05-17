@@ -11,7 +11,12 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.models.audit_event import AuditEvent
 from app.models.user import User
-from app.services.audit_service import log_risk_alert, log_system, log_user_action
+from app.services.audit_service import (
+    log_auto_pause,
+    log_risk_alert,
+    log_system,
+    log_user_action,
+)
 
 
 async def _make_user(session, email: str = "audit@example.com") -> User:
@@ -155,3 +160,55 @@ async def test_log_system_writes_with_null_user_id(db_session):
     assert row.type == "system"
     assert row.user_id is None  # 系统事件不挂用户
     assert row.detail == {"event": "app_started", "environment": "test"}
+
+
+# ==================== log_auto_pause ====================
+
+
+@pytest.mark.asyncio
+async def test_log_auto_pause_persists_history(db_session):
+    """auto_pause 写到 audit_events,保留永久历史 — 不再被 last_pause_reason 字段覆盖。"""
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=db_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    session_maker = MagicMock(return_value=fake_session_cm)
+
+    await log_auto_pause(
+        session_maker,
+        instance_id=42,
+        instance_name="ETH",
+        reason="auto:order_failures",
+        detail_text="连续 3 次下单失败",
+        severity="warning",
+        metrics={"consecutive_order_failures": 3},
+    )
+
+    rows = (await db_session.execute(select(AuditEvent))).scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.type == "auto_pause"
+    assert row.severity == "warning"
+    assert row.instance_id == 42
+    assert "ETH" in row.summary
+    assert "连续 3 次下单失败" in row.summary
+    assert row.detail["reason"] == "auto:order_failures"
+    assert row.detail["metrics"]["consecutive_order_failures"] == 3
+
+
+@pytest.mark.asyncio
+async def test_log_auto_pause_state_drift_can_be_critical(db_session):
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=db_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    session_maker = MagicMock(return_value=fake_session_cm)
+
+    await log_auto_pause(
+        session_maker,
+        instance_id=1,
+        instance_name="X",
+        reason="auto:state_drift",
+        detail_text="持仓状态与交易所不一致",
+        severity="critical",
+    )
+    rows = (await db_session.execute(select(AuditEvent))).scalars().all()
+    assert rows[0].severity == "critical"

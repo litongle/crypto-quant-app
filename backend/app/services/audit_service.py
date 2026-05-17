@@ -153,3 +153,40 @@ async def log_system(
         severity=severity,
         detail=merged_detail,
     )
+
+
+async def log_auto_pause(
+    session_maker,
+    *,
+    instance_id: int,
+    instance_name: str,
+    reason: str,
+    detail_text: str,
+    severity: Severity = "warning",
+    metrics: dict[str, Any] | None = None,
+) -> None:
+    """记录策略自停事件。
+
+    与 risk_alert 区分：risk_alert 是"告警通知"（推 Telegram/邮件），auto_pause
+    是"业务事件"（策略状态机迁移）。两者用途不同：前者侧重 ops，后者侧重审计。
+
+    与 strategy_instance.last_pause_reason 字段区分：字段记的是"当前最近一次"
+    暂停原因（启动后清除），audit_events.auto_pause 记的是"全部历史"暂停事件
+    （append-only,不被覆盖）。
+    """
+    merged_detail: dict[str, Any] = {
+        "instance_name": instance_name,
+        "reason": reason,
+        "message": detail_text,
+    }
+    if metrics:
+        merged_detail["metrics"] = metrics
+    summary = f"{instance_name} 自动暂停 · {detail_text}"
+    await write_with_session_maker(
+        session_maker,
+        kind="auto_pause",
+        summary=summary,
+        severity=severity,
+        instance_id=instance_id,
+        detail=merged_detail,
+    )

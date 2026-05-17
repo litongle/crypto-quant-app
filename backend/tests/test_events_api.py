@@ -59,6 +59,7 @@ async def test_list_events_empty(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_list_events_with_signal_and_auto_pause(client, auth_headers, db_session, test_user):
+    """auto_pause 现在走 audit_events 表（type=auto_pause）— 由 _auto_pause 写入。"""
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "趋势实例")
     now = datetime.now(UTC)
@@ -74,9 +75,16 @@ async def test_list_events_with_signal_and_auto_pause(client, auth_headers, db_s
             created_at=now - timedelta(minutes=4),
         )
     )
-    instance.last_pause_reason = "auto:order_failures"
-    instance.last_stopped_at = now
-    instance.status = "paused"
+    db_session.add(
+        AuditEvent(
+            type="auto_pause",
+            severity="warning",
+            user_id=test_user.id,
+            instance_id=instance.id,
+            summary="趋势实例 自动暂停 · 连续 3 次下单失败",
+            detail={"reason": "auto:order_failures", "instance_name": "趋势实例"},
+        )
+    )
     await db_session.commit()
 
     resp = await client.get("/api/v1/events", headers=auth_headers)
@@ -90,6 +98,7 @@ async def test_list_events_with_signal_and_auto_pause(client, auth_headers, db_s
 
 @pytest.mark.asyncio
 async def test_list_events_filter_by_type(client, auth_headers, db_session, test_user):
+    """type=signal 不应受 auto_pause 干扰。"""
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "信号实例")
     db_session.add(
@@ -101,8 +110,14 @@ async def test_list_events_filter_by_type(client, auth_headers, db_session, test
             status="pending",
         )
     )
-    instance.last_pause_reason = "auto:heartbeat_timeout"
-    instance.last_stopped_at = datetime.now(UTC)
+    db_session.add(
+        AuditEvent(
+            type="auto_pause",
+            user_id=test_user.id,
+            instance_id=instance.id,
+            summary="心跳超时暂停",
+        )
+    )
     await db_session.commit()
 
     resp = await client.get("/api/v1/events?event_type=signal", headers=auth_headers)
@@ -113,11 +128,13 @@ async def test_list_events_filter_by_type(client, auth_headers, db_session, test
 
 @pytest.mark.asyncio
 async def test_manual_pause_not_exposed_as_auto_pause(client, auth_headers, db_session, test_user):
+    """手动暂停（仅设 last_pause_reason=None / 状态变更）不该产生 auto_pause 事件。"""
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "手动暂停实例")
     instance.status = "paused"
     instance.last_stopped_at = datetime.now(UTC)
     instance.last_pause_reason = None
+    # 不往 audit_events 写 auto_pause（只有 _auto_pause 系统判定时才写）
     await db_session.commit()
 
     resp = await client.get("/api/v1/events?event_type=auto_pause", headers=auth_headers)

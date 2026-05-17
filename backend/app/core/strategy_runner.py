@@ -457,15 +457,28 @@ class StrategyRunner:
             except Exception as exc:
                 logger.warning("[StrategyRunner] 自停告警推送失败 #%d: %s", instance_id, exc)
 
-            from app.services.audit_service import log_risk_alert
+            from app.services.audit_service import log_auto_pause, log_risk_alert
 
+            severity_lvl = "critical" if reason == "auto:state_drift" else "warning"
+
+            # 双写：risk_alert(告警语义,运维角度) + auto_pause(状态机事件,审计角度)
+            # 前者搭配 Telegram/邮件通知,后者保留永久历史不被 last_pause_reason 字段覆盖。
             await log_risk_alert(
                 self._session_maker,
                 alert_type="策略自停",
                 message=f'策略 "{instance_name}" {detail}',
-                severity="critical" if reason == "auto:state_drift" else "warning",
+                severity=severity_lvl,
                 instance_id=instance_id,
                 metrics={"reason": reason, **(metrics or {})},
+            )
+            await log_auto_pause(
+                self._session_maker,
+                instance_id=instance_id,
+                instance_name=instance_name,
+                reason=reason,
+                detail_text=detail,
+                severity=severity_lvl,
+                metrics=metrics,
             )
         finally:
             if cancel_current_task and task and not task.done():

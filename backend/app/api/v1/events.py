@@ -59,14 +59,6 @@ _RSI_REASON_PATTERN = re.compile(
     r"(?:\s+holding=(?P<holding>\d+))?\s*$"
 )
 
-_AUTO_PAUSE_REASON_LABEL = {
-    "auto:heartbeat_timeout": "心跳超时",
-    "auto:consecutive_errors": "连续错误",
-    "auto:order_failures": "下单失败次数过多",
-    "auto:state_drift": "持仓状态漂移",
-    "auto:unknown": "未知原因",
-}
-
 
 def _isoformat(value: datetime | None) -> str:
     if value is None:
@@ -208,25 +200,6 @@ def _serialize_order(order: Order) -> dict[str, Any]:
     }
 
 
-def _serialize_auto_pause(instance: StrategyInstance) -> dict[str, Any]:
-    reason = instance.last_pause_reason or "auto:unknown"
-    reason_label = _AUTO_PAUSE_REASON_LABEL.get(reason, reason)
-    stopped_at = instance.last_stopped_at or instance.updated_at or instance.created_at
-    return {
-        "id": f"auto_pause:{instance.id}:{reason}",
-        "at": _isoformat(stopped_at),
-        "type": "auto_pause",
-        "severity": "critical" if reason == "auto:state_drift" else "warning",
-        "instance_id": instance.id,
-        "summary": f'{instance.name or "策略"} 自动暂停 · {reason_label}'[:200],
-        "detail": {
-            "instance_name": instance.name,
-            "reason": reason,
-            "status": instance.status,
-        },
-    }
-
-
 def _serialize_audit_event(event: AuditEvent) -> dict[str, Any]:
     return {
         "id": f"{event.type}:{event.id}",
@@ -334,19 +307,7 @@ async def list_events(
         for o in extra_orders:
             orders_by_id[o.id] = o
 
-    pause_query = select(StrategyInstance).where(
-        StrategyInstance.user_id == current_user.id,
-        StrategyInstance.last_pause_reason.is_not(None),
-    )
-    if since is not None:
-        pause_query = pause_query.where(StrategyInstance.last_stopped_at >= since)
-    if until is not None:
-        pause_query = pause_query.where(StrategyInstance.last_stopped_at <= until)
-    if instance_id is not None:
-        pause_query = pause_query.where(StrategyInstance.id == instance_id)
-    pause_instances = (await session.execute(pause_query)).scalars().all()
-
-    # 持久化审计事件：risk_alert / user_action / system 等
+    # 持久化审计事件：auto_pause / risk_alert / user_action / system 等
     # 注意：user_id 严格按 current_user 过滤，但 system 事件 user_id 是 NULL，
     # 单用户场景下也应当展示给当前用户 —— 用 or_(user_id == X, user_id is None)
     # TODO(multi-user): 多用户场景下，system 事件应当只对 superuser 可见，
@@ -371,7 +332,6 @@ async def list_events(
         _serialize_signal(signal, orders_by_id.get(signal.executed_order_id)) for signal in signals
     )
     items.extend(_serialize_order(order) for order in orders)
-    items.extend(_serialize_auto_pause(instance) for instance in pause_instances)
     items.extend(_serialize_audit_event(event) for event in audit_events)
 
     if event_type is not None:
