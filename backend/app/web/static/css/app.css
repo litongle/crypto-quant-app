@@ -3514,6 +3514,13 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   color: var(--cq-color-primary);
 }
 
+/* 跳转目标卡片短暂高亮 (jumpToOrderEvent) */
+.cq-log-card--highlight {
+  outline: 2px solid var(--cq-color-primary);
+  outline-offset: -1px;
+  transition: outline 200ms ease;
+}
+
 /* dashboard 活动流加 severity 色条 + 类型 chip */
 .cq-event-list__item {
   border-left: 3px solid transparent;

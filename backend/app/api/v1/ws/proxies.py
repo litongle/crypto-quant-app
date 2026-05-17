@@ -27,6 +27,34 @@ _VALID_KLINE_INTERVALS = set(KLINE_INTERVALS)
 _DEFAULT_KLINE_INTERVAL = "1m"
 _MAX_BACKOFF_S = 60
 _BASE_BACKOFF_S = 5
+# 行情 WS 重连 N 次仍未连上时,记一条 audit 告警 (避免每次重连刷屏)
+_AUDIT_THRESHOLD = 5
+
+
+async def _audit_ws_disconnect(
+    exchange: str, channel: str, symbol: str, market_type: str, retry: int
+) -> None:
+    """行情 WS 长期断开 → 写一条 audit_event (warning 级别)。失败不抛。"""
+    try:
+        from app.database import get_session_maker
+        from app.services.audit_service import log_risk_alert
+
+        session_maker = await get_session_maker()
+        await log_risk_alert(
+            session_maker,
+            alert_type="行情链路异常",
+            message=f"{exchange.upper()} {symbol} {channel}/{market_type} 已重连 {retry} 次仍未成功",
+            severity="warning",
+            metrics={
+                "exchange": exchange,
+                "symbol": symbol,
+                "channel": channel,
+                "market_type": market_type,
+                "retry_count": retry,
+            },
+        )
+    except Exception as exc:
+        logger.warning("[%sWS] audit 写入失败: %s", exchange.capitalize(), exc)
 
 
 def _stream_key(channel: str, symbol: str, market_type: str) -> str:
@@ -106,7 +134,11 @@ class ExchangeWSProxy:
         symbol: str,
         market_type: str,
     ) -> None:
-        """指数退避重连：5s → 10s → 20s → ... → 上限 60s（issue #6）"""
+        """指数退避重连：5s → 10s → 20s → ... → 上限 60s（issue #6）。
+
+        重试达到 _AUDIT_THRESHOLD 次时记一条 audit_event,提醒用户行情链路异常持续；
+        阈值后不再重复告警,直到本 stream 重连成功（_retry_counts 被清零）。
+        """
         key = _stream_key(channel, symbol, market_type)
         retry = self._retry_counts.get(key, 0) + 1
         self._retry_counts[key] = retry
@@ -120,6 +152,11 @@ class ExchangeWSProxy:
             market_type,
             delay,
         )
+        # 重试到阈值时记一次 audit (只在恰好达到阈值那次,避免每次都记)
+        if retry == _AUDIT_THRESHOLD:
+            asyncio.create_task(
+                _audit_ws_disconnect(self.EXCHANGE, channel, symbol, market_type, retry)
+            )
         await asyncio.sleep(delay)
         if self._manager.has_subscribers(channel, symbol, market_type):
             self._tasks.pop(key, None)

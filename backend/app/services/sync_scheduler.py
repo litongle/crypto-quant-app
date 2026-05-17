@@ -16,6 +16,22 @@ logger = logging.getLogger(__name__)
 _SYNC_INTERVAL = 300  # 5 分钟
 
 
+_AUTH_FAILURE_KEYWORDS = (
+    "ok-access-key",
+    "invalid api",
+    "api-key",
+    "401",
+    "403",
+    "unauthorized",
+    "permission denied",
+)
+
+
+def _is_auth_failure(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(k in text for k in _AUTH_FAILURE_KEYWORDS)
+
+
 class SyncScheduler:
     """定时同步调度器"""
 
@@ -23,6 +39,8 @@ class SyncScheduler:
         self._session_maker = session_maker
         self._task: asyncio.Task | None = None
         self._running = False
+        # 账户级失败计数 — 连续 N 次失败才告警,避免每 5 分钟一刷
+        self._consecutive_failures: dict[int, int] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -37,6 +55,37 @@ class SyncScheduler:
             self._task.cancel()
             self._task = None
         logger.info("[SyncScheduler] 已停止")
+
+    async def _record_sync_failure(self, account, exc: Exception, *, source: str) -> None:
+        """连续失败 3 次以上才记 audit (避免每 5 分钟刷屏); API 凭证错误立即记 critical。"""
+        from app.services.audit_service import log_risk_alert
+
+        self._consecutive_failures[account.id] = self._consecutive_failures.get(account.id, 0) + 1
+        count = self._consecutive_failures[account.id]
+        auth_failure = _is_auth_failure(exc)
+
+        # API 凭证错误立即告警;其他错误连续 3 次才告警
+        if not auth_failure and count < 3:
+            return
+
+        alert_type = "API 凭证失效" if auth_failure else "余额同步连续失败"
+        severity = "critical" if auth_failure else "warning"
+        message = (
+            f'账户 "{account.account_name}" ({account.exchange}) {source}失败: {str(exc)[:160]}'
+        )
+
+        await log_risk_alert(
+            self._session_maker,
+            alert_type=alert_type,
+            message=message,
+            severity=severity,
+            account_id=account.id,
+            metrics={
+                "exchange": account.exchange,
+                "consecutive_failures": count,
+                "trigger": source,
+            },
+        )
 
     async def _sync_loop(self) -> None:
         while self._running:
@@ -111,8 +160,11 @@ class SyncScheduler:
                     account.balance,
                     account.frozen_balance,
                 )
+            # 同步成功 → 清失败计数
+            self._consecutive_failures.pop(account.id, None)
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 余额同步失败: %s", account.id, exc)
+            await self._record_sync_failure(account, exc, source="定时同步")
 
         # 2. 同步持仓（适配器返回 list[PositionInfo]）
         try:

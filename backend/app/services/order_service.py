@@ -489,6 +489,38 @@ class OrderService:
                 account.exchange,
                 str(exc),
             )
+
+            # 写审计事件 — 区分 API key 失效（critical）和其他错误（warning）
+            from app.services.audit_service import log_risk_alert
+
+            err_text = str(exc).lower()
+            is_auth_failure = any(
+                k in err_text
+                for k in (
+                    "ok-access-key",
+                    "invalid api",
+                    "api-key",
+                    "401",
+                    "403",
+                    "unauthorized",
+                    "permission denied",
+                )
+            )
+            alert_type = "API 凭证失效" if is_auth_failure else "余额同步失败"
+            severity_lvl = "critical" if is_auth_failure else "warning"
+
+            from app.database import get_session_maker
+
+            session_maker = await get_session_maker()
+            await log_risk_alert(
+                session_maker,
+                alert_type=alert_type,
+                message=f'账户 "{account.account_name}" ({account.exchange}) {str(exc)[:160]}',
+                severity=severity_lvl,
+                account_id=account_id,
+                metrics={"exchange": account.exchange, "trigger": "manual_sync"},
+            )
+
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"余额同步失败: {str(exc)}",
