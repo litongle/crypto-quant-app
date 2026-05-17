@@ -21,8 +21,13 @@ function escapeHtml(str) {
 class ApiClient {
   constructor() {
     // token 改走 HttpOnly cookie,JS 完全读不到也写不到 → XSS 拿不到 token。
-    // 是否登录由内存里的 _isLoggedIn 标记;实际权威态由 /auth/me 验证。
-    this._isLoggedIn = false;
+    // _isLoggedIn 三态:
+    //   null  = 未知(冷启动首次探活前),401 时仍要尝试 refresh
+    //         — 因为 access_token cookie 可能过期 (30min) 但 refresh_token (7d) 还活,
+    //         直接判 logged-out 会让用户白白重新登录
+    //   true  = 已确认登录(login 成功 或 探活成功后由调用方设)
+    //   false = 已显式登出,401 直接快速失败,不再瞎打 refresh
+    this._isLoggedIn = null;
     // 清理可能残留的旧版 sessionStorage(老版本浏览器从 Bearer 模式升上来)
     try {
       sessionStorage.removeItem('access_token');
@@ -79,10 +84,11 @@ class ApiClient {
     let res = await fetch(`${API_BASE}${path}`, opts);
 
     // 401 → 尝试 refresh(server 从 refresh_token cookie 读)。
-    // 但冷启动 / 显式登出后,_isLoggedIn=false 时根本没 session,
-    // 不要瞎打一次 refresh 加重 404 噪音 + access log。
+    // 显式登出后(_isLoggedIn===false)直接快速失败,不打无意义 refresh;
+    // 冷启动(_isLoggedIn===null)还是要试一次 refresh,因为 access cookie 30min 过期
+    // 但 refresh cookie 7d 还活,直接判退会让用户白重新登录。
     if (res.status === 401) {
-      if (!this._isLoggedIn) {
+      if (this._isLoggedIn === false) {
         this._markLoggedOut();
         throw new Error('认证已过期，请重新登录');
       }
@@ -177,7 +183,9 @@ class ApiClient {
   }
 
   get isLoggedIn() {
-    return this._isLoggedIn;
+    // 外部 getter 不暴露 null 三态,只返回布尔。
+    // null (未知) 与 false (已登出) 对消费者来说都是"现在没登录"。
+    return this._isLoggedIn === true;
   }
 
   // ===== 便捷方法 =====
