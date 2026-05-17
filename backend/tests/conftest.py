@@ -31,8 +31,28 @@ class TestSettings(Settings):
 
 @pytest.fixture(scope="session")
 def test_settings():
-    """测试专用配置实例"""
-    return TestSettings()
+    """测试专用配置实例
+
+    显式传 kwargs 而不是靠 class 默认值 — pydantic-settings 里
+    env var (Docker 起来时 ENVIRONMENT=production) 会盖掉类属性,
+    init kwargs 优先级最高才能强制 test 语义(影响 is_production /
+    Secure cookie 等条件分支)。
+    """
+    # Redis URL 优先取 Docker env (默认带密码 + hostname=redis),没有则退到 localhost。
+    # 跑在 CI / 裸机时 REDIS_URL 通常不设,会用 localhost;Docker 容器内 env 已有正确 URL。
+    import os
+
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
+
+    return TestSettings(
+        debug=True,
+        environment="test",
+        secret_key="test-secret-key-for-testing-only-min-32-chars",
+        jwt_secret_key="test-jwt-secret-key-for-testing-only-min-32",
+        database_url="sqlite+aiosqlite:////tmp/crypto_quant_test.db",
+        redis_url=redis_url,
+        cors_origins="http://localhost:8000",
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

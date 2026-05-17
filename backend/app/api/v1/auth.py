@@ -77,12 +77,6 @@ class UserResponse(BaseModel):
     status: str
 
 
-class LoginResponse(BaseModel):
-    """登录响应 — token 走 cookie 不再在 body 里"""
-
-    user: UserResponse
-
-
 @router.post("/login")
 async def login(
     request: Request,
@@ -90,7 +84,7 @@ async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> APIResponse:
-    """单用户登录（生产环境必须 HTTPS）。"""
+    """单用户登录（生产环境必须 HTTPS）。token 走 cookie,body 只回 user。"""
     forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
     if forwarded_proto not in ("", "https"):
         host = request.headers.get("host", "")
@@ -106,7 +100,7 @@ async def login(
         password=form_data.password,
     )
     _set_auth_cookies(response, access_token, refresh_token)
-    return APIResponse(data=LoginResponse(user=UserResponse.model_validate(user)).model_dump())
+    return APIResponse(data=UserResponse.model_validate(user).model_dump())
 
 
 @router.post("/refresh")

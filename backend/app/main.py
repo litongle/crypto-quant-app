@@ -257,12 +257,14 @@ def create_app() -> FastAPI:
     )
 
     # CORS - SEC-08: 限制方法和头部，不再使用通配符
+    # Authorization header 已去掉:浏览器侧改走 HttpOnly cookie 不需要这头,
+    # 留着只会扩大跨源 preflight 接受面;curl/脚本是同源场景,不走 CORS。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
+        allow_headers=["Content-Type", "Accept"],
     )
 
     # 安全响应头 — 基础加固。CSP 暂不上(大量 inline onclick/style 会被 break),

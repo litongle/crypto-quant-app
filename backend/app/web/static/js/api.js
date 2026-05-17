@@ -78,8 +78,14 @@ class ApiClient {
 
     let res = await fetch(`${API_BASE}${path}`, opts);
 
-    // 401 → 尝试 refresh(server 从 refresh_token cookie 读)
+    // 401 → 尝试 refresh(server 从 refresh_token cookie 读)。
+    // 但冷启动 / 显式登出后,_isLoggedIn=false 时根本没 session,
+    // 不要瞎打一次 refresh 加重 404 噪音 + access log。
     if (res.status === 401) {
+      if (!this._isLoggedIn) {
+        this._markLoggedOut();
+        throw new Error('认证已过期，请重新登录');
+      }
       const refreshed = await this._refreshAccessToken();
       if (refreshed) {
         res = await fetch(`${API_BASE}${path}`, opts);

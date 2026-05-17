@@ -6,6 +6,7 @@
 
 import base64
 import hashlib
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -62,7 +63,11 @@ def create_refresh_token(
     data: dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
-    """创建刷新令牌"""
+    """创建刷新令牌
+
+    每次签发携带唯一 jti,refresh_tokens() 在 rotation 时把旧 jti 写入
+    Redis revocation set,即便 refresh token 被偷,被偷的那枚也只能用一次。
+    """
     settings = get_settings()
     to_encode = data.copy()
 
@@ -75,6 +80,7 @@ def create_refresh_token(
         {
             "exp": expire,
             "type": "refresh",
+            "jti": uuid.uuid4().hex,
         }
     )
 
