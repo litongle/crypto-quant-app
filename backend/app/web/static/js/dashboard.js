@@ -23,6 +23,9 @@ function stopDashboardPolling() {
   }
 }
 
+// 登出后停止 polling — 避免 token 过期后 polling 持续打 401/400 死循环
+window.addEventListener('cq:logged-out', stopDashboardPolling);
+
 async function refreshDashboard({ silent = false } = {}) {
   // 实时活动剔除 system 启停（这类事件下沉到日志页查）。走后端 exclude_system 比
   // 前端 filter 更准确(total/分页都对得上)。

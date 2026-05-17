@@ -151,6 +151,10 @@ class ApiClient {
     this.refreshToken = '';
     sessionStorage.removeItem('access_token');
     sessionStorage.removeItem('refresh_token');
+    // 通知页面进入登出态,让所有 polling 自检停下,避免 401 死循环刷屏
+    try {
+      window.dispatchEvent(new CustomEvent('cq:logged-out'));
+    } catch {}
   }
 
   get isLoggedIn() {

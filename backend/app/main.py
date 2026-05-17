@@ -306,8 +306,37 @@ def create_app() -> FastAPI:
     # 异常处理
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
+        # 按异常类型映射到合适的 HTTP 状态码 — 之前一律 400 导致 token 过期被前端
+        # 当成"参数错误"无法触发自动刷新,polling 死循环刷屏。
+        from app.core.exceptions import (
+            AlreadyExistsError,
+            AuthenticationError,
+            ExchangeAPIError,
+            InsufficientBalanceError,
+            NotFoundError,
+            RateLimitError,
+            RiskLimitExceededError,
+            ValidationError,
+        )
+
+        if isinstance(exc, AuthenticationError):
+            status_code = 401  # 前端 api.js 凭此触发 refresh token
+        elif isinstance(exc, NotFoundError):
+            status_code = 404
+        elif isinstance(exc, AlreadyExistsError):
+            status_code = 409
+        elif isinstance(exc, RateLimitError):
+            status_code = 429
+        elif isinstance(exc, RiskLimitExceededError):
+            status_code = 422
+        elif isinstance(exc, ExchangeAPIError):
+            status_code = 502
+        elif isinstance(exc, (ValidationError, InsufficientBalanceError)):
+            status_code = 400
+        else:
+            status_code = 400  # 兜底
         return JSONResponse(
-            status_code=400,
+            status_code=status_code,
             content={
                 "success": False,
                 "error": exc.to_dict(),

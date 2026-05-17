@@ -35,6 +35,20 @@ async def test_get_me_unauthenticated(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_invalid_token_returns_401_not_400(client: AsyncClient):
+    """JWT 解析失败应返回 401（让前端自动 refresh），不是 400。
+
+    回归：之前 AppException handler 把所有 AppError 都映射成 400，导致 token
+    过期被识别成"参数错误"，前端 api.js 只对 401 触发 refresh，结果死循环刷屏。
+    """
+    resp = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": "Bearer invalid.token.here"},
+    )
+    assert resp.status_code == 401, f"Got {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.asyncio
 async def test_register_endpoint_removed(client: AsyncClient):
     """/auth/register 应已删除"""
     resp = await client.post(
