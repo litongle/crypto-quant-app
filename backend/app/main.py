@@ -267,29 +267,6 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "Accept"],
     )
 
-    # 安全响应头 — 基础加固。CSP 暂不上(大量 inline onclick/style 会被 break),
-    # 真要上得先把 inline handler 全收成 addEventListener,这次先把零成本的几条加上。
-    _is_prod = settings.is_production
-
-    @app.middleware("http")
-    async def security_headers_middleware(request: Request, call_next):
-        response = await call_next(request)
-        # 防点击劫持:别人嵌 iframe 诱导用户"暂停策略/确认下单"
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        # 防 MIME 嗅探,避免 JS/HTML 被错误执行
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        # 跨域跳转不带完整 URL 出去(query 里可能有敏感参数)
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        # 关掉 FLoC/topics 等浏览器 ad-tracking API,顺带消除 unload 警告相关项
-        response.headers.setdefault("Permissions-Policy", "interest-cohort=(), browsing-topics=()")
-        # HSTS 仅生产:本机 http://localhost 部署强制 HTTPS 会让浏览器拒连
-        if _is_prod:
-            response.headers.setdefault(
-                "Strict-Transport-Security",
-                "max-age=31536000; includeSubDomains",
-            )
-        return response
-
     # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
     # 改为使用 Redis 存储，支持多进程/多实例且有过期时间
     market_rate_limit = 60  # 每分钟请求上限
@@ -299,6 +276,10 @@ def create_app() -> FastAPI:
     # 后端 CPU 打满。从 settings 取,测试环境可放宽避免连续 login 测试踩雷。
     login_rate_limit = settings.login_rate_limit_per_minute
     login_rate_window = 60
+
+    # 注意中间件顺序:Starlette 后添加的中间件最先执行(outermost wrapper)。
+    # security_headers 必须在 rate_limit 之后定义,这样 rate_limit 直接返回的
+    # 429 响应也会经过 security_headers 加头(否则 429 裸吐没安全头)。
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
@@ -342,6 +323,30 @@ def create_app() -> FastAPI:
             logger.warning("[RateLimit] Redis 访问失败，已降级放行: %s", exc)
 
         return await call_next(request)
+
+    # 安全响应头 — 基础加固。CSP 暂不上(大量 inline onclick/style 会被 break),
+    # 真要上得先把 inline handler 全收成 addEventListener,这次先把零成本的几条加上。
+    # 定义在 rate_limit 之后 = 中间件外层 → 429 等早返回响应也会经过这里加头。
+    _is_prod = settings.is_production
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        # 防点击劫持:别人嵌 iframe 诱导用户"暂停策略/确认下单"
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        # 防 MIME 嗅探,避免 JS/HTML 被错误执行
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # 跨域跳转不带完整 URL 出去(query 里可能有敏感参数)
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # 关掉 FLoC/topics 等浏览器 ad-tracking API,顺带消除 unload 警告相关项
+        response.headers.setdefault("Permissions-Policy", "interest-cohort=(), browsing-topics=()")
+        # HSTS 仅生产:本机 http://localhost 部署强制 HTTPS 会让浏览器拒连
+        if _is_prod:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
 
     # 异常处理
     @app.exception_handler(AppException)
