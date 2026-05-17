@@ -70,7 +70,7 @@ function renderAccounts() {
       <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-4);">添加新账户</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-3);">
         <div>
-          <label class="cq-label">交易所</label>
+          <label class="cq-label" for="acc-exchange">交易所</label>
           <select class="cq-input" id="acc-exchange" onchange="onExchangeChange()">
             <option value="binance">币安</option>
             <option value="okx">欧易</option>
@@ -78,20 +78,20 @@ function renderAccounts() {
           </select>
         </div>
         <div>
-          <label class="cq-label">账户别名</label>
+          <label class="cq-label" for="acc-name">账户别名</label>
           <input type="text" class="cq-input" id="acc-name" placeholder="我的BN账户">
         </div>
       </div>
       <div style="margin-bottom:var(--cq-space-3);">
-        <label class="cq-label">API Key</label>
+        <label class="cq-label" for="acc-apikey">API Key</label>
         <input type="text" class="cq-input" id="acc-apikey" placeholder="输入 API Key">
       </div>
       <div style="margin-bottom:var(--cq-space-3);">
-        <label class="cq-label">Secret Key</label>
+        <label class="cq-label" for="acc-secretkey">Secret Key</label>
         <input type="password" class="cq-input" id="acc-secretkey" placeholder="输入 Secret Key">
       </div>
       <div style="margin-bottom:var(--cq-space-3);" id="passphrase-field">
-        <label class="cq-label">Passphrase <span style="color:var(--cq-color-warning);font-weight:600;">(OKX 必须，其他可不填)</span></label>
+        <label class="cq-label" for="acc-passphrase">Passphrase <span style="color:var(--cq-color-warning);font-weight:600;">(OKX 必须，其他可不填)</span></label>
         <input type="password" class="cq-input" id="acc-passphrase" placeholder="输入 Passphrase">
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);">
