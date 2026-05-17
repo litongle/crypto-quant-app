@@ -157,8 +157,12 @@ class ApiClient {
       throw new Error(err.detail || '登录失败');
     }
     const json = await res.json();
+    const userData = json.data || json;
     this._isLoggedIn = true;
-    return json.data || json;
+    // login response body 与 /auth/me 同 schema (UserResponse),
+    // 预填进缓存,enterApp() 紧跟的 getUserInfo() 不用再打一次 HTTP。
+    this._meCache = { at: Date.now(), value: userData };
+    return userData;
   }
 
   async logout() {
