@@ -85,8 +85,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         if isinstance(self.cors_origins, str):
-            return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
-        return self.cors_origins
+            origins = [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        else:
+            origins = list(self.cors_origins)
+        # 生产环境过滤 localhost/127.0.0.1 兜底:防 .env 里漏改默认值导致公网部署
+        # 还放着开发主机域。被允许跨源请求自带 cookie + credentials 后,等于送一条
+        # CSRF 旁路通道(本机的恶意网页能借浏览器的 cookie 调你公网 API)。
+        if self.is_production:
+            origins = [o for o in origins if "localhost" not in o and "127.0.0.1" not in o]
+        return origins
 
     @property
     def env_path(self) -> Path:

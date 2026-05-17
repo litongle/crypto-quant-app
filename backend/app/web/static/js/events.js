@@ -137,13 +137,13 @@
           <div style="display:flex;gap:var(--cq-space-2);align-items:center;flex-wrap:wrap;">
             <span class="cq-log-card__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(getEventTypeLabel(item.type))}</span>
             ${severity !== 'info' ? `<span class="cq-log-card__sev cq-log-card__sev--${escapeHtml(severity)}">${escapeHtml(getEventSeverityLabel(severity))}</span>` : ''}
-            ${item.instance_id ? `<button class="cq-log-card__link" type="button" onclick="event.stopPropagation();openInstanceDrawer(${escapeHtml(String(item.instance_id))})">#${escapeHtml(String(item.instance_id))}</button>` : ''}
+            ${item.instance_id ? `<button class="cq-log-card__link" type="button" data-instance-id="${escapeHtml(String(item.instance_id))}" onclick="event.stopPropagation();openInstanceDrawerFromBtn(this)">#${escapeHtml(String(item.instance_id))}</button>` : ''}
           </div>
           <time class="cq-log-card__time">${escapeHtml(formatEventDateTime(item.at))}</time>
         </header>
         <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
         ${hasDetail ? `
-          <button class="cq-log-card__toggle" type="button" onclick="toggleEventDetail('${escapeHtml(id)}')">${expanded ? '收起' : '展开详情'}</button>
+          <button class="cq-log-card__toggle" type="button" data-event-id="${escapeHtml(id)}" onclick="toggleEventDetailFromBtn(this)">${expanded ? '收起' : '展开详情'}</button>
           ${expanded ? renderEventDetail(detail) : ''}
         ` : ''}
       </article>
@@ -219,7 +219,7 @@
         const label = _EVENT_DETAIL_LABELS[k] || k;
         const value = typeof v === 'object' ? JSON.stringify(v) : String(v);
         const isOrderLink = k === 'order_id';
-        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${isOrderLink ? `<button type="button" class="cq-log-card__link" onclick="event.stopPropagation();jumpToOrderEvent('${escapeHtml(value)}')">#${escapeHtml(value)} ↗</button>` : escapeHtml(value)}</span></div>`;
+        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${isOrderLink ? `<button type="button" class="cq-log-card__link" data-order-id="${escapeHtml(value)}" onclick="event.stopPropagation();jumpToOrderEventFromBtn(this)">#${escapeHtml(value)} ↗</button>` : escapeHtml(value)}</span></div>`;
       }).join('');
     return rows ? `<div class="cq-log-card__detail">${rows}</div>` : '';
   }
@@ -243,6 +243,20 @@
     refreshEventsPage().catch((err) => console.error('[events] pagination refresh failed:', err));
   }
 
+  // 走 data-* 而非 inline 字符串参数:onclick 是 HTML attribute,浏览器解码一次
+  // 再交给 JS 解析,直接把 escapeHtml 后的 ' (&#39;) 还原成 ',撑破 JS 字符串字面量
+  // (escapeHtml 也挡不住 `)` `;` 的 JS breakout)。data-* 走 dataset 读取,无 JS 解码。
+  function toggleEventDetailFromBtn(btn) {
+    toggleEventDetail(btn.dataset.eventId || '');
+  }
+  function jumpToOrderEventFromBtn(btn) {
+    jumpToOrderEvent(btn.dataset.orderId || '');
+  }
+  function openInstanceDrawerFromBtn(btn) {
+    const id = Number(btn.dataset.instanceId);
+    if (Number.isFinite(id) && id > 0) openInstanceDrawer(id);
+  }
+
   // ───── public API（inline onclick / 其他模块依赖）─────
   // refreshEventsPage / renderEventCard / renderEventDetail / _eventDomId / _EVENT_DETAIL_LABELS
   // syncEventsControls / renderEventsResults / renderEventsPagination 都不外露
@@ -253,4 +267,7 @@
   window.toggleEventDetail = toggleEventDetail;
   window.jumpToOrderEvent = jumpToOrderEvent;
   window.changeEventsPage = changeEventsPage;
+  window.toggleEventDetailFromBtn = toggleEventDetailFromBtn;
+  window.jumpToOrderEventFromBtn = jumpToOrderEventFromBtn;
+  window.openInstanceDrawerFromBtn = openInstanceDrawerFromBtn;
 })();
