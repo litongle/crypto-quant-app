@@ -897,7 +897,7 @@ function renderBacktestParamControls(params) {
       const val = Array.isArray(p.default) ? p.default.join(', ') : (p.default ?? '');
       return `
         <div style="margin-bottom:var(--cq-space-3);">
-          <label class="cq-label">${p.name}</label>
+          <label class="cq-label" for="bt-param-${p.key}">${p.name}</label>
           <input type="text" id="bt-param-${p.key}" data-key="${p.key}" data-type="${t}"
             value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
             style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;background:transparent;color:var(--cq-text-primary);">
@@ -909,7 +909,7 @@ function renderBacktestParamControls(params) {
       const val = typeof p.default === 'string' ? p.default : JSON.stringify(p.default);
       return `
         <div style="margin-bottom:var(--cq-space-3);">
-          <label class="cq-label">${p.name}</label>
+          <label class="cq-label" for="bt-param-${p.key}">${p.name}</label>
           <textarea id="bt-param-${p.key}" data-key="${p.key}" data-type="json"
             rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);background:transparent;color:var(--cq-text-primary);">${val}</textarea>
           ${desc}
@@ -919,10 +919,15 @@ function renderBacktestParamControls(params) {
     if (t === 'json_table') {
       const cols = Array.isArray(p.columns) ? p.columns : [];
       const rows = Array.isArray(p.default) ? p.default : [];
+      // json_table 是多 input 组,无单一 target 可指向,改用 aria-labelledby 让 SR
+      // 把标题播报给整张表
+      const labelId = `bt-tbl-label-${p.key}`;
       return `
         <div style="margin-bottom:var(--cq-space-3);">
-          <label class="cq-label">${p.name}</label>
-          ${renderJsonTable(p.key, cols, rows, 'bt-param')}
+          <div class="cq-label" id="${labelId}">${p.name}</div>
+          <div role="group" aria-labelledby="${labelId}">
+            ${renderJsonTable(p.key, cols, rows, 'bt-param')}
+          </div>
           ${desc}
         </div>`;
     }
@@ -937,7 +942,7 @@ function renderBacktestParamControls(params) {
       }).join('');
       return `
         <div style="margin-bottom:var(--cq-space-3);">
-          <label class="cq-label">${p.name}</label>
+          <label class="cq-label" for="bt-param-${p.key}">${p.name}</label>
           <select class="cq-input" id="bt-param-${p.key}" data-key="${p.key}" data-type="select">
             ${optsHtml}
           </select>
@@ -949,7 +954,7 @@ function renderBacktestParamControls(params) {
     return `
       <div style="margin-bottom:var(--cq-space-3);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
-          <label class="cq-label" style="margin-bottom:0;">${p.name}</label>
+          <label class="cq-label" for="sl-bt-${p.key}" style="margin-bottom:0;">${p.name}</label>
           <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary-hover);" id="val-bt-${p.key}">${p.default}</span>
         </div>
         <input type="range" class="cq-slider" id="sl-bt-${p.key}" data-key="${p.key}" data-type="${t}"

@@ -899,7 +899,8 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 .cq-btn--sm { height: 28px; padding: 0 var(--cq-space-3); font-size: var(--cq-text-xs); }
 .cq-btn--xs { height: 24px; padding: 0 var(--cq-space-2); font-size: var(--cq-text-xs); border-radius: var(--cq-radius-sm); }
 
-.cq-btn--full { width: 100%; }
+/* full 宽度按钮通常是页面主 CTA(登录 / 开始回测),移动端要满足 WCAG 触摸目标 ≥44px */
+.cq-btn--full { width: 100%; min-height: 44px; }
 
 .cq-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
 
