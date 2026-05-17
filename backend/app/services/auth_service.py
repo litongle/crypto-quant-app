@@ -8,7 +8,6 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +23,6 @@ from app.models.user import User
 from app.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 # Redis key 前缀,值随便填,只看存在性。TTL 设到 token 原 exp + 5 分钟 buffer。
 _REVOKED_REFRESH_PREFIX = "revoked_refresh:"
