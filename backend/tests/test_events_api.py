@@ -310,7 +310,7 @@ async def test_list_events_rejected_order_summary_has_error(
 async def test_signal_detail_links_to_order_with_slippage(
     client, auth_headers, db_session, test_user
 ):
-    """signal 事件 detail 应挂上同 signal_id 关联的 order_id 与滑点。"""
+    """signal 事件 detail 应挂上关联 order 的 id/status/fill_price (不算虚假"滑点")。"""
     template = await _make_template(db_session)
     instance = await _make_instance(db_session, test_user.id, template.id, "滑点实例")
     account = await _make_account(db_session, test_user.id)
@@ -352,11 +352,8 @@ async def test_signal_detail_links_to_order_with_slippage(
     assert detail["order_id"] is not None
     assert detail["order_status"] == "filled"
     assert detail["fill_price"] == "2227.6"
-    # sell 取反：(2227.6 - 2230) / 2230 ≈ -0.001076; 取负后 = +0.001076 → 不,我们说 sell 反向
-    # 这里实际: slippage_raw = (fill - signal) / signal = -0.001076 (卖低于报价是负面滑点)
-    # sell 取反 → +0.001076 (正值=不利)?  代码里 sell 取负号,意思是 "对卖方有利时为正"
-    # 让我们只断言它是个有限值,不挑符号:
-    assert "slippage_pct" in detail
+    # 不再计算滑点（K 线 close vs 实际成交价不在同一时间维度，算出来误导）
+    assert "slippage_pct" not in detail
 
 
 # ==================== audit_events 表事件 ====================

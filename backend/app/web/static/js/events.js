@@ -166,7 +166,6 @@ const _EVENT_DETAIL_LABELS = {
   entry_price: '信号价',
   fill_price: '成交价',
   avg_fill_price: '成交均价',
-  slippage_pct: '滑点(%)',
   quantity: '数量',
   filled_quantity: '已成交',
   commission: '手续费',

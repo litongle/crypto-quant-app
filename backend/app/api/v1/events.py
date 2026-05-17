@@ -135,14 +135,11 @@ def _serialize_signal(signal: Signal, related_order: Order | None = None) -> dic
         detail["order_id"] = related_order.id
         detail["order_status"] = related_order.status
         if related_order.avg_fill_price is not None:
-            fill_price_str = _format_price(related_order.avg_fill_price)
-            detail["fill_price"] = fill_price_str
-            # 滑点：(fill - signal_entry) / signal_entry, sell 反向
-            if signal.entry_price and signal.entry_price > 0:
-                slippage = (related_order.avg_fill_price - signal.entry_price) / signal.entry_price
-                if signal.action == "sell":
-                    slippage = -slippage
-                detail["slippage_pct"] = f"{slippage * 100:.4f}"
+            detail["fill_price"] = _format_price(related_order.avg_fill_price)
+            # 不计算"滑点"：signal.entry_price 取自 K 线 close（最多滞后一根周期，
+            # 比如 15m K 线下可能是 15 分钟前的封盘价），order.avg_fill_price 是
+            # 信号触发后几秒的真实成交价，两者不在同一时间维度，算出来的差值不是
+            # 真正的"市价单滑点"。展示两个原始值,让用户自己理解差异性质。
 
     return {
         "id": f"signal:{signal.id}",
