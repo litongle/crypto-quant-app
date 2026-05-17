@@ -96,7 +96,7 @@ class SyncScheduler:
             await asyncio.sleep(_SYNC_INTERVAL)
 
     async def _sync_all(self) -> None:
-        """执行全量同步"""
+        """执行全量同步 — 跳过 is_paper 账户（本地模拟,余额本地维护,无外部 API）。"""
         async with self._session_maker() as session:
             from sqlalchemy import select
 
@@ -106,6 +106,7 @@ class SyncScheduler:
                 select(ExchangeAccount).where(
                     ExchangeAccount.is_active,
                     ExchangeAccount.status == "active",
+                    ExchangeAccount.is_paper.is_(False),
                 )
             )
             accounts = result.scalars().all()
