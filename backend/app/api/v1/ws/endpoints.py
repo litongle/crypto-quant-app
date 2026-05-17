@@ -78,12 +78,20 @@ def _read_protocol_token(websocket: WebSocket) -> str | None:
 
 
 async def _read_auth_token(websocket: WebSocket) -> str | None:
-    """从 Authorization header 或首条 auth 消息中提取 Token（issue #2）
+    """从多个位置提取 token,优先级 cookie > header > subprotocol > 首条 msg。
 
-    - 优先检查 HTTP 升级请求中的 Authorization: Bearer <token> header
-    - 降级到 WebSocket 首条 auth 消息（向后兼容）
+    - access_token cookie:浏览器 WS upgrade 请求自动带 HttpOnly cookie,
+      与 HTTP API 走同一套鉴权,前端 JS 不需要也读不到 token。
+    - Authorization: Bearer:curl/脚本 / 旧客户端兼容
+    - Sec-WebSocket-Protocol: access_token.<jwt>:浏览器原生 WS 不支持自定义
+      header,这是社区惯用 hack(仅在 cookie 不可用时才用)
+    - 首条 auth message:更老的客户端兼容
     """
-    # 优先：Authorization header
+    # 优先:HttpOnly cookie(浏览器 WS upgrade 自动带,与 HTTP API 同源)
+    cookie_token = websocket.cookies.get("access_token")
+    if cookie_token:
+        return cookie_token
+
     auth_header = websocket.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         return auth_header[7:]

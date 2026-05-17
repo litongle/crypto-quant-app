@@ -41,6 +41,7 @@ def test_parse_subprotocols_and_extract_protocol_token():
 @pytest.mark.asyncio
 async def test_read_auth_token_prefers_protocol_token_over_legacy_message():
     websocket = MagicMock()
+    websocket.cookies = {}  # 无 cookie → 回退到 subprotocol
     websocket.headers = {
         "authorization": "",
         "sec-websocket-protocol": "json, access_token.jwt.part",
@@ -50,6 +51,24 @@ async def test_read_auth_token_prefers_protocol_token_over_legacy_message():
     token = await _read_auth_token(websocket)
 
     assert token == "jwt.part"
+    websocket.receive_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_read_auth_token_prefers_cookie_over_other_sources():
+    """HttpOnly cookie 是最高优先级 — 浏览器 WS upgrade 自动带,
+    与 HTTP API 走同一套 cookie 鉴权,不应被 header / subprotocol 抢走。"""
+    websocket = MagicMock()
+    websocket.cookies = {"access_token": "cookie.jwt.token"}
+    websocket.headers = {
+        "authorization": "Bearer should.not.win",
+        "sec-websocket-protocol": "access_token.also.lose",
+    }
+    websocket.receive_text = AsyncMock(return_value='{"action":"auth","token":"legacy"}')
+
+    token = await _read_auth_token(websocket)
+
+    assert token == "cookie.jwt.token"
     websocket.receive_text.assert_not_awaited()
 
 
