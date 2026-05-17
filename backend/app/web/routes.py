@@ -9,6 +9,12 @@ router = APIRouter()
 
 STATIC_DIR = (Path(__file__).parent / "static").resolve()
 
+# /web/static/*.{js,css,woff2,svg,png...} 永远配 ?v=<bump> querystring 做 cache-busting,
+# 改文件就 bump,所以可以放心永久 immutable。
+# index.html 与 sw.js 必须每次都拉新版,否则 ?v= 也没用。
+_STATIC_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+_NO_CACHE = "no-cache, no-store, must-revalidate"
+
 # SPA history routing：前端用 history.pushState，刷新 /web/<page> 时后端要返回 index.html
 # 由前端 _VALID_PAGES 校验非法 slug
 _SPA_PAGES = {"dashboard", "strategy", "backtest", "events"}
@@ -62,7 +68,10 @@ def _render_not_found(path: str) -> HTMLResponse:
 @router.get("/web/")
 async def web_index():
     """网页控制台入口"""
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": _NO_CACHE},
+    )
 
 
 @router.get("/favicon.ico")
@@ -81,7 +90,11 @@ async def web_sw():
     """
     return FileResponse(
         STATIC_DIR / "sw.js",
-        headers={"Service-Worker-Allowed": "/web/"},
+        headers={
+            "Service-Worker-Allowed": "/web/",
+            # sw.js 也要永远拉新版,否则 CACHE_NAME bump 进不到浏览器
+            "Cache-Control": _NO_CACHE,
+        },
     )
 
 
@@ -94,7 +107,10 @@ async def web_static(path: str):
         return _render_not_found(f"/web/static/{path}")
 
     if candidate.is_file():
-        return FileResponse(candidate)
+        return FileResponse(
+            candidate,
+            headers={"Cache-Control": _STATIC_IMMUTABLE_CACHE},
+        )
     return _render_not_found(f"/web/static/{path}")
 
 
@@ -105,7 +121,10 @@ async def web_spa_page(page: str):
     复数/常见手误走 301 别名；其他非法路径返回友好 HTML 404，不再裸吐 JSON detail。
     """
     if page in _SPA_PAGES:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": _NO_CACHE},
+        )
     alias = _PAGE_ALIASES.get(page)
     if alias:
         return RedirectResponse(url=f"/web/{alias}", status_code=301)

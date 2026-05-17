@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17d">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17i">
 </head>
 <body>
 
@@ -282,20 +282,20 @@
           <div class="cq-form-grid">
             <div class="cq-form-field">
               <label class="cq-label" for="backtest-start">开始日期</label>
-              <input type="date" class="cq-input" id="backtest-start" value="">
+              <input type="date" class="cq-input" id="backtest-start" value="" min="2020-01-01">
             </div>
             <div class="cq-form-field">
               <label class="cq-label" for="backtest-end">结束日期</label>
-              <input type="date" class="cq-input" id="backtest-end" value="">
+              <input type="date" class="cq-input" id="backtest-end" value="" min="2020-01-01">
             </div>
           </div>
           <div style="margin-bottom:var(--cq-space-3);">
             <label class="cq-label" for="backtest-capital">初始资金 (USDT)</label>
-            <input type="number" class="cq-input" id="backtest-capital" value="100000">
+            <input type="number" class="cq-input" id="backtest-capital" value="100000" min="1" step="1">
           </div>
           <div style="margin-bottom:var(--cq-space-3);">
             <label class="cq-label" for="backtest-analysis-window">策略K线窗口（根）</label>
-            <input type="number" class="cq-input" id="backtest-analysis-window" value="" min="0" step="1" placeholder="留空 = 全量（推荐）">
+            <input type="number" class="cq-input" id="backtest-analysis-window" value="" min="1" step="1" placeholder="留空 = 全量（推荐）">
             <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:4px;">留空或 0：从第 1 根到当前 bar 全部传给策略。填正整数：仅最近 N 根，省内存、长周期指标可能不准。</div>
           </div>
           <div id="backtest-params"></div>
@@ -496,18 +496,18 @@
 <div class="cq-toast" id="toast"></div>
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
-<script src="/web/static/js/api.js?v=2026-05-17h"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-17h"></script>
-<script src="/web/static/js/kline.js?v=2026-05-17h"></script>
-<script src="/web/static/js/symbol-selector.js?v=2026-05-17h"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-17h"></script>
-<script src="/web/static/js/backtest.js?v=2026-05-17h"></script>
-<script src="/web/static/js/accounts.js?v=2026-05-17h"></script>
-<script src="/web/static/js/paper.js?v=2026-05-17h"></script>
-<script src="/web/static/js/settings-drawer.js?v=2026-05-17h"></script>
-<script src="/web/static/js/instance-drawer.js?v=2026-05-17h"></script>
-<script src="/web/static/js/events.js?v=2026-05-17h"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17h"></script>
+<script src="/web/static/js/api.js?v=2026-05-17i"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-17i"></script>
+<script src="/web/static/js/kline.js?v=2026-05-17i"></script>
+<script src="/web/static/js/symbol-selector.js?v=2026-05-17i"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-17i"></script>
+<script src="/web/static/js/backtest.js?v=2026-05-17i"></script>
+<script src="/web/static/js/accounts.js?v=2026-05-17i"></script>
+<script src="/web/static/js/paper.js?v=2026-05-17i"></script>
+<script src="/web/static/js/settings-drawer.js?v=2026-05-17i"></script>
+<script src="/web/static/js/instance-drawer.js?v=2026-05-17i"></script>
+<script src="/web/static/js/events.js?v=2026-05-17i"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17i"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;
@@ -683,6 +683,16 @@ async function handleLogout() {
 async function enterApp() {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app-page').style.display = 'flex';
+
+  // 登录表单仍挂在 DOM 里(只是 display:none),浏览器密码管理器会把 .value 填好,
+  // 任何 XSS 一行 querySelector('[type=password]').value 就能偷走。
+  // 进 app 后立刻清空,即便后续被 XSS 也只能拿到空串。
+  const loginForm = document.getElementById('login-form');
+  if (loginForm) loginForm.reset();
+  const loginEmail = document.getElementById('login-email');
+  const loginPwd = document.getElementById('login-password');
+  if (loginEmail) loginEmail.value = '';
+  if (loginPwd) loginPwd.value = '';
 
   try {
     const user = await api.getUserInfo();

@@ -243,11 +243,17 @@ def create_app() -> FastAPI:
     """创建 FastAPI 应用"""
     settings = get_settings()
 
+    # 生产/staging 关闭交互式文档 — 暴露完整 schema 等于给攻击者发地图,
+    # 单用户系统没人需要在线 swagger UI,本机 dev 仍保留方便调试。
+    _docs_enabled = not settings.is_production
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         description="Alpha-7 量化交易后端 API",
         lifespan=lifespan,
+        docs_url="/docs" if _docs_enabled else None,
+        redoc_url="/redoc" if _docs_enabled else None,
+        openapi_url="/openapi.json" if _docs_enabled else None,
     )
 
     # CORS - SEC-08: 限制方法和头部，不再使用通配符
@@ -258,6 +264,29 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
+
+    # 安全响应头 — 基础加固。CSP 暂不上(大量 inline onclick/style 会被 break),
+    # 真要上得先把 inline handler 全收成 addEventListener,这次先把零成本的几条加上。
+    _is_prod = settings.is_production
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        # 防点击劫持:别人嵌 iframe 诱导用户"暂停策略/确认下单"
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        # 防 MIME 嗅探,避免 JS/HTML 被错误执行
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # 跨域跳转不带完整 URL 出去(query 里可能有敏感参数)
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # 关掉 FLoC/topics 等浏览器 ad-tracking API,顺带消除 unload 警告相关项
+        response.headers.setdefault("Permissions-Policy", "interest-cohort=(), browsing-topics=()")
+        # HSTS 仅生产:本机 http://localhost 部署强制 HTTPS 会让浏览器拒连
+        if _is_prod:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
 
     # P0-3: 修复行情 API 限流内存泄漏 - 使用 Redis 实现
     # 改为使用 Redis 存储，支持多进程/多实例且有过期时间
