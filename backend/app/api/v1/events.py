@@ -139,7 +139,8 @@ def _serialize_signal(signal: Signal, related_order: Order | None = None) -> dic
         "type": "signal",
         "severity": _signal_severity(signal),
         "instance_id": signal.strategy_instance_id,
-        "summary": summary[:200],
+        # 300 保留 OKX 完整错误信息一行（典型 ~150 char）+ 信号 reason + 价格
+        "summary": summary[:300],
         "detail": detail,
     }
 
@@ -195,7 +196,8 @@ def _serialize_order(order: Order) -> dict[str, Any]:
         "type": "order",
         "severity": _order_severity(order),
         "instance_id": order.strategy_instance_id,
-        "summary": summary[:200],
+        # 300 保留 OKX 完整错误信息一行（典型 ~150 char）+ 信号 reason + 价格
+        "summary": summary[:300],
         "detail": detail,
     }
 

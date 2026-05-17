@@ -1654,6 +1654,10 @@ class StrategyRunner:
                 )
                 db_signal = result.scalar_one_or_none()
                 if db_signal:
+                    # 已 rejected 的信号不再追加 reason — 避免内层 rejected 后外层 except
+                    # 又追加完整 exc 字符串,reason 被双重拼成超长串("[下单失败][502:OKX...]")。
+                    if status == "rejected" and db_signal.status == "rejected":
+                        return
                     db_signal.status = status
                     if order_id:
                         db_signal.executed_order_id = order_id

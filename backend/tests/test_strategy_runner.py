@@ -432,3 +432,62 @@ class TestUpdateStats:
         runner._session_maker = lambda: session
         # must not raise
         await runner.update_stats(999, pnl=Decimal("10"), is_win=False)
+
+
+# ==================== _update_signal_status — 防双重 reason 追加 ====================
+
+
+class TestUpdateSignalStatusNoDoubleReject:
+    """signal.reason 双重追加曾导致 summary 200 截断（[下单失败][502:OKX...]）。
+
+    回归：内层 _auto_open_position 已标 rejected → 外层 except 看到异常再调一次
+    应当被跳过，不能继续追加更长的 exc 字符串到 reason。
+    """
+
+    @pytest.mark.asyncio
+    async def test_second_reject_call_skipped(self, runner):
+        # 第一次：signal.status=pending → 调 rejected, reason="下单失败" → 写入
+        # 第二次：signal.status=rejected → 调 rejected, reason="502:..." → 应跳过
+        fake_signal = MagicMock()
+        fake_signal.status = "pending"
+        fake_signal.reason = "RSI_SHORT_OPEN rsi=72"
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = fake_signal
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result_mock)
+        session.commit = AsyncMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        runner._session_maker = lambda: session
+
+        await runner._update_signal_status(1, "rejected", reason="下单失败")
+        assert fake_signal.status == "rejected"
+        assert fake_signal.reason == "RSI_SHORT_OPEN rsi=72 [下单失败]"
+        first_commits = session.commit.await_count
+
+        # 第二次调用：已 rejected,应该 early return（不动 reason、不再 commit）
+        await runner._update_signal_status(1, "rejected", reason="502: 交易所下单失败: OKX...")
+        assert fake_signal.reason == "RSI_SHORT_OPEN rsi=72 [下单失败]"  # 未追加
+        assert session.commit.await_count == first_commits  # 没再 commit
+
+    @pytest.mark.asyncio
+    async def test_executed_after_pending_still_works(self, runner):
+        """正常路径不受影响：pending → executed 仍能写入 order_id。"""
+        fake_signal = MagicMock()
+        fake_signal.status = "pending"
+        fake_signal.reason = "RSI"
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = fake_signal
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result_mock)
+        session.commit = AsyncMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        runner._session_maker = lambda: session
+
+        await runner._update_signal_status(1, "executed", order_id=42)
+        assert fake_signal.status == "executed"
+        assert fake_signal.executed_order_id == 42
+        session.commit.assert_awaited_once()
