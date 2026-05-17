@@ -20,9 +20,14 @@ function escapeHtml(str) {
 
 class ApiClient {
   constructor() {
-    // 使用 sessionStorage 替代 localStorage，降低 XSS 风险（页面关闭时自动清除）
-    this.accessToken = sessionStorage.getItem('access_token') || '';
-    this.refreshToken = sessionStorage.getItem('refresh_token') || '';
+    // token 改走 HttpOnly cookie,JS 完全读不到也写不到 → XSS 拿不到 token。
+    // 是否登录由内存里的 _isLoggedIn 标记;实际权威态由 /auth/me 验证。
+    this._isLoggedIn = false;
+    // 清理可能残留的旧版 sessionStorage(老版本浏览器从 Bearer 模式升上来)
+    try {
+      sessionStorage.removeItem('access_token');
+      sessionStorage.removeItem('refresh_token');
+    } catch {}
   }
 
   _normalizeExchangeAccount(raw) {
@@ -61,26 +66,25 @@ class ApiClient {
   }
 
   // ===== 认证 =====
+  // headers / fetch 都不再附 Authorization — 浏览器靠 HttpOnly cookie 自动带 token,
+  // credentials: 'same-origin' 是 fetch 默认行为,但显式写出来防止以后被人改成 'omit'。
   get headers() {
-    const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
-    if (this.accessToken) h['Authorization'] = `Bearer ${this.accessToken}`;
-    return h;
+    return { 'Content-Type': 'application/json', 'Accept': 'application/json' };
   }
 
   async request(method, path, body = null) {
-    const opts = { method, headers: this.headers };
+    const opts = { method, headers: this.headers, credentials: 'same-origin' };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
     let res = await fetch(`${API_BASE}${path}`, opts);
 
-    // 401 → 尝试刷新 Token
-    if (res.status === 401 && this.refreshToken) {
+    // 401 → 尝试 refresh(server 从 refresh_token cookie 读)
+    if (res.status === 401) {
       const refreshed = await this._refreshAccessToken();
       if (refreshed) {
-        opts.headers = this.headers;
         res = await fetch(`${API_BASE}${path}`, opts);
       } else {
-        this.logout();
+        this._markLoggedOut();
         throw new Error('认证已过期，请重新登录');
       }
     }
@@ -105,7 +109,7 @@ class ApiClient {
   }
 
   async _refreshAccessToken() {
-    // 并发竞态保护：多个请求同时 401 时共享同一个 refresh Promise
+    // 并发竞态保护:多个请求同时 401 时共享同一个 refresh Promise
     if (this._refreshPromise) return this._refreshPromise;
     this._refreshPromise = this._doRefresh();
     try {
@@ -117,19 +121,13 @@ class ApiClient {
 
   async _doRefresh() {
     try {
+      // refresh_token 由 cookie 自动带,body 不需要
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: this.refreshToken }),
+        credentials: 'same-origin',
       });
-      if (!res.ok) return false;
-      const json = await res.json();
-      const data = json.data || json;
-      this.accessToken = data.access_token;
-      if (data.refresh_token) this.refreshToken = data.refresh_token;
-      sessionStorage.setItem('access_token', this.accessToken);
-      sessionStorage.setItem('refresh_token', this.refreshToken);
-      return true;
+      return res.ok;
     } catch {
       return false;
     }
@@ -139,6 +137,7 @@ class ApiClient {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      credentials: 'same-origin',
       body: new URLSearchParams({ username: email, password }),
     });
     if (!res.ok) {
@@ -146,19 +145,24 @@ class ApiClient {
       throw new Error(err.detail || '登录失败');
     }
     const json = await res.json();
-    const data = json.data || json;  // APIResponse 包裹兼容
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token;
-    sessionStorage.setItem('access_token', this.accessToken);
-    sessionStorage.setItem('refresh_token', this.refreshToken);
-    return data;
+    this._isLoggedIn = true;
+    return json.data || json;
   }
 
-  logout() {
-    this.accessToken = '';
-    this.refreshToken = '';
-    sessionStorage.removeItem('access_token');
-    sessionStorage.removeItem('refresh_token');
+  async logout() {
+    // 先通知后端清 cookie,再翻 flag。
+    // 后端 logout 不需要鉴权(避免 401 时无法登出),即便网络挂了 catch 兜底翻 flag。
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch {}
+    this._markLoggedOut();
+  }
+
+  _markLoggedOut() {
+    this._isLoggedIn = false;
     this._invalidateUserCache?.();
     // 通知页面进入登出态,让所有 polling 自检停下,避免 401 死循环刷屏
     try {
@@ -167,7 +171,7 @@ class ApiClient {
   }
 
   get isLoggedIn() {
-    return !!this.accessToken;
+    return this._isLoggedIn;
   }
 
   // ===== 便捷方法 =====

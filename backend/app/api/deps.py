@@ -4,7 +4,7 @@ FastAPI 依赖注入
 
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,14 +21,25 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    """获取当前用户"""
-    if credentials is None:
+    """获取当前用户
+
+    Token 来源优先级:
+    1. access_token cookie(HttpOnly,浏览器自动带)
+    2. Authorization: Bearer header(curl / 测试 / 脚本)
+
+    两条路都没有 → 401。
+    """
+    token: str | None = request.cookies.get("access_token")
+    if not token and credentials is not None:
+        token = credentials.credentials
+    if not token:
         raise AuthenticationError()
     try:
-        payload = verify_token(credentials.credentials, token_type="access")
+        payload = verify_token(token, token_type="access")
         # SEC-07: sub 是 str 类型，需显式转换为 int
         sub = payload.get("sub")
         if sub is None:

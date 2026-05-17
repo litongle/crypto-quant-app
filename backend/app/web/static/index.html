@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17k">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17l">
 </head>
 <body>
 
@@ -496,18 +496,18 @@
 <div class="cq-toast" id="toast"></div>
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
-<script src="/web/static/js/api.js?v=2026-05-17k"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-17k"></script>
-<script src="/web/static/js/kline.js?v=2026-05-17k"></script>
-<script src="/web/static/js/symbol-selector.js?v=2026-05-17k"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-17k"></script>
-<script src="/web/static/js/backtest.js?v=2026-05-17k"></script>
-<script src="/web/static/js/accounts.js?v=2026-05-17k"></script>
-<script src="/web/static/js/paper.js?v=2026-05-17k"></script>
-<script src="/web/static/js/settings-drawer.js?v=2026-05-17k"></script>
-<script src="/web/static/js/instance-drawer.js?v=2026-05-17k"></script>
-<script src="/web/static/js/events.js?v=2026-05-17k"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17k"></script>
+<script src="/web/static/js/api.js?v=2026-05-17l"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-17l"></script>
+<script src="/web/static/js/kline.js?v=2026-05-17l"></script>
+<script src="/web/static/js/symbol-selector.js?v=2026-05-17l"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-17l"></script>
+<script src="/web/static/js/backtest.js?v=2026-05-17l"></script>
+<script src="/web/static/js/accounts.js?v=2026-05-17l"></script>
+<script src="/web/static/js/paper.js?v=2026-05-17l"></script>
+<script src="/web/static/js/settings-drawer.js?v=2026-05-17l"></script>
+<script src="/web/static/js/instance-drawer.js?v=2026-05-17l"></script>
+<script src="/web/static/js/events.js?v=2026-05-17l"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17l"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;
@@ -674,7 +674,8 @@ async function handleLogout() {
   if (typeof deselectTemplate === 'function') {
     deselectTemplate({ keepSelection: false, silent: true });
   }
-  api.logout();
+  // 等后端清 cookie 再切 UI,避免极端竞态(立刻再登录时 cookie 顺序错乱)
+  await api.logout();
   showLoggedOutView();
   _currentPage = 'dashboard';
   history.replaceState(null, '', '/web/dashboard');
@@ -833,21 +834,14 @@ function toggleTheme() {
 
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', () => {
-  if (api.isLoggedIn) {
-    api.getUserInfo().then(() => {
-      enterApp();
-    }).catch(() => {
-      api._refreshAccessToken().then(ok => {
-        if (ok) enterApp();
-        else {
-          api.logout();
-          showLoggedOutView();
-        }
-      });
-    });
-  } else {
+  // HttpOnly cookie JS 读不到,必须直接探活 /auth/me。
+  // request() 内部会自动尝试一次 refresh,失败才 throw → catch 显示登录页。
+  api.getUserInfo().then(() => {
+    api._isLoggedIn = true;
+    enterApp();
+  }).catch(() => {
     showLoggedOutView();
-  }
+  });
 });
 
 document.addEventListener('keydown', (e) => {
