@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _REVOKED_REFRESH_PREFIX = "revoked_refresh:"
 
 
-async def _claim_refresh_jti(jti: str, exp_ts: int | None) -> bool:
+async def claim_refresh_jti(jti: str, exp_ts: int | None) -> bool:
     """原子化"check-and-mark":返回 True 表示当前调用拿到了使用权,False 表示已被吊销。
 
     用 Redis SET NX EX 一步完成:把"检查是否已用过"和"标记为已用"合并,
@@ -98,7 +98,7 @@ class AuthService:
 
         # 防 refresh 复用:check-and-mark 原子化(SETNX),并发同源请求只有一个能过。
         # claim 失败 = 已被旧 rotation 标记吊销 → 401。
-        if not await _claim_refresh_jti(jti, exp_ts):
+        if not await claim_refresh_jti(jti, exp_ts):
             raise HTTPException(
                 status_code=401,
                 detail="刷新 Token 已被使用,请重新登录",

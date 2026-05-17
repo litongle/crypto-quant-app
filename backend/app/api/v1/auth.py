@@ -25,7 +25,7 @@ from app.core.schemas import APIResponse
 from app.core.security import verify_token
 from app.database import get_session
 from app.models.user import User
-from app.services.auth_service import AuthService, _claim_refresh_jti
+from app.services.auth_service import AuthService, claim_refresh_jti
 
 router = APIRouter()
 
@@ -137,7 +137,7 @@ async def logout(request: Request, response: Response) -> APIResponse:
             exp_ts = payload.get("exp")
             if jti:
                 # 返回值不关心 — 不管是 newly 标记还是已被旧 rotation 标记,目标都达成
-                await _claim_refresh_jti(jti, exp_ts)
+                await claim_refresh_jti(jti, exp_ts)
         except Exception:
             # 即便 token 已过期 / 解码失败,仍要继续清 cookie
             pass
