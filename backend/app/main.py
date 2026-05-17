@@ -295,29 +295,38 @@ def create_app() -> FastAPI:
     market_rate_limit = 60  # 每分钟请求上限
     market_rate_window = 60  # 窗口大小（秒）
 
+    # 登录限流 — bcrypt verify 是 CPU 密集 (~100ms),不限流单 IP 一秒 10 次就把
+    # 后端 CPU 打满。从 settings 取,测试环境可放宽避免连续 login 测试踩雷。
+    login_rate_limit = settings.login_rate_limit_per_minute
+    login_rate_window = 60
+
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
-        """行情 API 限流"""
-        # 仅对行情相关端点限流
+        """API 限流 — 行情(防被薅) + 登录(防 bcrypt DoS)。"""
         path = request.url.path
-        if not (path.startswith("/api/v1/market") or path.startswith("/api/v1/ws/")):
+        is_market = path.startswith("/api/v1/market") or path.startswith("/api/v1/ws/")
+        is_login = path == "/api/v1/auth/login"
+        if not (is_market or is_login):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
+        bucket = "login" if is_login else "market"
+        limit = login_rate_limit if is_login else market_rate_limit
+        window = login_rate_window if is_login else market_rate_window
 
         try:
             from app.redis import get_redis_client
 
             r = await get_redis_client()
 
-            key = f"rate_limit:market:{client_ip}"
+            key = f"rate_limit:{bucket}:{client_ip}"
 
             # 使用 Redis INCR + EXPIRE 实现固定窗口限流
             count = await r.incr(key)
             if count == 1:
-                await r.expire(key, market_rate_window)
+                await r.expire(key, window)
 
-            if count > market_rate_limit:
+            if count > limit:
                 return JSONResponse(
                     status_code=429,
                     content={

@@ -56,6 +56,9 @@ def test_settings():
         database_url="sqlite+aiosqlite:////tmp/crypto_quant_test.db",
         redis_url=redis_url,
         cors_origins="http://localhost:8000",
+        # 测试套件会连续 login 几十次,生产限流 5/分钟会卡死;
+        # 放到 10000 让测试自由跑,生产仍走默认严格值。
+        login_rate_limit_per_minute=10000,
     )
 
 

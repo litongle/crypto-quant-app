@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # 登录限流(防 bcrypt verify DoS) — 单用户系统正常每天几次登录,默认 5/分钟够用
+    login_rate_limit_per_minute: int = 5
+
     # CORS
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:8000,http://localhost:8000"
 
