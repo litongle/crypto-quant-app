@@ -889,7 +889,7 @@ function renderParamSliders(params) {
       return `
         <div class="cq-param-group">
           <div class="cq-param-header">
-            <span class="cq-param-label">${p.name}</span>
+            <label class="cq-param-label" for="param-${p.key}">${p.name}</label>
           </div>
           <input type="text" class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="${t}"
             value="${val}" placeholder="逗号分隔,如: 30, 25, 20"
@@ -903,7 +903,7 @@ function renderParamSliders(params) {
       return `
         <div class="cq-param-group">
           <div class="cq-param-header">
-            <span class="cq-param-label">${p.name}</span>
+            <label class="cq-param-label" for="param-${p.key}">${p.name}</label>
           </div>
           <textarea class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="json"
             rows="3" style="width:100%;padding:6px 10px;border:1px solid var(--cq-border);border-radius:4px;font-family:monospace;font-size:var(--cq-text-sm);">${val}</textarea>
@@ -914,12 +914,16 @@ function renderParamSliders(params) {
     if (t === 'json_table') {
       const cols = Array.isArray(p.columns) ? p.columns : [];
       const rows = Array.isArray(p.default) ? p.default : [];
+      // 多 input 组,改用 aria-labelledby 让 SR 把组标题播报给整张表
+      const labelId = `lbl-param-${p.key}`;
       return `
         <div class="cq-param-group">
           <div class="cq-param-header">
-            <span class="cq-param-label">${p.name}</span>
+            <span class="cq-param-label" id="${labelId}">${p.name}</span>
           </div>
-          ${renderJsonTable(p.key, cols, rows)}
+          <div role="group" aria-labelledby="${labelId}">
+            ${renderJsonTable(p.key, cols, rows)}
+          </div>
           ${desc}
         </div>`;
     }
@@ -935,7 +939,7 @@ function renderParamSliders(params) {
       return `
         <div class="cq-param-group">
           <div class="cq-param-header">
-            <span class="cq-param-label">${p.name}</span>
+            <label class="cq-param-label" for="param-${p.key}">${p.name}</label>
           </div>
           <select class="cq-input" id="param-${p.key}" data-key="${p.key}" data-type="select">
             ${optsHtml}
@@ -948,7 +952,7 @@ function renderParamSliders(params) {
     return `
       <div class="cq-param-group">
         <div class="cq-param-header">
-          <span class="cq-param-label">${p.name}</span>
+          <label class="cq-param-label" for="sl-${p.key}">${p.name}</label>
           <span class="cq-param-value" id="val-${p.key}">${p.default}</span>
         </div>
         <input type="range" class="cq-slider" id="sl-${p.key}" data-key="${p.key}" data-type="${t}"
@@ -1548,26 +1552,26 @@ function renderRuleBuilder() {
         <div class="cq-rule-risk-grid">
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">止损 %</span>
+              <label class="cq-param-label" for="slr-stopLossPct">止损 %</label>
               <span class="cq-param-value" id="val-stopLossPct">${_ruleBuilderState.stopLossPct}</span>
             </div>
-            <input type="range" class="cq-slider" min="0.5" max="20" step="0.5" value="${_ruleBuilderState.stopLossPct}"
+            <input type="range" class="cq-slider" id="slr-stopLossPct" min="0.5" max="20" step="0.5" value="${_ruleBuilderState.stopLossPct}"
               oninput="document.getElementById('val-stopLossPct').textContent=this.value; _ruleBuilderState.stopLossPct=parseFloat(this.value)">
           </div>
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">止盈 %</span>
+              <label class="cq-param-label" for="slr-takeProfitPct">止盈 %</label>
               <span class="cq-param-value" id="val-takeProfitPct">${_ruleBuilderState.takeProfitPct}</span>
             </div>
-            <input type="range" class="cq-slider" min="1" max="50" step="1" value="${_ruleBuilderState.takeProfitPct}"
+            <input type="range" class="cq-slider" id="slr-takeProfitPct" min="1" max="50" step="1" value="${_ruleBuilderState.takeProfitPct}"
               oninput="document.getElementById('val-takeProfitPct').textContent=this.value; _ruleBuilderState.takeProfitPct=parseFloat(this.value)">
           </div>
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">信号置信度</span>
+              <label class="cq-param-label" for="slr-confidenceBase">信号置信度</label>
               <span class="cq-param-value" id="val-confidenceBase">${(_ruleBuilderState.confidenceBase * 100).toFixed(0)}%</span>
             </div>
-            <input type="range" class="cq-slider" min="0.1" max="1.0" step="0.05" value="${_ruleBuilderState.confidenceBase}"
+            <input type="range" class="cq-slider" id="slr-confidenceBase" min="0.1" max="1.0" step="0.05" value="${_ruleBuilderState.confidenceBase}"
               oninput="document.getElementById('val-confidenceBase').textContent=Math.round(this.value*100)+'%'; _ruleBuilderState.confidenceBase=parseFloat(this.value)">
           </div>
         </div>

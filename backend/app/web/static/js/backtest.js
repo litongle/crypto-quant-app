@@ -161,26 +161,26 @@ function renderBacktestRuleBuilder() {
         <div class="cq-rule-risk-grid">
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">止损 %</span>
+              <label class="cq-param-label" for="slr-bt-stopLossPct">止损 %</label>
               <span class="cq-param-value" id="val-bt-stopLossPct">${_backtestRuleState.stopLossPct}</span>
             </div>
-            <input type="range" class="cq-slider" min="0.5" max="20" step="0.5" value="${_backtestRuleState.stopLossPct}"
+            <input type="range" class="cq-slider" id="slr-bt-stopLossPct" min="0.5" max="20" step="0.5" value="${_backtestRuleState.stopLossPct}"
               oninput="document.getElementById('val-bt-stopLossPct').textContent=this.value; _backtestRuleState.stopLossPct=parseFloat(this.value)">
           </div>
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">止盈 %</span>
+              <label class="cq-param-label" for="slr-bt-takeProfitPct">止盈 %</label>
               <span class="cq-param-value" id="val-bt-takeProfitPct">${_backtestRuleState.takeProfitPct}</span>
             </div>
-            <input type="range" class="cq-slider" min="1" max="50" step="1" value="${_backtestRuleState.takeProfitPct}"
+            <input type="range" class="cq-slider" id="slr-bt-takeProfitPct" min="1" max="50" step="1" value="${_backtestRuleState.takeProfitPct}"
               oninput="document.getElementById('val-bt-takeProfitPct').textContent=this.value; _backtestRuleState.takeProfitPct=parseFloat(this.value)">
           </div>
           <div class="cq-param-group">
             <div class="cq-param-header">
-              <span class="cq-param-label">信号置信度</span>
+              <label class="cq-param-label" for="slr-bt-confidenceBase">信号置信度</label>
               <span class="cq-param-value" id="val-bt-confidenceBase">${Math.round(_backtestRuleState.confidenceBase * 100)}%</span>
             </div>
-            <input type="range" class="cq-slider" min="0.1" max="1.0" step="0.05" value="${_backtestRuleState.confidenceBase}"
+            <input type="range" class="cq-slider" id="slr-bt-confidenceBase" min="0.1" max="1.0" step="0.05" value="${_backtestRuleState.confidenceBase}"
               oninput="document.getElementById('val-bt-confidenceBase').textContent=Math.round(this.value*100)+'%'; _backtestRuleState.confidenceBase=parseFloat(this.value)">
           </div>
         </div>
