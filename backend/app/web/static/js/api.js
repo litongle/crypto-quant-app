@@ -18,6 +18,38 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// 把 Pydantic v2 默认英文 msg 翻成人话。覆盖最常见几类,不命中就 fallback 原文,
+// 避免用户看到 "Input should be a valid integer" 不明白要填什么。
+function _translatePydanticMsg(raw) {
+  if (!raw) return '';
+  const s = String(raw);
+  if (s === 'Field required' || s === 'field required') return '必填';
+  if (/should be a valid integer/i.test(s)) return '请填整数';
+  if (/should be a valid number/i.test(s)) return '请填数字';
+  if (/should be a valid boolean/i.test(s)) return '请填 true/false';
+  if (/should be a valid string/i.test(s)) return '请填字符串';
+  if (/should be a valid email/i.test(s)) return '邮箱格式不对';
+  if (/should be a valid url/i.test(s)) return 'URL 格式不对';
+  if (/should be a valid datetime/i.test(s)) return '时间格式不对';
+  let m;
+  if ((m = s.match(/should have at least (\d+) character/i))) return `至少 ${m[1]} 个字符`;
+  if ((m = s.match(/should have at most (\d+) character/i))) return `最多 ${m[1]} 个字符`;
+  if ((m = s.match(/should be greater than ([\d.\-]+)/i))) return `需大于 ${m[1]}`;
+  if ((m = s.match(/should be greater than or equal to ([\d.\-]+)/i))) return `需 ≥ ${m[1]}`;
+  if ((m = s.match(/should be less than ([\d.\-]+)/i))) return `需小于 ${m[1]}`;
+  if ((m = s.match(/should be less than or equal to ([\d.\-]+)/i))) return `需 ≤ ${m[1]}`;
+  if (/value is not a valid/i.test(s)) return '取值不合法';
+  if (/extra fields not permitted/i.test(s)) return '不支持的字段';
+  return s;
+}
+
+// loc 末段做字段名 — 去掉 body/query/path 这些位置前缀,只剩业务字段名。
+// loc 形如 ['body', 'name'] → 'name';['body', 'params', 'stake'] → 'params.stake'。
+function _formatLoc(loc) {
+  if (!Array.isArray(loc) || loc.length === 0) return '';
+  return loc.filter((s) => s !== 'body' && s !== 'query' && s !== 'path').join('.');
+}
+
 class ApiClient {
   constructor() {
     // token 改走 HttpOnly cookie,JS 完全读不到也写不到 → XSS 拿不到 token。
@@ -107,7 +139,20 @@ class ApiClient {
       let detailStr = '';
       if (typeof detail === 'string') detailStr = detail;
       else if (Array.isArray(detail)) {
-        detailStr = detail.map((x) => (x && x.msg) || JSON.stringify(x)).join('; ');
+        // FastAPI 422 Pydantic 详情数组 — 之前只取 x.msg 用 ';' 拼,
+        // 丢了 loc 字段名,且全英文。修后:
+        //   1. 提取 loc 末段作字段名 (body.name → name)
+        //   2. msg 翻译常见 Pydantic v2 模板成中文
+        //   3. 输出 "字段: 提示",多条用 ';' 隔开
+        detailStr = detail
+          .map((x) => {
+            if (!x) return '';
+            const field = _formatLoc(x.loc);
+            const msg = _translatePydanticMsg(x.msg) || JSON.stringify(x);
+            return field ? `${field}: ${msg}` : msg;
+          })
+          .filter(Boolean)
+          .join('; ');
       }
       const msg =
         err.message ||
