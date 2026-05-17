@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-15d">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-17b">
 </head>
 <body>
 
@@ -319,14 +319,25 @@
     <div class="page-view cq-constrained" id="page-events">
       <div class="page-header">
         <h1>日志</h1>
-        <div class="sub">平台所有日志记录（信号 / 订单 / 风险 / 自停 / 错误），可搜索可过滤</div>
+        <div class="sub">平台所有日志记录（信号 / 订单 / 自停 / 风控告警 / 用户操作 / 系统），可搜索可过滤</div>
       </div>
       <div class="cq-card" style="margin-bottom:var(--cq-space-4);">
         <div class="cq-event-filters">
           <select id="events-filter-type" class="cq-input" aria-label="事件类型筛选" onchange="reloadEvents()">
             <option value="">全部类型</option>
             <option value="signal">信号</option>
+            <option value="order">订单</option>
             <option value="auto_pause">自停</option>
+            <option value="risk_alert">风控告警</option>
+            <option value="user_action">用户操作</option>
+            <option value="system">系统</option>
+          </select>
+          <select id="events-filter-severity" class="cq-input" aria-label="严重程度筛选" onchange="reloadEvents()">
+            <option value="">全部等级</option>
+            <option value="info">信息</option>
+            <option value="warning">警告</option>
+            <option value="error">错误</option>
+            <option value="critical">严重</option>
           </select>
           <select id="events-filter-since" class="cq-input" aria-label="时间范围筛选" onchange="reloadEvents()">
             <option value="1h">最近 1 小时</option>
@@ -482,17 +493,17 @@
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
 <script src="/web/static/js/api.js?v=2026-05-14a"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-14d"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-17b"></script>
 <script src="/web/static/js/kline.js?v=2026-05-13a"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-14d"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-17a"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-17b"></script>
 <script src="/web/static/js/backtest.js?v=2026-05-14a"></script>
 <script src="/web/static/js/accounts.js?v=2026-05-14b"></script>
 <script src="/web/static/js/paper.js?v=2026-05-14c"></script>
 <script src="/web/static/js/settings-drawer.js?v=2026-05-14b"></script>
 <script src="/web/static/js/instance-drawer.js?v=2026-05-14g"></script>
-<script src="/web/static/js/events.js?v=2026-05-14b"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-15b"></script>
+<script src="/web/static/js/events.js?v=2026-05-17b"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17b"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;

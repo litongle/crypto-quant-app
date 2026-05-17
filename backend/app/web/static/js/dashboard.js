@@ -141,12 +141,17 @@ function renderEventListMarkup(items, emptyText) {
   }
   return `
     <div class="cq-event-list">
-      ${items.slice(0, 50).map((item) => `
-        <button class="cq-event-list__item" type="button" onclick="${item.instance_id ? `openInstanceDrawer(${item.instance_id})` : 'void(0)'}">
-          <span class="cq-event-list__time">${escapeHtml(formatEventTime(item.at))}</span>
-          <span class="cq-event-list__summary">${escapeHtml(item.summary || '--')}</span>
-        </button>
-      `).join('')}
+      ${items.slice(0, 50).map((item) => {
+        const sev = item.severity || 'info';
+        const typeLabel = getEventTypeLabel(item.type);
+        return `
+          <button class="cq-event-list__item cq-event-list__item--sev-${escapeHtml(sev)}" type="button" onclick="${item.instance_id ? `openInstanceDrawer(${item.instance_id})` : 'void(0)'}">
+            <span class="cq-event-list__time">${escapeHtml(formatEventTime(item.at))}</span>
+            <span class="cq-event-list__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(typeLabel)}</span>
+            <span class="cq-event-list__summary">${escapeHtml(item.summary || '--')}</span>
+          </button>
+        `;
+      }).join('')}
     </div>
   `;
 }

@@ -87,26 +87,50 @@ function renderInstanceLogsResults(items) {
 
 function renderLogCard(item) {
   const detail = item.detail && typeof item.detail === 'object' ? item.detail : {};
-  // 中文字段名映射：API detail 用英文 key（symbol/action/status/reason/instance_name），抽屉里翻成中文显示
+  const severity = item.severity || 'info';
   const labels = {
     symbol: '交易对',
     action: '动作',
+    side: '方向',
     status: '状态',
     reason: '原因',
     instance_name: '实例',
+    order_id: '关联订单',
+    order_status: '订单状态',
+    signal_id: '关联信号',
+    entry_price: '信号价',
+    fill_price: '成交价',
+    avg_fill_price: '成交均价',
+    slippage_pct: '滑点(%)',
+    quantity: '数量',
+    filled_quantity: '已成交',
+    commission: '手续费',
+    pnl: '盈亏',
+    exchange_order_id: '交易所订单 ID',
+    error_message: '错误信息',
+    order_type: '订单类型',
+    alert_type: '告警类型',
+    message: '消息',
+    metrics: '指标',
+    event: '事件',
+    environment: '环境',
+    version: '版本',
   };
   const detailRows = Object.entries(detail)
     .filter(([, v]) => v !== null && v !== undefined && v !== '')
     .map(([k, v]) => {
       const label = labels[k] || k;
-      const value = String(v);
+      const value = typeof v === 'object' ? JSON.stringify(v) : String(v);
       return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${escapeHtml(value)}</span></div>`;
     }).join('');
 
   return `
-    <article class="cq-log-card">
+    <article class="cq-log-card cq-log-card--sev-${escapeHtml(severity)}">
       <header class="cq-log-card__head">
-        <span class="cq-log-card__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(getEventTypeLabel(item.type))}</span>
+        <div style="display:flex;gap:var(--cq-space-2);align-items:center;flex-wrap:wrap;">
+          <span class="cq-log-card__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(getEventTypeLabel(item.type))}</span>
+          ${severity !== 'info' ? `<span class="cq-log-card__sev cq-log-card__sev--${escapeHtml(severity)}">${escapeHtml(getEventSeverityLabel(severity))}</span>` : ''}
+        </div>
         <time class="cq-log-card__time">${escapeHtml(formatEventDateTime(item.at))}</time>
       </header>
       <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>

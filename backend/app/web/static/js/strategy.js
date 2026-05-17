@@ -67,7 +67,20 @@ function getOrderSideLabel(side) {
 }
 
 function getEventTypeLabel(type) {
-  return { signal: '信号', order: '订单', risk: '风险', auto_pause: '自停', error: '错误' }[type] || type || '--';
+  return {
+    signal: '信号',
+    order: '订单',
+    auto_pause: '自停',
+    risk_alert: '风控',
+    user_action: '操作',
+    system: '系统',
+    risk: '风险',
+    error: '错误',
+  }[type] || type || '--';
+}
+
+function getEventSeverityLabel(severity) {
+  return { info: '信息', warning: '警告', error: '错误', critical: '严重' }[severity] || '';
 }
 
 function getStatusTag(status, instance = null) {

@@ -2570,7 +2570,7 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 .cq-event-list__item,
 .cq-event-list__item--static {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 64px auto minmax(0, 1fr);
   gap: var(--cq-space-3);
   align-items: start;
   text-align: left;
@@ -3441,9 +3441,95 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   color: var(--cq-color-info, #3884ff);
 }
 
-.cq-log-card__type--auto_pause {
+.cq-log-card__type--order {
+  background: var(--cq-color-primary-muted);
+  color: var(--cq-color-primary);
+}
+
+.cq-log-card__type--auto_pause,
+.cq-log-card__type--risk_alert {
   background: var(--cq-color-warning-muted, rgba(245, 158, 11, 0.14));
   color: var(--cq-color-warning, #f59e0b);
+}
+
+.cq-log-card__type--user_action {
+  background: var(--cq-color-profit-muted);
+  color: var(--cq-color-profit);
+}
+
+.cq-log-card__type--system {
+  background: var(--cq-bg-l4);
+  color: var(--cq-text-tertiary);
+}
+
+/* severity 色条 — 左边 3px 边框做强度提示 */
+.cq-log-card--sev-info { border-left: 3px solid var(--cq-border-subtle); }
+.cq-log-card--sev-warning { border-left: 3px solid var(--cq-color-warning); }
+.cq-log-card--sev-error { border-left: 3px solid var(--cq-color-loss); }
+.cq-log-card--sev-critical {
+  border-left: 3px solid var(--cq-color-loss);
+  background: var(--cq-color-loss-muted);
+}
+
+.cq-log-card__sev {
+  font-size: var(--cq-text-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.cq-log-card__sev--warning {
+  background: var(--cq-color-warning-muted);
+  color: var(--cq-color-warning);
+}
+.cq-log-card__sev--error,
+.cq-log-card__sev--critical {
+  background: var(--cq-color-loss-muted);
+  color: var(--cq-color-loss);
+}
+
+.cq-log-card__toggle {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--cq-color-primary);
+  font-size: var(--cq-text-xs);
+  cursor: pointer;
+  padding: 0;
+}
+.cq-log-card__toggle:hover { text-decoration: underline; }
+
+.cq-log-card__link {
+  border: none;
+  background: var(--cq-bg-l3);
+  color: var(--cq-text-secondary);
+  font-size: var(--cq-text-xs);
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.cq-log-card__link:hover {
+  background: var(--cq-color-primary-muted);
+  color: var(--cq-color-primary);
+}
+
+/* dashboard 活动流加 severity 色条 + 类型 chip */
+.cq-event-list__item {
+  border-left: 3px solid transparent;
+}
+.cq-event-list__item--sev-warning { border-left-color: var(--cq-color-warning); }
+.cq-event-list__item--sev-error { border-left-color: var(--cq-color-loss); }
+.cq-event-list__item--sev-critical {
+  border-left-color: var(--cq-color-loss);
+  background: var(--cq-color-loss-muted);
+}
+.cq-event-list__type {
+  font-size: var(--cq-text-xs);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .cq-log-card__time {
