@@ -1581,9 +1581,12 @@ class StrategyRunner:
                     return False
 
             if not positions:
-                logger.warning(
-                    "[StrategyRunner] 策略 #%d intent=%s 但 DB 无开仓,跳过平仓。"
-                    "策略状态可能与 DB 不一致(手工平仓 / 上次平仓未持久化?)",
+                # 策略请求平仓但 DB 无开仓 — 状态漂移（DB 与交易所真仓不一致）。
+                # 这是严重错误，不走 order_failures 计数器（那是给 OKX 抖动用的兜底），
+                # 而是立即 auto_pause(auto:state_drift)，避免基于错误状态继续下单。
+                logger.error(
+                    "[StrategyRunner] 策略 #%d intent=%s 但 DB 无开仓 — "
+                    "持仓状态与交易所可能不一致,立即暂停",
                     instance_id,
                     intent,
                 )
@@ -1593,21 +1596,12 @@ class StrategyRunner:
                         "rejected",
                         reason=f"intent={intent} 但 DB 无开仓",
                     )
-                self._consecutive_order_failures[instance_id] = (
-                    self._consecutive_order_failures.get(instance_id, 0) + 1
+                await self._auto_pause(
+                    instance_id,
+                    reason="auto:state_drift",
+                    detail="持仓状态与交易所不一致（DB 无开仓但策略请求平仓）",
+                    metrics={"intent": intent, "signal_id": signal_id},
                 )
-                threshold = (await self._read_auto_pause_config())["consecutive_order_failures"]
-                if self._consecutive_order_failures[instance_id] >= threshold:
-                    await self._auto_pause(
-                        instance_id,
-                        reason="auto:order_failures",
-                        detail=f"连续 {threshold} 次下单失败",
-                        metrics={
-                            "consecutive_order_failures": self._consecutive_order_failures[
-                                instance_id
-                            ],
-                        },
-                    )
                 return False
 
             position = select_position_to_close(positions, instance_id, direction)

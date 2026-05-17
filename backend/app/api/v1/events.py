@@ -49,6 +49,7 @@ _AUTO_PAUSE_REASON_LABEL = {
     "auto:heartbeat_timeout": "心跳超时",
     "auto:consecutive_errors": "连续错误",
     "auto:order_failures": "下单失败次数过多",
+    "auto:state_drift": "持仓状态漂移",
     "auto:unknown": "未知原因",
 }
 

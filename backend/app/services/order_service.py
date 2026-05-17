@@ -1302,122 +1302,102 @@ class OrderService:
         account,
         result: OrderResult,
     ) -> None:
-        """评审问题4：订单完全成交后自动创建 Position 记录
+        """订单成交后同步 DB Position 记录。
 
-        买入(buy) → 创建新 long 持仓（或增加现有持仓数量）
-        卖出(sell) → 若有关联 strategy_instance 的 open 持仓，标记为 closed
-                     否则也创建 short 持仓
+        按 "订单目标方向 vs 现有持仓方向" 分派 — 不能只看 order.side：
+          buy  对应 target=long （想要的最终持仓方向）
+          sell 对应 target=short
+
+        在同 instance + 同 symbol 范围内查 open 持仓：
+          - 有 target 方向持仓     → 加仓（加权平均开仓价）
+          - 有反向持仓             → 平仓（status=closed）
+          - 无持仓                 → 新建 target 方向持仓
         """
         try:
             leverage = 1
             if order.symbol.endswith(".P"):
                 leverage = int(self._get_saved_contract_settings(account, order.symbol)["leverage"])
 
-            if order.side == "buy":
-                # 买入 → 寻找已有同方向 open 持仓合并，或新建
-                existing = await self.position_repo.get_by_account_and_symbol(
-                    order.account_id,
-                    order.symbol,
+            target_side = "long" if order.side == "buy" else "short"
+            opposite_side = "short" if target_side == "long" else "long"
+
+            existing = await self.position_repo.get_by_account_and_symbol(
+                order.account_id,
+                order.symbol,
+            )
+            same_dir = next(
+                (
+                    p
+                    for p in existing
+                    if p.status == "open"
+                    and p.strategy_instance_id == order.strategy_instance_id
+                    and p.side == target_side
+                ),
+                None,
+            )
+            opp_dir = next(
+                (
+                    p
+                    for p in existing
+                    if p.status == "open"
+                    and p.strategy_instance_id == order.strategy_instance_id
+                    and p.side == opposite_side
+                ),
+                None,
+            )
+
+            if same_dir:
+                # 加仓：加权平均开仓价
+                total_qty = same_dir.quantity + order.filled_quantity
+                if order.avg_fill_price:
+                    weighted_price = (
+                        same_dir.entry_price * same_dir.quantity
+                        + order.avg_fill_price * order.filled_quantity
+                    ) / total_qty
+                    same_dir.entry_price = weighted_price
+                same_dir.quantity = total_qty
+                same_dir.current_price = order.avg_fill_price or same_dir.current_price
+                same_dir.leverage = leverage
+                same_dir.updated_at = datetime.now(UTC)
+                logger.info(
+                    "[OrderService] 加仓 Position #%d (side=%s): qty=%s, avg_price=%s",
+                    same_dir.id,
+                    same_dir.side,
+                    same_dir.quantity,
+                    same_dir.entry_price,
                 )
-                # 只合并 strategy_instance_id 匹配的 long 持仓
-                merge_target = None
-                for p in existing:
-                    if (
-                        p.side == "long"
-                        and p.status == "open"
-                        and p.strategy_instance_id == order.strategy_instance_id
-                    ):
-                        merge_target = p
-                        break
-
-                if merge_target:
-                    # 加仓：加权平均开仓价
-                    total_qty = merge_target.quantity + order.filled_quantity
-                    if order.avg_fill_price:
-                        weighted_price = (
-                            merge_target.entry_price * merge_target.quantity
-                            + order.avg_fill_price * order.filled_quantity
-                        ) / total_qty
-                        merge_target.entry_price = weighted_price
-                    merge_target.quantity = total_qty
-                    merge_target.current_price = order.avg_fill_price or merge_target.current_price
-                    merge_target.leverage = leverage
-                    merge_target.updated_at = datetime.now(UTC)
-                    logger.info(
-                        "[OrderService] 加仓 Position #%d: qty=%s, avg_price=%s",
-                        merge_target.id,
-                        merge_target.quantity,
-                        merge_target.entry_price,
-                    )
-                else:
-                    # 新建 long 持仓
-                    new_pos = Position(
-                        account_id=order.account_id,
-                        symbol=order.symbol,
-                        side="long",
-                        quantity=order.filled_quantity,
-                        entry_price=order.avg_fill_price or Decimal("0"),
-                        current_price=order.avg_fill_price or Decimal("0"),
-                        leverage=leverage,
-                        status="open",
-                        strategy_instance_id=order.strategy_instance_id,
-                        opened_at=datetime.now(UTC),
-                    )
-                    self.session.add(new_pos)
-                    await self.session.flush()
-                    logger.info(
-                        "[OrderService] 新建 long Position #%d: symbol=%s, qty=%s",
-                        new_pos.id,
-                        order.symbol,
-                        order.filled_quantity,
-                    )
-
-            elif order.side == "sell":
-                # 卖出 → 查找关联的 open 持仓平掉
-                existing = await self.position_repo.get_by_account_and_symbol(
-                    order.account_id,
-                    order.symbol,
+            elif opp_dir:
+                # 平反向仓
+                opp_dir.status = "closed"
+                opp_dir.closed_at = datetime.now(UTC)
+                logger.info(
+                    "[OrderService] 平仓 Position #%d (side=%s)",
+                    opp_dir.id,
+                    opp_dir.side,
                 )
-                close_target = None
-                for p in existing:
-                    if (
-                        p.status == "open"
-                        and p.strategy_instance_id == order.strategy_instance_id
-                        and p.side in ("long", "short")
-                    ):
-                        close_target = p
-                        break
-
-                if close_target:
-                    close_target.status = "closed"
-                    close_target.closed_at = datetime.now(UTC)
-                    logger.info(
-                        "[OrderService] 平仓 Position #%d (side=%s)",
-                        close_target.id,
-                        close_target.side,
-                    )
-                else:
-                    # 无匹配持仓 → 可能是开空仓
-                    new_pos = Position(
-                        account_id=order.account_id,
-                        symbol=order.symbol,
-                        side="short",
-                        quantity=order.filled_quantity,
-                        entry_price=order.avg_fill_price or Decimal("0"),
-                        current_price=order.avg_fill_price or Decimal("0"),
-                        leverage=leverage,
-                        status="open",
-                        strategy_instance_id=order.strategy_instance_id,
-                        opened_at=datetime.now(UTC),
-                    )
-                    self.session.add(new_pos)
-                    await self.session.flush()
-                    logger.info(
-                        "[OrderService] 新建 short Position #%d: symbol=%s, qty=%s",
-                        new_pos.id,
-                        order.symbol,
-                        order.filled_quantity,
-                    )
+            else:
+                # 新建 target_side 持仓
+                new_pos = Position(
+                    account_id=order.account_id,
+                    symbol=order.symbol,
+                    side=target_side,
+                    quantity=order.filled_quantity,
+                    entry_price=order.avg_fill_price or Decimal("0"),
+                    current_price=order.avg_fill_price or Decimal("0"),
+                    leverage=leverage,
+                    status="open",
+                    strategy_instance_id=order.strategy_instance_id,
+                    opened_at=datetime.now(UTC),
+                )
+                self.session.add(new_pos)
+                await self.session.flush()
+                logger.info(
+                    "[OrderService] 新建 %s Position #%d: symbol=%s, qty=%s",
+                    target_side,
+                    new_pos.id,
+                    order.symbol,
+                    order.filled_quantity,
+                )
 
             await self.session.commit()
         except Exception as exc:

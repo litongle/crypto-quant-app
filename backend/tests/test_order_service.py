@@ -76,6 +76,7 @@ async def _make_position(
     status: str = "open",
     quantity: str = "1",
     entry_price: str = "50000",
+    strategy_instance_id: int | None = None,
 ) -> Position:
     pos = Position(
         account_id=account_id,
@@ -85,6 +86,7 @@ async def _make_position(
         entry_price=Decimal(entry_price),
         current_price=Decimal(entry_price),
         status=status,
+        strategy_instance_id=strategy_instance_id,
     )
     session.add(pos)
     await session.flush()
@@ -784,3 +786,160 @@ class TestSyncAccountBalance:
         with pytest.raises(HTTPException) as exc_info:
             await service.sync_account_balance(account_a.id, user_b.id)
         assert exc_info.value.status_code == 403
+
+
+# ==================== 仓位同步 (订单成交后) ====================
+
+
+def _mock_filled_order(
+    *,
+    account_id: int,
+    side: str,
+    symbol: str = "BTCUSDT",
+    filled_qty: str = "0.5",
+    fill_price: str = "60000",
+    strategy_instance_id: int | None = None,
+) -> MagicMock:
+    """构造一个走完 _sync_position_on_fill 所需字段的 Order mock。
+
+    避开 create_order/strategy_instance 验证 — 我们只关心同步副作用。
+    """
+    order = MagicMock()
+    order.id = 1
+    order.account_id = account_id
+    order.symbol = symbol
+    order.side = side
+    order.filled_quantity = Decimal(filled_qty)
+    order.avg_fill_price = Decimal(fill_price)
+    order.strategy_instance_id = strategy_instance_id
+    return order
+
+
+async def _open_positions(service: OrderService, account_id: int, symbol: str) -> list:
+    rows = await service.position_repo.get_by_account_and_symbol(account_id, symbol)
+    return [p for p in rows if p.status == "open"]
+
+
+class TestSyncPositionOnFill:
+    """订单成交后的 DB 仓位同步 — 按 "订单目标方向 vs 现有持仓方向" 分派。
+
+    回归保护：曾经的 bug 是 sell 单总被当作平仓，导致 short 加仓时把 short 仓
+    误标为 closed，DB 与交易所真实仓位严重漂移。
+    """
+
+    async def test_buy_with_no_existing_creates_long(self, db_session):
+        user = await _make_user(db_session, email="sync_b1@example.com")
+        account = await _make_account(db_session, user.id)
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="buy")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert len(opens) == 1
+        assert opens[0].side == "long"
+        assert opens[0].quantity == Decimal("0.5")
+        assert opens[0].entry_price == Decimal("60000")
+
+    async def test_buy_merges_existing_long(self, db_session):
+        user = await _make_user(db_session, email="sync_b2@example.com")
+        account = await _make_account(db_session, user.id)
+        existing = await _make_position(
+            db_session,
+            account.id,
+            side="long",
+            quantity="1",
+            entry_price="50000",
+        )
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="buy")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        await db_session.refresh(existing)
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert len(opens) == 1
+        assert opens[0].id == existing.id
+        assert existing.quantity == Decimal("1.5")
+        # 加权平均: (50000*1 + 60000*0.5) / 1.5 ≈ 53333.33333333（Numeric(20,8) 截断）
+        assert existing.entry_price == Decimal("53333.33333333")
+
+    async def test_buy_closes_existing_short(self, db_session):
+        """止盈/反手 buy 单：DB 上记 short，buy 应该平掉它（而不是新建一个 long）。"""
+        user = await _make_user(db_session, email="sync_b3@example.com")
+        account = await _make_account(db_session, user.id)
+        existing = await _make_position(
+            db_session,
+            account.id,
+            side="short",
+            quantity="1",
+            entry_price="50000",
+        )
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="buy")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        await db_session.refresh(existing)
+        assert existing.status == "closed"
+        assert existing.closed_at is not None
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert opens == []
+
+    async def test_sell_with_no_existing_creates_short(self, db_session):
+        user = await _make_user(db_session, email="sync_s1@example.com")
+        account = await _make_account(db_session, user.id)
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="sell")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert len(opens) == 1
+        assert opens[0].side == "short"
+        assert opens[0].quantity == Decimal("0.5")
+
+    async def test_sell_merges_existing_short(self, db_session):
+        """★ 核心回归：short 加仓的 sell 单不能把 short 仓误标 closed。"""
+        user = await _make_user(db_session, email="sync_s2@example.com")
+        account = await _make_account(db_session, user.id)
+        existing = await _make_position(
+            db_session,
+            account.id,
+            side="short",
+            quantity="1",
+            entry_price="50000",
+        )
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="sell")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        await db_session.refresh(existing)
+        assert existing.status == "open"
+        assert existing.quantity == Decimal("1.5")
+        assert existing.entry_price == Decimal("53333.33333333")
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert len(opens) == 1
+        assert opens[0].id == existing.id
+
+    async def test_sell_closes_existing_long(self, db_session):
+        user = await _make_user(db_session, email="sync_s3@example.com")
+        account = await _make_account(db_session, user.id)
+        existing = await _make_position(
+            db_session,
+            account.id,
+            side="long",
+            quantity="1",
+            entry_price="50000",
+        )
+        service = OrderService(db_session)
+
+        order = _mock_filled_order(account_id=account.id, side="sell")
+        await service._sync_position_on_fill(order, account, _filled_order_result())
+
+        await db_session.refresh(existing)
+        assert existing.status == "closed"
+        assert existing.closed_at is not None
+        opens = await _open_positions(service, account.id, "BTCUSDT")
+        assert opens == []
