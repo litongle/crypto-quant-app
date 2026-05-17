@@ -18,6 +18,11 @@ function closeSettingsDrawer() {
   if (!drawer) return;
   drawer.hidden = true;
   document.body.classList.remove('is-drawer-open');
+  // 释放所有 pane 渲染内容,防 DOM 累积。下次 open 时 loadSettingsDrawerTab
+  // 会重新 render(本来就 fetch 最新设置,无副作用)。
+  drawer.querySelectorAll('.cq-settings-pane').forEach((pane) => {
+    pane.innerHTML = '';
+  });
 }
 
 function switchSettingsTab(tab) {
@@ -27,6 +32,9 @@ function switchSettingsTab(tab) {
   });
   document.querySelectorAll('.cq-settings-pane').forEach((pane) => {
     const active = pane.dataset.settingsPane === tab;
+    // 切走时清旧 pane innerHTML,避免依次切 5 个 tab 后所有 pane 渲染节点同时驻留(~200 节点)。
+    // 当前 active pane 由下方 loadSettingsDrawerTab(tab) 重 render(已有逻辑)。
+    if (!active) pane.innerHTML = '';
     pane.hidden = !active;
     pane.classList.toggle('is-active', active);
   });
