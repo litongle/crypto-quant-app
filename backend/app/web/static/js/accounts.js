@@ -130,7 +130,7 @@ function renderAccounts() {
       if (acc.last_sync_at) {
         const syncDate = new Date(acc.last_sync_at);
         const ago = timeAgo(syncDate);
-        syncInfo = `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);margin-top:2px;">最后同步: ${ago}</div>`;
+        syncInfo = `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:2px;">最后同步: ${ago}</div>`;
       } else {
         syncInfo = '<div style="font-size:var(--cq-text-xs);color:var(--cq-color-warning);margin-top:2px;">尚未同步</div>';
       }
@@ -166,8 +166,8 @@ function renderAccounts() {
             <div style="display:flex;align-items:center;gap:var(--cq-space-3);">
               <div style="text-align:right;">
                 <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:2px;">余额</div>
-                <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary-hover);">${formatBalance(acc.balance || 0)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
-                ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-disabled);">冻结: ${formatBalance(acc.frozen_balance)}</div>` : ''}
+                <div class="cq-num" style="font-weight:600;font-size:var(--cq-text-md);color:var(--cq-color-primary);">${formatBalance(acc.balance || 0)} <span style="color:var(--cq-text-tertiary);font-size:var(--cq-text-xs);">USDT</span></div>
+                ${acc.frozen_balance && Number(acc.frozen_balance) > 0 ? `<div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);">冻结: ${formatBalance(acc.frozen_balance)}</div>` : ''}
               </div>
             <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="syncAccount(${acc.id})" title="同步余额" id="sync-btn-${acc.id}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>

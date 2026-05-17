@@ -173,7 +173,9 @@
 
   --cq-text-primary:    #1C1F23;
   --cq-text-secondary:  #41464C;
-  --cq-text-tertiary:   #6B7075;
+  /* text-tertiary 在白底 4.93 过 AA,但在 bg-l3(#F0F1F4) 灰底 (如 table TH) 只 4.43,
+     加深 1 档到 #5F6368 让 bg-l3 上也 ≥5.3。其他白底用法不受影响(白底足够亮)。 */
+  --cq-text-tertiary:   #5F6368;
   /* text-disabled 在 accounts.js STATUS_MAP.disabled 里被复用作"已禁用"标签字色,
      light 主题原 #A7ABB0 vs 白 仅 2.31 → 加深到 #6B7280 (4.88)。
      "禁用感"由更弱的 bg 与位置传达,不必非常浅。 */
@@ -197,6 +199,66 @@
   --cq-header-blur:             saturate(180%) blur(12px);
 
   --cq-theme-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2341464C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3Cline x1='12' y1='1' x2='12' y2='3'/%3E%3Cline x1='12' y1='21' x2='12' y2='23'/%3E%3Cline x1='4.22' y1='4.22' x2='5.64' y2='5.64'/%3E%3Cline x1='18.36' y1='18.36' x2='19.78' y2='19.78'/%3E%3Cline x1='1' y1='12' x2='3' y2='12'/%3E%3Cline x1='21' y1='12' x2='23' y2='12'/%3E%3Cline x1='4.22' y1='19.78' x2='5.64' y2='18.36'/%3E%3Cline x1='18.36' y1='5.64' x2='19.78' y2='4.22'/%3E%3C/svg%3E");
+}
+
+/* Light 主题:多处 primary 文字落在浅蓝 primary-muted bg 上,
+   字色 var(--cq-color-primary)=#0064FA 对比度仅 4.33,差 AA 0.17。
+   局部 override 字色到 primary-active (#0050D6) → 5.86。
+   不动 --cq-color-primary token 是为了 .cq-btn--primary 等按钮 bg 视觉重量不变。
+   暗色主题(浅蓝底 #0064FA 文字)本来就过,无需 override。
+   覆盖:
+     - .cq-tag--info / .cq-header__tag — header 与 info 标签
+     - .cq-log-card__type--order / .cq-event-list__type 系列订单标签
+     - .cq-drawer__tab.is-active / .cq-segmented__item.is-active — 选中态 tab */
+[data-theme="light"] .cq-tag--info,
+[data-theme="light"] .cq-header__tag,
+[data-theme="light"] .cq-log-card__type--order,
+[data-theme="light"] .cq-log-card__type--signal,
+[data-theme="light"] .cq-drawer__tab.is-active,
+[data-theme="light"] .cq-segmented__item.is-active,
+[data-theme="light"] .cq-strategy-filter-tab.is-active,
+[data-theme="light"] .cq-margin-btn.is-active,
+[data-theme="light"] .cq-param-value,
+[data-theme="light"] .sidebar-nav-item.active {
+  color: var(--cq-color-primary-active);
+}
+
+/* Light:sym-sel__tag(现货/合约)硬编码 Tailwind green-500/orange-400,
+   在浅底上 2.06/2.12 远不过 AA。light 主题给死字色加深(token 不可复用,
+   profit/warning token 是另一个色相)。暗色主题不动。 */
+[data-theme="light"] .sym-sel__tag--spot { color: #166534; }
+[data-theme="light"] .sym-sel__tag--perp { color: #9A3412; }
+/* 注:.sym-sel__icon (BTC 橙 / ETH 紫等)是币种品牌识别色,行业惯例,且元素旁
+   即有完整币种文本,豁免 WCAG 文本对比要求。 */
+
+/* Dark 主题修复:几处白字 on primary bg / 红字 on loss-muted 对比度不过 AA。
+   只 override dark,light 此处本来就过(已在前面处理)。 */
+:root .cq-header__user-avatar,
+:root .cq-day-pill.is-active {
+  /* primary #4D7FFF 上白字仅 3.62,改用 primary-active #2E66E6 → 5.07。
+     "active" dark 视觉上是更深一档蓝,与未选 pill 反差更强,语义也清晰。 */
+  background: var(--cq-color-primary-active);
+  border-color: var(--cq-color-primary-active);
+}
+[data-theme="light"] .cq-header__user-avatar,
+[data-theme="light"] .cq-day-pill.is-active,
+[data-theme="light"] .cq-btn--primary {
+  /* light 这几个白字 + primary bg 本来 4.97 过 AA,恢复原 primary。 */
+  background: var(--cq-color-primary);
+  border-color: var(--cq-color-primary);
+}
+[data-theme="light"] .cq-btn--primary:hover:not(:disabled) {
+  background: var(--cq-color-primary-hover);
+  border-color: var(--cq-color-primary-hover);
+}
+:root .cq-btn--danger {
+  /* dark loss #F93920 on loss-muted bg 仅 4.23,加亮一档 #FF6B5C → 5.61。
+     light 已通过 --cq-color-loss token (#C12612) 在前面修复,不命中此 override。 */
+  color: #FF6B5C;
+}
+[data-theme="light"] .cq-btn--danger {
+  /* light 恢复 token(已 #C12612 → 5.06 过 AA)。 */
+  color: var(--cq-color-loss);
 }
 
 /* Body 折叠态:切换 sidebar 当前宽度 */
@@ -338,7 +400,9 @@ body {
   padding: 0 8px;
   font-size: var(--cq-text-xs);
   font-weight: 500;
-  color: var(--cq-color-primary);
+  /* dark 用 primary-hover(#6F97FF 更亮)在 muted bg 上过 AA;
+     light 用 primary 在浅蓝 muted 上只 4.33,由下方 [data-theme="light"] 块 override 到 primary-active。 */
+  color: var(--cq-color-primary-hover);
   background: var(--cq-color-primary-muted);
   border-radius: var(--cq-radius-full);
   white-space: nowrap;
@@ -502,7 +566,8 @@ body {
 
 .sidebar-nav-item.active {
   background: var(--cq-color-primary-muted);
-  color: var(--cq-color-primary);
+  /* dark 用 primary-hover 过 AA;light 由下方 override 到 primary-active。 */
+  color: var(--cq-color-primary-hover);
   font-weight: 600;
 }
 
@@ -816,7 +881,7 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 }
 .cq-tag--profit  { background: var(--cq-color-profit-muted);  color: var(--cq-color-profit); }
 .cq-tag--loss    { background: var(--cq-color-loss-muted);    color: var(--cq-color-loss); }
-.cq-tag--info    { background: var(--cq-color-primary-muted); color: var(--cq-color-primary); }
+.cq-tag--info    { background: var(--cq-color-primary-muted); color: var(--cq-color-primary-hover); }
 .cq-tag--warn    { background: var(--cq-color-warning-muted); color: var(--cq-color-warning); }
 .cq-tag--neutral { background: var(--cq-bg-l3);               color: var(--cq-text-secondary); }
 
@@ -857,13 +922,16 @@ body.is-sidebar-collapsed .cq-collapse-btn { width: 32px; padding: 0; gap: 0; }
 
 /* 主按钮:实心(Semi solid) */
 .cq-btn--primary {
-  background: var(--cq-color-primary);
+  /* dark primary=#4D7FFF + 白字 仅 3.62 不过 AA,用 primary-active(#2E66E6 → 5.07)。
+     light override 在下方还原成 primary(#0064FA 白字 4.97 已过)。 */
+  background: var(--cq-color-primary-active);
   color: #fff;
-  border-color: var(--cq-color-primary);
+  border-color: var(--cq-color-primary-active);
 }
 .cq-btn--primary:hover:not(:disabled) {
-  background: var(--cq-color-primary-hover);
-  border-color: var(--cq-color-primary-hover);
+  /* hover 瞬态,WCAG 不强制;dark 反向亮一档让 hover 反馈清晰。 */
+  background: var(--cq-color-primary);
+  border-color: var(--cq-color-primary);
   box-shadow: var(--cq-glow-sm);
 }
 .cq-btn--primary:active:not(:disabled) {
@@ -1158,6 +1226,13 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 
 .cq-strategy-filter-tab.is-active .cq-strategy-filter-tab__count {
   background: rgba(255,255,255,0.16);
+  /* dark: count 继承父 primary-hover 字色 + 白叠加 16% 蓝灰底,对比度仅 3.22 不过 AA。
+     bg 已经亮,用纯白字 8.97 过。light 主题下 bg 是几乎纯白,白字看不见 → 由 light override 还原。 */
+  color: #fff;
+}
+[data-theme="light"] .cq-strategy-filter-tab.is-active .cq-strategy-filter-tab__count {
+  /* light 还原继承(父 primary-active 字色) */
+  color: inherit;
 }
 
 .cq-strategy-section--highlight {
@@ -2666,7 +2741,8 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 .cq-segmented__item.is-active {
   background: var(--cq-color-primary-muted);
   border-color: var(--cq-color-primary);
-  color: var(--cq-color-primary);
+  /* dark primary-hover 过 AA;light 由下方 override。 */
+  color: var(--cq-color-primary-hover);
 }
 
 .cq-drawer__body {
@@ -3466,12 +3542,14 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 
 .cq-log-card__type--signal {
   background: var(--cq-color-info-muted, rgba(56, 132, 255, 0.14));
-  color: var(--cq-color-info, #3884ff);
+  /* dark info=#4D7FFF on info-muted 仅 4.19,改用 primary-hover(#6F97FF) 过 AA;
+     light info=#1A5FCC 在浅蓝底 ≈ 5.9 已过,由下方 override 强制。 */
+  color: var(--cq-color-primary-hover);
 }
 
 .cq-log-card__type--order {
   background: var(--cq-color-primary-muted);
-  color: var(--cq-color-primary);
+  color: var(--cq-color-primary-hover);
 }
 
 .cq-log-card__type--auto_pause,

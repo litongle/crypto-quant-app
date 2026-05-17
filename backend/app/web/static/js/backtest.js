@@ -504,7 +504,7 @@ function renderBacktestResults(result) {
       </div>
       <div class="cq-card stat-card">
         <div class="stat-label">夏普比率</div>
-        <div class="stat-value cq-num" style="color:var(--cq-color-primary-hover);">${sharpeRatio.toFixed(2)}</div>
+        <div class="stat-value cq-num" style="color:var(--cq-color-primary);">${sharpeRatio.toFixed(2)}</div>
       </div>
       <div class="cq-card stat-card">
         <div class="stat-label">最大回撤</div>
@@ -536,7 +536,7 @@ function renderBacktestResults(result) {
       <div class="cq-metrics-detail__body">
         <div class="cq-metrics-detail__grid">
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">年化收益率</span><span class="cq-metrics-detail__value cq-num" style="color:${annualReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary-hover);">${calmarRatio.toFixed(2)}</span></div>
+          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${calmarRatio.toFixed(2)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">盈利 / 亏损次数</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${profitTrades}</span> / <span style="color:var(--cq-color-loss);">${lossTrades}</span></span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">+${avgProfit.toFixed(2)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${avgLoss.toFixed(2)}</span></div>
@@ -831,7 +831,7 @@ function renderBacktestHistory(history) {
               <td style="color:var(--cq-text-primary);font-weight:500;">${escapeHtml(h.templateName || h.templateId)}</td>
               <td style="color:var(--cq-text-secondary);">${escapeHtml(h.symbol)}</td>
               <td class="cq-num" style="text-align:right;color:${ret >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</td>
-              <td class="cq-num" style="text-align:right;color:var(--cq-color-primary-hover);">${sharpe.toFixed(2)}</td>
+              <td class="cq-num" style="text-align:right;color:var(--cq-color-primary);">${sharpe.toFixed(2)}</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-color-loss);">${dd.toFixed(2)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-color-profit);">${wr.toFixed(1)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-text-secondary);">${trades}</td>
@@ -955,7 +955,7 @@ function renderBacktestParamControls(params) {
       <div style="margin-bottom:var(--cq-space-3);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cq-space-2);">
           <label class="cq-label" for="sl-bt-${p.key}" style="margin-bottom:0;">${p.name}</label>
-          <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary-hover);" id="val-bt-${p.key}">${p.default}</span>
+          <span class="cq-num" style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-color-primary);" id="val-bt-${p.key}">${p.default}</span>
         </div>
         <input type="range" class="cq-slider" id="sl-bt-${p.key}" data-key="${p.key}" data-type="${t}"
           min="${p.min || 0}" max="${p.max || 100}" value="${p.default}" step="${p.step || 1}"
