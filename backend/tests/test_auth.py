@@ -242,3 +242,31 @@ async def test_refresh_token_single_use(client: AsyncClient, test_user):
     assert (
         second.status_code == 401
     ), f"old refresh should be revoked after rotation, got {second.status_code}: {second.text}"
+
+
+@pytest.mark.asyncio
+async def test_security_headers_include_csp(client: AsyncClient):
+    """CSP + 基础安全头必须出现在每个响应里 — 防回归。
+
+    历史上 CSP 因为 inline handler 多直接没上,导致 XSS 注 <script src> 没法挡。
+    现在卡死了 script-src 白名单 (self + jsdelivr) + connect-src self,
+    锁住关键 directive 避免后续误改打开口子。
+    """
+    # /health 在 test 环境可能 503(DB/Redis 没启全),无所谓 — 安全头本来就该
+    # 出现在每一个响应上,包括 5xx。这正是要断言的属性。
+    resp = await client.get("/health")
+
+    csp = resp.headers.get("content-security-policy")
+    assert csp, "CSP header missing — XSS 远程脚本注入无屏障"
+    # 关键 directive 锁:
+    assert "script-src 'self'" in csp, "script-src 必须包含 'self'"
+    assert "https://cdn.jsdelivr.net" in csp, "前端图表/QR 库依赖 jsdelivr"
+    assert "connect-src 'self'" in csp, "fetch/XHR 必须锁同源"
+    assert "frame-ancestors 'none'" in csp, "frame-ancestors 必须 none (防点击劫持)"
+    assert "object-src 'none'" in csp, "object-src 必须 none (禁 plugin)"
+    assert "base-uri 'self'" in csp, "base-uri 必须锁 (防 <base href> 篡改)"
+
+    # 其余基础头
+    assert resp.headers.get("x-frame-options") == "DENY"
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert resp.headers.get("referrer-policy") == "strict-origin-when-cross-origin"

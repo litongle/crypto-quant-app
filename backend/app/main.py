@@ -324,15 +324,40 @@ def create_app() -> FastAPI:
 
         return await call_next(request)
 
-    # 安全响应头 — 基础加固。CSP 暂不上(大量 inline onclick/style 会被 break),
-    # 真要上得先把 inline handler 全收成 addEventListener,这次先把零成本的几条加上。
+    # 安全响应头 — 基础加固 + CSP。
     # 定义在 rate_limit 之后 = 中间件外层 → 429 等早返回响应也会经过这里加头。
     _is_prod = settings.is_production
+
+    # CSP — 务实版:前端有 116 处 inline handler + 217 处 inline style + 2 段 inline script,
+    # 一次性收编是大重构;先卡死能挡的:
+    #   - script-src 白名单: self + jsdelivr(图表/QR 库) + unsafe-inline(暂留 inline handler),
+    #     这样 XSS 注 <script src="evil.com"> 会被挡 — 这是 XSS 最常见的提权路径
+    #   - style-src: self + Google Fonts CSS + unsafe-inline(暂留 inline style)
+    #   - font-src: Google Fonts CDN
+    #   - img-src: self + data:(CSS 里大量 data:image/svg+xml 图标)
+    #   - connect-src 'self': fetch/XHR 锁同源,前端目前不连任何 WS/外部 API
+    #   - frame-ancestors 'none': 现代版 X-Frame-Options,挡点击劫持
+    #   - form-action 'self': 防 XSS 注钓鱼 <form action="phish.com">
+    #   - base-uri 'self': 防 <base href="evil"> 篡改所有相对路径
+    #   - object-src 'none': 禁 <embed>/<object> plugin
+    # TODO: 收完 inline handler 后可去 unsafe-inline,这样真能挡 XSS 注 <script>alert(1)</script>。
+    _csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'"
+    )
 
     @app.middleware("http")
     async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)
-        # 防点击劫持:别人嵌 iframe 诱导用户"暂停策略/确认下单"
+        # 防点击劫持:别人嵌 iframe 诱导用户"暂停策略/确认下单" (旧浏览器兼容,新版优先 CSP frame-ancestors)
         response.headers.setdefault("X-Frame-Options", "DENY")
         # 防 MIME 嗅探,避免 JS/HTML 被错误执行
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -340,6 +365,8 @@ def create_app() -> FastAPI:
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         # 关掉 FLoC/topics 等浏览器 ad-tracking API,顺带消除 unload 警告相关项
         response.headers.setdefault("Permissions-Policy", "interest-cohort=(), browsing-topics=()")
+        # CSP — 挡远程脚本/钓鱼表单/base 篡改/plugin 等 XSS 提权路径
+        response.headers.setdefault("Content-Security-Policy", _csp)
         # HSTS 仅生产:本机 http://localhost 部署强制 HTTPS 会让浏览器拒连
         if _is_prod:
             response.headers.setdefault(
