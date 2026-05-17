@@ -21,7 +21,12 @@ services:
     # 让容器内可通过 host.docker.internal 访问宿主机代理（Linux 必须）
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # --proxy-headers: 信任 X-Forwarded-For/Proto,让 request.client.host 反映真实
+    #   客户端 IP (而非 Caddy/Docker NAT 的 127.0.0.1) — 否则 rate limit 全 bucket。
+    # --forwarded-allow-ips '*': 8000 端口只绑 127.0.0.1,公网无法直连,
+    #   能到达这里的只有同机 Caddy / 本地 dev,trust 全部安全;
+    #   不写就是默认 127.0.0.1,但 docker NAT 后源 IP 是 bridge gateway,不命中。
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
     depends_on:
       postgres:
         condition: service_healthy

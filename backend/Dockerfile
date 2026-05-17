@@ -71,4 +71,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Default: production mode (no reload)
 # Override in docker-compose for dev: add --reload flag
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers 让 request.client.host 透 X-Forwarded-For,docker-compose 默认
+# 也已加这两个 flag;Dockerfile 保持一致,镜像被裸跑时也对。
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
