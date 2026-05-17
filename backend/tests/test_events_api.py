@@ -324,25 +324,25 @@ async def test_signal_detail_links_to_order_with_slippage(
         status="executed",
     )
     db_session.add(signal)
-    await db_session.commit()
-    await db_session.refresh(signal)
+    await db_session.flush()
 
-    db_session.add(
-        Order(
-            account_id=account.id,
-            symbol="ETHUSDT",
-            side="sell",
-            order_type="market",
-            quantity=Decimal("0.5"),
-            filled_quantity=Decimal("0.5"),
-            avg_fill_price=Decimal("2227.6"),  # 卖低于报价 → 负滑点
-            order_value=Decimal("1113.8"),
-            commission=Decimal("0"),
-            status="filled",
-            strategy_instance_id=instance.id,
-            signal_id=signal.id,
-        )
+    order = Order(
+        account_id=account.id,
+        symbol="ETHUSDT",
+        side="sell",
+        order_type="market",
+        quantity=Decimal("0.5"),
+        filled_quantity=Decimal("0.5"),
+        avg_fill_price=Decimal("2227.6"),  # 卖低于报价 → 负滑点
+        order_value=Decimal("1113.8"),
+        commission=Decimal("0"),
+        status="filled",
+        strategy_instance_id=instance.id,
     )
+    db_session.add(order)
+    await db_session.flush()
+    # 正确的关联方向：Signal.executed_order_id → Order.id
+    signal.executed_order_id = order.id
     await db_session.commit()
 
     resp = await client.get("/api/v1/events?event_type=signal", headers=auth_headers)

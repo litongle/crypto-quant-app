@@ -39,8 +39,9 @@ class SyncScheduler:
         self._session_maker = session_maker
         self._task: asyncio.Task | None = None
         self._running = False
-        # 账户级失败计数 — 连续 N 次失败才告警,避免每 5 分钟一刷
-        self._consecutive_failures: dict[int, int] = {}
+        # (account_id, sync_type) → 连续失败次数。拆开计数,这样"余额一直成功但持仓一直
+        # 失败"也能各自触发 audit,而不是被余额清零掩盖。
+        self._consecutive_failures: dict[tuple[int, str], int] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -57,18 +58,22 @@ class SyncScheduler:
         logger.info("[SyncScheduler] 已停止")
 
     async def _record_sync_failure(self, account, exc: Exception, *, source: str) -> None:
-        """连续失败 3 次以上才记 audit (避免每 5 分钟刷屏); API 凭证错误立即记 critical。"""
+        """连续失败 3 次以上才记 audit (避免每 5 分钟刷屏); API 凭证错误立即记 critical。
+
+        计数维度: (account_id, source) — 不同 sync 路径独立计数,避免互相掩盖。
+        """
         from app.services.audit_service import log_risk_alert
 
-        self._consecutive_failures[account.id] = self._consecutive_failures.get(account.id, 0) + 1
-        count = self._consecutive_failures[account.id]
+        key = (account.id, source)
+        self._consecutive_failures[key] = self._consecutive_failures.get(key, 0) + 1
+        count = self._consecutive_failures[key]
         auth_failure = _is_auth_failure(exc)
 
         # API 凭证错误立即告警;其他错误连续 3 次才告警
         if not auth_failure and count < 3:
             return
 
-        alert_type = "API 凭证失效" if auth_failure else "余额同步连续失败"
+        alert_type = "API 凭证失效" if auth_failure else f"{source}连续失败"
         severity = "critical" if auth_failure else "warning"
         message = (
             f'账户 "{account.account_name}" ({account.exchange}) {source}失败: {str(exc)[:160]}'
@@ -86,6 +91,10 @@ class SyncScheduler:
                 "trigger": source,
             },
         )
+
+    def _clear_sync_failure(self, account_id: int, source: str) -> None:
+        """同步路径成功 → 清该路径的失败计数。"""
+        self._consecutive_failures.pop((account_id, source), None)
 
     async def _sync_loop(self) -> None:
         while self._running:
@@ -161,11 +170,11 @@ class SyncScheduler:
                     account.balance,
                     account.frozen_balance,
                 )
-            # 同步成功 → 清失败计数
-            self._consecutive_failures.pop(account.id, None)
+            # 同步成功 → 清该路径失败计数
+            self._clear_sync_failure(account.id, "余额同步")
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 余额同步失败: %s", account.id, exc)
-            await self._record_sync_failure(account, exc, source="定时同步")
+            await self._record_sync_failure(account, exc, source="余额同步")
 
         # 2. 同步持仓（适配器返回 list[PositionInfo]）
         try:
@@ -231,8 +240,10 @@ class SyncScheduler:
                     account.id,
                     len(exchange_positions),
                 )
+            self._clear_sync_failure(account.id, "持仓同步")
         except Exception as exc:
             logger.warning("[SyncScheduler] 账户 #%d 持仓同步失败: %s", account.id, exc)
+            await self._record_sync_failure(account, exc, source="持仓同步")
 
         # 3. upsert 当天权益快照 — 每 5 分钟覆盖一次，最后一次同步即当日收盘
         try:

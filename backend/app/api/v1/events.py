@@ -312,8 +312,24 @@ async def list_events(
     order_query = order_query.order_by(Order.created_at.desc()).limit(500)
     orders = (await session.execute(order_query)).scalars().all()
 
-    # signal_id → Order 索引，让 _serialize_signal 能挂关联订单
-    order_by_signal: dict[int, Order] = {o.signal_id: o for o in orders if o.signal_id is not None}
+    # signal -> order 关联：strategy_runner 反向链(Signal.executed_order_id → Order.id)
+    # 不能用 Order.signal_id —— 该字段虽存在但 strategy_runner 创建订单时从未填充。
+    # 第二步:对窗口外的 signal,如果它有 executed_order_id 但 order 不在 orders 列表里,
+    # 单独按 id 拉一次,避免分页边界丢关联。
+    orders_by_id = {o.id: o for o in orders}
+    missing_order_ids = {
+        s.executed_order_id
+        for s in signals
+        if s.executed_order_id is not None and s.executed_order_id not in orders_by_id
+    }
+    if missing_order_ids:
+        extra_orders = (
+            (await session.execute(select(Order).where(Order.id.in_(missing_order_ids))))
+            .scalars()
+            .all()
+        )
+        for o in extra_orders:
+            orders_by_id[o.id] = o
 
     pause_query = select(StrategyInstance).where(
         StrategyInstance.user_id == current_user.id,
@@ -330,6 +346,9 @@ async def list_events(
     # 持久化审计事件：risk_alert / user_action / system 等
     # 注意：user_id 严格按 current_user 过滤，但 system 事件 user_id 是 NULL，
     # 单用户场景下也应当展示给当前用户 —— 用 or_(user_id == X, user_id is None)
+    # TODO(multi-user): 多用户场景下，system 事件应当只对 superuser 可见，
+    # 或者每个 user 看自己关联的 system 事件（拆 type=system 为 system_global vs system_per_user）。
+    # 当前项目是单用户（CLAUDE.md 明确），先用这条 OR 简化展示。
     from sqlalchemy import or_
 
     audit_query = select(AuditEvent).where(
@@ -345,7 +364,9 @@ async def list_events(
     audit_events = (await session.execute(audit_query)).scalars().all()
 
     items: list[dict[str, Any]] = []
-    items.extend(_serialize_signal(signal, order_by_signal.get(signal.id)) for signal in signals)
+    items.extend(
+        _serialize_signal(signal, orders_by_id.get(signal.executed_order_id)) for signal in signals
+    )
     items.extend(_serialize_order(order) for order in orders)
     items.extend(_serialize_auto_pause(instance) for instance in pause_instances)
     items.extend(_serialize_audit_event(event) for event in audit_events)
