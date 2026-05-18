@@ -343,7 +343,7 @@ def create_app() -> FastAPI:
     # TODO: 收完 inline handler 后可去 unsafe-inline,这样真能挡 XSS 注 <script>alert(1)</script>。
     _csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "

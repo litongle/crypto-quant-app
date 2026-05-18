@@ -1,5 +1,5 @@
 // Alpha-7 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v85';
+const CACHE_NAME = 'cq-sw-v86';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -15,6 +15,8 @@ const STATIC_ASSETS = [
   '/web/static/js/instance-logs-drawer.js',
   '/web/static/js/events.js',
   '/web/static/js/symbol-selector.js',
+  '/web/static/vendor/lightweight-charts.standalone.production.min.js',
+  '/web/static/vendor/qrcode.min.js',
   '/web/static/manifest.json',
   '/web/static/fonts/geist/Geist-Variable.woff2',
 ];
