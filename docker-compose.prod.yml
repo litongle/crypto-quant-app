@@ -1,44 +1,51 @@
-# 生产编排 — 1Panel / VPS 部署用
-# 用法:
-#   1. cp backend/.env.example backend/.env  并按注释填:
-#      - SECRET_KEY / JWT_SECRET_KEY (openssl rand -hex 32)
-#      - ADMIN_USERNAME / ADMIN_PASSWORD_HASH
-#        (docker compose -f docker-compose.prod.yml run --rm backend python -m scripts.generate_admin_hash)
-#      - POSTGRES_PASSWORD / REDIS_PASSWORD (自己生成强密码)
-#      - CORS_ORIGINS=https://你的域名
-#   2. docker compose -f docker-compose.prod.yml up -d --build
-#   3. (首次) backend 启动时会自动跑 alembic upgrade head 建表
-#   4. 在 1Panel 面板配反代: 你的域名 → 127.0.0.1:8000,加 X-Forwarded-Proto=https
+# 生产编排 — 1Panel / VPS 拉镜像部署
+# 镜像由 GitHub Actions push 到 docker.io/tongle6/crypto-quant-backend
+# (见 .github/workflows/release.yml — main 分支每次 push 自动 build)
 #
-# 与 dev compose 的差异:
-#   - 不挂源码 (镜像里已 COPY)、不装 dev 依赖 (pytest/ruff/black)
-#   - backend 8000 绑 127.0.0.1,公网必须经反代进
-#   - postgres / redis 完全不暴露端口 (容器间网络走 service name)
-#   - 启动前自动跑 alembic 迁移
-#   - POSTGRES_PASSWORD / REDIS_PASSWORD 用 :? 缺失即报错,强制设置
+# === 1Panel 编排步骤 ===
+#   1. 1Panel → 容器 → 编排 → 添加编排
+#      把本文件全部内容粘进去
+#   2. 同编排目录创建 .env 文件,粘 .env.production.example 模板,填:
+#      - SECRET_KEY=$(openssl rand -hex 32)
+#      - JWT_SECRET_KEY=$(openssl rand -hex 32)
+#      - POSTGRES_PASSWORD=  (自己生强密码)
+#      - REDIS_PASSWORD=     (自己生强密码)
+#      - ADMIN_USERNAME=     (邮箱)
+#      - ADMIN_PASSWORD_HASH= (下面第 4 步生成)
+#      - CORS_ORIGINS=https://你的域名
+#   3. 启动编排 → backend 容器会自动跑 alembic upgrade head 建表
+#   4. 生成 admin hash 粘回 .env 后重启 backend:
+#      docker compose -f docker-compose.prod.yml run --rm backend \
+#          python -m scripts.generate_admin_hash
+#   5. 1Panel → 网站 → 反向代理:
+#      你的域名 → http://127.0.0.1:8000
+#      自定义 header:
+#        proxy_set_header X-Forwarded-Proto https;
+#        proxy_set_header X-Real-IP $remote_addr;
+#        proxy_set_header Host $host;
+#      申请 Let's Encrypt 证书 → 强制 HTTPS
+#
+# === 关键配置说明 ===
+#   - backend 8000 绑 127.0.0.1: 公网必须经 1Panel OpenResty/Nginx 反代,不能直连
+#   - postgres / redis 完全不 publish 端口: 走 docker 内网 service name,公网无路径触达
+#   - DATABASE_URL / REDIS_URL 从密码拼: 你只在 .env 改一处密码,两处自动同步
+#   - 升级镜像: 1Panel 编排页面点"重新拉取镜像" 或 `docker compose pull && up -d`
 
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      args:
-        INSTALL_DEV: "false"
-    image: crypto-quant-backend:prod
+    image: tongle6/crypto-quant-backend:${IMAGE_TAG:-latest}
     env_file:
-      - ./backend/.env
+      - .env
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - backend_data:/app/data
     environment:
-      # DATABASE_URL / REDIS_URL 从 PG/REDIS 密码拼出 — 单点修改,避免 .env 里两处密码漂移
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 backend/.env 里设置}@postgres:5432/crypto_quant
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 backend/.env 里设置}@redis:6379/0
+      # 单点密码 — 改 .env 里的 POSTGRES_PASSWORD/REDIS_PASSWORD,这两个 URL 自动跟着变
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 .env 里设置}@postgres:5432/crypto_quant
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 .env 里设置}@redis:6379/0
       - ENVIRONMENT=production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    # 启动前自动跑迁移; --proxy-headers + 信任全部 forwarded IP (8000 绑回环,能到这的只有反代)
+    # 启动前自动跑 alembic 迁移; --proxy-headers 让 8000 信任反代头
     command:
       - sh
       - -c
@@ -54,7 +61,7 @@ services:
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 backend/.env 里设置}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 .env 里设置}
       - POSTGRES_DB=crypto_quant
     # 不 publish 端口 — backend 通过 docker 内网 service name 访问
     volumes:
@@ -69,7 +76,7 @@ services:
   redis:
     image: redis:7-alpine
     environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 backend/.env 里设置}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 .env 里设置}
     # 不 publish 端口 — backend 通过 docker 内网 service name 访问
     volumes:
       - redis_data:/data
