@@ -2611,6 +2611,17 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   gap: var(--cq-space-2);
 }
 
+/* 实时活动 50 条全铺开会把同行权益曲线 card 撑到 3000+ px,锁滚动并对齐右侧 chart (240px) */
+#dashboard-activity-stream {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cq-border-subtle) transparent;
+}
+#dashboard-activity-stream::-webkit-scrollbar { width: 4px; }
+#dashboard-activity-stream::-webkit-scrollbar-track { background: transparent; }
+#dashboard-activity-stream::-webkit-scrollbar-thumb { background: var(--cq-border-subtle); border-radius: 2px; }
+
 .cq-instance-row,
 .cq-event-list__item,
 .cq-event-table__row {
