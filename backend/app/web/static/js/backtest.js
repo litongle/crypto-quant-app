@@ -880,6 +880,8 @@ function renderBacktestParamControls(params) {
       : '';
 
     if (t === 'rules') return '';  // rule_custom 不会走到这里(已被 strategyType==='rule' 拦截)
+    // auto_trade 是实盘 runner 开关,回测路径根本不读这字段,UI 显示反而误导(文案说"真实下单")
+    if (p.key === 'auto_trade') return '';
 
     if (t === 'bool') {
       const checked = p.default ? 'checked' : '';
