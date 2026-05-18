@@ -12,6 +12,15 @@
   font-display: swap;
 }
 
+/* Self-hosted JetBrains Mono (variable font, latin-only, 覆盖 400/500/600) */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/web/static/fonts/jetbrains-mono/JetBrainsMono-Variable.woff2') format('woff2-variations');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── 1. Design Tokens — Semi Design v2 调色板 ──────────────────
    Default: Dark mode(深色模式)
    主色 Blue 5 #0064FA(亮蓝),与 New API/Semi 视觉一致

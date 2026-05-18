@@ -1,5 +1,5 @@
 // Alpha-7 PWA Service Worker v1
-const CACHE_NAME = 'cq-sw-v88';
+const CACHE_NAME = 'cq-sw-v89';
 const STATIC_ASSETS = [
   '/web/',
   '/web/static/css/app.css',
@@ -19,6 +19,7 @@ const STATIC_ASSETS = [
   '/web/static/vendor/qrcode.min.js',
   '/web/static/manifest.json',
   '/web/static/fonts/geist/Geist-Variable.woff2',
+  '/web/static/fonts/jetbrains-mono/JetBrainsMono-Variable.woff2',
 ];
 
 // Install: pre-cache static shell（逐项失败不拖垮整个 install，避免偶发 302/网络导致 SW 异常）
