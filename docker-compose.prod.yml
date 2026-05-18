@@ -1,0 +1,87 @@
+# 生产编排 — 1Panel / VPS 部署用
+# 用法:
+#   1. cp backend/.env.example backend/.env  并按注释填:
+#      - SECRET_KEY / JWT_SECRET_KEY (openssl rand -hex 32)
+#      - ADMIN_USERNAME / ADMIN_PASSWORD_HASH
+#        (docker compose -f docker-compose.prod.yml run --rm backend python -m scripts.generate_admin_hash)
+#      - POSTGRES_PASSWORD / REDIS_PASSWORD (自己生成强密码)
+#      - CORS_ORIGINS=https://你的域名
+#   2. docker compose -f docker-compose.prod.yml up -d --build
+#   3. (首次) backend 启动时会自动跑 alembic upgrade head 建表
+#   4. 在 1Panel 面板配反代: 你的域名 → 127.0.0.1:8000,加 X-Forwarded-Proto=https
+#
+# 与 dev compose 的差异:
+#   - 不挂源码 (镜像里已 COPY)、不装 dev 依赖 (pytest/ruff/black)
+#   - backend 8000 绑 127.0.0.1,公网必须经反代进
+#   - postgres / redis 完全不暴露端口 (容器间网络走 service name)
+#   - 启动前自动跑 alembic 迁移
+#   - POSTGRES_PASSWORD / REDIS_PASSWORD 用 :? 缺失即报错,强制设置
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "false"
+    image: crypto-quant-backend:prod
+    env_file:
+      - ./backend/.env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - backend_data:/app/data
+    environment:
+      # DATABASE_URL / REDIS_URL 从 PG/REDIS 密码拼出 — 单点修改,避免 .env 里两处密码漂移
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 backend/.env 里设置}@postgres:5432/crypto_quant
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 backend/.env 里设置}@redis:6379/0
+      - ENVIRONMENT=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # 启动前自动跑迁移; --proxy-headers + 信任全部 forwarded IP (8000 绑回环,能到这的只有反代)
+    command:
+      - sh
+      - -c
+      - "alembic upgrade head && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 backend/.env 里设置}
+      - POSTGRES_DB=crypto_quant
+    # 不 publish 端口 — backend 通过 docker 内网 service name 访问
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 backend/.env 里设置}
+    # 不 publish 端口 — backend 通过 docker 内网 service name 访问
+    volumes:
+      - redis_data:/data
+    command: sh -c 'redis-server --appendonly yes --save 60 1000 --requirepass "$$REDIS_PASSWORD"'
+    healthcheck:
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_data:
