@@ -83,9 +83,13 @@ class MAStrategy(BaseStrategy):
     strategy_type = "ma"
 
     async def analyze(self, klines: list[dict]) -> Signal | None:
-        # 参数：短周期和长周期均线窗口，默认 5 和 20
-        short_window = self.params.get("short_window", 5)
-        long_window = self.params.get("long_window", 20)
+        # 参数:短周期和长周期均线窗口,默认 5 和 20。
+        # seed_data 模板用 fastPeriod/slowPeriod (camelCase) 暴露给前端,
+        # 早期代码用 short_window/long_window 字段读 — 两套不一致让所有 MA
+        # 回测永远跑默认 (5,20), 用户改参数无效。fallback 同时识别两个命名,
+        # 优先 seed_data 命名以匹配前端 UI。
+        short_window = int(self.params.get("fastPeriod") or self.params.get("short_window") or 5)
+        long_window = int(self.params.get("slowPeriod") or self.params.get("long_window") or 20)
 
         if len(klines) < long_window + 1:  # 需要 prev 这一根
             return None
