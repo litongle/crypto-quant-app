@@ -111,7 +111,7 @@
           <span class="sidebar-icon-container">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </span>
-          <span class="sidebar-nav-text">日志</span>
+          <span class="sidebar-nav-text">事件</span>
         </div>
       </div>
     </nav>
@@ -135,12 +135,12 @@
       </div>
       <div class="cq-card" style="margin-bottom:var(--cq-space-5);">
         <div class="cq-section-title"><h3>策略实例</h3></div>
-        <div id="dashboard-instance-list"></div>
+        <div id="dashboard-instance-list"><div class="cq-empty-inline">加载中…</div></div>
       </div>
       <div class="cq-grid-2" style="margin-bottom:var(--cq-space-5);">
         <div class="cq-card">
           <div class="cq-section-title"><h3>实时活动</h3><span class="cq-section-meta">最近 50 条</span></div>
-          <div id="dashboard-activity-stream"></div>
+          <div id="dashboard-activity-stream"><div class="cq-empty-inline">加载中…</div></div>
         </div>
         <div class="cq-card">
           <div class="cq-section-title">
@@ -151,17 +151,17 @@
               <button class="cq-day-pill" data-days="90" onclick="changeEquityDays(90)">90天</button>
             </div>
           </div>
-          <div id="dashboard-equity-chart" style="height:240px;"></div>
+          <div id="dashboard-equity-chart" style="height:240px;"><div class="cq-empty-inline">加载中…</div></div>
         </div>
       </div>
       <div class="cq-grid-2">
         <div class="cq-card">
           <div class="cq-section-title"><h3>风险事件</h3><span class="cq-section-meta">24h</span></div>
-          <div id="dashboard-risk-events"></div>
+          <div id="dashboard-risk-events"><div class="cq-empty-inline">加载中…</div></div>
         </div>
         <div class="cq-card">
           <div class="cq-section-title"><h3>系统状态</h3></div>
-          <div id="dashboard-system-status"></div>
+          <div id="dashboard-system-status"><div class="cq-empty-inline">加载中…</div></div>
         </div>
       </div>
     </div>
@@ -316,8 +316,8 @@
 
     <div class="page-view cq-constrained" id="page-events">
       <div class="page-header">
-        <h1>日志</h1>
-        <div class="sub">平台所有日志记录（信号 / 订单 / 自停 / 风控告警 / 用户操作 / 系统），可搜索可过滤</div>
+        <h1>事件</h1>
+        <div class="sub">平台所有事件记录（信号 / 订单 / 自停 / 风控告警 / 用户操作 / 系统），可搜索可过滤</div>
       </div>
       <div class="cq-card" style="margin-bottom:var(--cq-space-4);">
         <div class="cq-event-filters">
@@ -495,7 +495,7 @@
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
 <script src="/web/static/js/api.js?v=2026-05-19b"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-17ac"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-19c"></script>
 <script src="/web/static/js/kline.js?v=2026-05-17ac"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-17ac"></script>
 <script src="/web/static/js/strategy.js?v=2026-05-17ac"></script>

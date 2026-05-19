@@ -74,11 +74,16 @@ async function refreshDashboardSlow({ silent = false } = {}) {
 
   renderRiskEvents(dashboardState.riskEvents);
 
+  const chartEl = document.getElementById('dashboard-equity-chart');
   if (equity?.points?.length) {
     renderEquityCurveChart(equity, 'dashboard-equity-chart');
+  } else if (equity === null) {
+    // API 失败(常见 502/网络抖) — 区分"无数据"与"拉失败",前者真实无数据,
+    // 后者下一个 30s polling 周期会自动重试,提示更明确避免误以为坏了
+    disposeEquityChart('dashboard-equity-chart');
+    if (chartEl) chartEl.innerHTML = '<div class="cq-empty-inline">加载失败,30 秒后自动重试</div>';
   } else {
     disposeEquityChart('dashboard-equity-chart');
-    const chartEl = document.getElementById('dashboard-equity-chart');
     if (chartEl) chartEl.innerHTML = '<div class="cq-empty-inline">暂无权益曲线数据</div>';
   }
 }
@@ -137,8 +142,13 @@ function renderRiskEvents(items) {
 function renderSystemStatus(status) {
   const container = document.getElementById('dashboard-system-status');
   if (!container) return;
-  const runner = status?.strategy_runner;
-  const exchanges = Array.isArray(status?.exchanges) ? status.exchanges : [];
+  // status 为 null(API 失败 / 冷启动还没拉)时给明确占位,避免"卡片只剩标题"
+  if (!status) {
+    container.innerHTML = '<div class="cq-empty-state cq-empty-state--compact"><p>系统状态加载中…</p></div>';
+    return;
+  }
+  const runner = status.strategy_runner;
+  const exchanges = Array.isArray(status.exchanges) ? status.exchanges : [];
   const runnerLine = runner
     ? `<div class="cq-status-list__item"><span>执行器</span><span>${runner.alive_count}/${runner.task_count} 就绪</span></div>`
     : '<div class="cq-status-list__item"><span>执行器</span><span>--</span></div>';
@@ -268,8 +278,10 @@ function parseEquityTime(raw) {
 }
 
 window.addEventListener('cq:theme-change', () => {
-  const chart = App.state.equityCharts?.['dashboard-equity-chart'];
-  if (chart?.points?.length && dashboardState.equity) {
+  // 切主题: 只要内存里有 equity 数据就 re-render (色板从 CSS var 重新读)。
+  // 之前判断 App.state.equityCharts 是否存在 — 一旦图表曾被 dispose(API 抖一次,
+  // 或者切页面后回来),缓存清空, 主题切换就再也不画了,看起来"图表消失"。
+  if (dashboardState.equity?.points?.length) {
     renderEquityCurveChart(dashboardState.equity, 'dashboard-equity-chart');
   }
 });
