@@ -66,7 +66,7 @@ async def test_execute_backtest_supports_public_template_types(template_id, para
     ):
         captured["exchange"] = exchange
         captured["market"] = market
-        return _make_klines(), False
+        return _make_klines()
 
     monkeypatch.setattr(service, "_fetch_klines", fake_fetch_klines)
 
@@ -92,7 +92,7 @@ async def test_execute_backtest_full_analysis_window_prefix(monkeypatch):
     lengths: list[int] = []
 
     async def fake_fetch_klines(*_a, **_kw):
-        return _make_klines(80), False
+        return _make_klines(80)
 
     orig_analyze = strategy_engine_mod.MAStrategy.analyze
 
@@ -125,7 +125,7 @@ async def test_execute_backtest_limited_analysis_window(monkeypatch):
     lengths: list[int] = []
 
     async def fake_fetch_klines(*_a, **_kw):
-        return _make_klines(80), False
+        return _make_klines(80)
 
     orig_analyze = strategy_engine_mod.MAStrategy.analyze
 
@@ -156,7 +156,7 @@ async def test_execute_backtest_analysis_window_from_params(monkeypatch):
     service = BacktestService()
 
     async def fake_fetch_klines(*_a, **_kw):
-        return _make_klines(80), False
+        return _make_klines(80)
 
     monkeypatch.setattr(service, "_fetch_klines", fake_fetch_klines)
 
@@ -191,7 +191,7 @@ async def test_perp_backtest_can_open_short_via_metadata(monkeypatch):
             return None
 
     async def fake_fetch(*_a, **_k):
-        return _make_klines(80), False
+        return _make_klines(80)
 
     def fake_get_strategy(_st, cfg):
         return OpenShortOnce(cfg)
@@ -232,7 +232,7 @@ async def test_perp_funding_many_periods_final_capital_nonnegative(monkeypatch):
             return None
 
     async def fake_fetch(*_a, **_k):
-        return _make_klines(200), False
+        return _make_klines(200)
 
     def fake_get_strategy(_st, cfg):
         return HoldLong(cfg)
@@ -271,7 +271,7 @@ async def test_execute_backtest_passes_perp_market_to_fetcher(monkeypatch):
         captured["symbol"] = symbol
         captured["exchange"] = exchange
         captured["market"] = market
-        return _make_klines(), False
+        return _make_klines()
 
     monkeypatch.setattr(service, "_fetch_klines", fake_fetch_klines)
 
@@ -323,7 +323,7 @@ async def test_fetch_klines_impl_uses_binance_perp_host(monkeypatch):
 
     monkeypatch.setattr(BacktestService, "_get_client", fake_get_client)
 
-    klines, is_mock = await service._fetch_klines_impl(
+    klines = await service._fetch_klines_impl(
         symbol="BTCUSDT",
         start_date="2026-01-01",
         end_date="2026-01-02",
@@ -332,7 +332,6 @@ async def test_fetch_klines_impl_uses_binance_perp_host(monkeypatch):
         market="perp",
     )
 
-    assert is_mock is False
     assert captured["url"] == "https://fapi.binance.com/fapi/v1/klines"
     assert captured["params"]["symbol"] == "BTCUSDT"
     assert klines[0]["close"] == Decimal("105")

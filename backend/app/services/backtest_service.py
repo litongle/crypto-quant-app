@@ -384,15 +384,26 @@ class BacktestService:
         else:
             interval, interval_label = self._select_interval(start_date, end_date)
 
-        # 1. 获取K线数据（_fetch_klines 内部自带45秒超时保护）
-        klines, is_mock = await self._fetch_klines(
-            symbol,
-            start_date,
-            end_date,
-            interval=interval,
-            exchange=exchange,
-            market=market,
-        )
+        # 1. 获取K线数据(_fetch_klines 内部自带 _FETCH_KLINES_TIMEOUT 超时保护)。
+        # 失败直接抛 ValueError -> 转成 user-facing error,绝不 fallback mock。
+        try:
+            klines = await self._fetch_klines(
+                symbol,
+                start_date,
+                end_date,
+                interval=interval,
+                exchange=exchange,
+                market=market,
+            )
+        except ValueError as exc:
+            return {
+                "error": str(exc),
+                "code": 4003,
+                "detail": (
+                    f"K 线获取失败: {exc} "
+                    f"(symbol={symbol}, interval={interval}, range={start_date}~{end_date})"
+                ),
+            }
         if len(klines) < 50:
             return {
                 "error": "回测数据不足，至少需要 50 根K线",
@@ -404,7 +415,7 @@ class BacktestService:
         if len(klines) > _MAX_KLINES:
             klines = klines[-_MAX_KLINES:]
 
-        data_source = "mock" if is_mock else f"{exchange}-{market}"
+        data_source = f"{exchange}-{market}"
 
         # 2. 创建策略实例
         strategy_type = _TEMPLATE_MAP.get(template_id.lower(), template_id.lower())
@@ -713,10 +724,10 @@ class BacktestService:
 
         for i in range(min_history, len(klines)):
             processed = i - min_history
-            # 每 100 根 K 线让出一次 event loop。strategy.analyze 标 async 但内部全同步,
-            # await 是假 await,主循环会把 event loop 卡死几十秒到几分钟,导致 /health、
-            # 前端 polling、新请求全部超时(unhealthy 容器健康挂掉)。sleep(0) 几乎零开销。
-            if processed > 0 and processed % 100 == 0:
+            # 每 25 根 K 线让出一次 event loop (~90ms 一次 yield),保证 polling/health
+            # 单次 RTT 不超过 100ms。strategy.analyze 标 async 但内部全同步, await 是假
+            # await, 主循环不 yield 会卡死整个 worker。sleep(0) 零开销。
+            if processed > 0 and processed % 25 == 0:
                 await asyncio.sleep(0)
             if processed > 0 and processed % progress_step == 0:
                 elapsed = time.monotonic() - engine_t0
@@ -896,27 +907,29 @@ class BacktestService:
         interval: str = "1h",
         exchange: str = "binance",
         market: str = "spot",
-    ) -> tuple[list[dict], bool]:
+    ) -> list[dict]:
         """获取历史K线数据，超时由调用方控制。
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
-        返回 (klines, is_mock)
+        失败/超时一律抛 ValueError,绝不 fallback 假数据 —— 回测必须真实历史。
         """
         try:
             return await asyncio.wait_for(
                 self._fetch_klines_impl(symbol, start_date, end_date, interval, exchange, market),
                 timeout=_FETCH_KLINES_TIMEOUT,
             )
-        except TimeoutError:
+        except TimeoutError as exc:
             logger.warning(
-                "[backtest] 获取K线超时（%d秒，%s %s %s~%s），切换为模拟数据",
+                "[backtest] 获取K线超时(%d秒,%s %s %s~%s)",
                 _FETCH_KLINES_TIMEOUT,
                 interval,
                 symbol,
                 start_date,
                 end_date,
             )
-            return self._generate_mock_klines(symbol, start_date, end_date, interval), True
+            raise ValueError(
+                f"拉取 K 线超时({_FETCH_KLINES_TIMEOUT}s),请缩小时间范围或稍后重试"
+            ) from exc
 
     async def _fetch_klines_impl(
         self,
@@ -926,7 +939,7 @@ class BacktestService:
         interval: str = "1h",
         exchange: str = "binance",
         market: str = "spot",
-    ) -> tuple[list[dict], bool]:
+    ) -> list[dict]:
         """获取历史K线数据内部实现 —— 本地缓存优先。
 
         策略：
@@ -938,14 +951,13 @@ class BacktestService:
         5. 若用户请求范围超过 cutoff，cache 完整命中也要补拉那一小段未完成 K 线（不写回 cache）
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
-        返回 (klines, is_mock)
+        失败时抛 ValueError(由调用方包装成 user-facing error),不返假数据。
         """
         try:
             start_ms = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
             end_ms = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
         except ValueError as e:
-            logger.warning("[backtest] 日期解析失败: %s，回退模拟数据", e)
-            return self._generate_mock_klines(symbol, start_date, end_date, interval), True
+            raise ValueError(f"日期格式错误,需要 YYYY-MM-DD: {e}") from e
 
         now_ms = int(datetime.now(UTC).timestamp() * 1000)
         end_ms = min(end_ms, now_ms)
@@ -998,17 +1010,17 @@ class BacktestService:
                 last_cached_ts = cached_klines[-1]["timestamp"]
                 tail_start_ms = int(last_cached_ts.timestamp() * 1000) + interval_ms
                 if tail_start_ms <= end_ms:
-                    tail_klines, _ = await self._fetch_from_rest(
+                    tail_klines = await self._fetch_from_rest(
                         symbol, tail_start_ms, end_ms, interval, exchange, market
                     )
                     cached_klines.extend(tail_klines)
-            return cached_klines[:_MAX_KLINES], False
+            return cached_klines[:_MAX_KLINES]
 
         # ===== cache miss / 部分命中：全量拉 + 写回 =====
-        all_klines, is_mock = await self._fetch_from_rest(
+        all_klines = await self._fetch_from_rest(
             symbol, start_ms, end_ms, interval, exchange, market
         )
-        if not is_mock and all_klines:
+        if all_klines:
             try:
                 rows_to_cache = [
                     {
@@ -1038,7 +1050,7 @@ class BacktestService:
                 # 缓存写失败不影响回测主流程
                 logger.warning("[backtest] 写 K 线缓存失败，忽略: %s", e)
 
-        return all_klines, is_mock
+        return all_klines
 
     @staticmethod
     def _cache_row_to_kline(row, interval_ms: int) -> dict:
@@ -1063,10 +1075,9 @@ class BacktestService:
         interval: str,
         exchange: str,
         market: str,
-    ) -> tuple[list[dict], bool]:
-        """从交易所 REST 拉 K 线（原 _fetch_klines_impl 主体）。返回 (klines, is_mock)。"""
+    ) -> list[dict]:
+        """从交易所 REST 拉 K 线（原 _fetch_klines_impl 主体）。失败抛 ValueError。"""
         all_klines: list[dict] = []
-        is_mock = False
         fetch_t0 = time.monotonic()
         page_index = 0
         try:
@@ -1153,93 +1164,22 @@ class BacktestService:
 
         except Exception as e:
             logger.warning(
-                "[backtest] 获取K线数据失败（已分页 %d 次，累计 %d 根，耗时 %.1fs）: %s，使用模拟数据",
+                "[backtest] 获取K线数据失败(已分页 %d 次,累计 %d 根,耗时 %.1fs): %s",
                 page_index,
                 len(all_klines),
                 time.monotonic() - fetch_t0,
                 e,
             )
-            # 失败时构造日期字符串走 mock —— mock 内部要用日期不要 ms
-            start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
-            end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
-            all_klines = self._generate_mock_klines(symbol, start_date_str, end_date_str, interval)
-            is_mock = True
-        else:
-            is_mock = False
-            logger.info(
-                "[backtest] 拉 K 线完成：%d 根，%d 次分页，总耗时 %.1fs",
-                len(all_klines),
-                page_index,
-                time.monotonic() - fetch_t0,
-            )
+            raise ValueError(f"交易所 API 拉 K 线失败: {e}") from e
 
-        return all_klines, is_mock
+        logger.info(
+            "[backtest] 拉 K 线完成：%d 根，%d 次分页，总耗时 %.1fs",
+            len(all_klines),
+            page_index,
+            time.monotonic() - fetch_t0,
+        )
 
-    def _generate_mock_klines(
-        self, symbol: str, start_date: str, end_date: str, interval: str = "1h"
-    ) -> list[dict]:
-        """生成模拟K线数据（降级用）
+        return all_klines
 
-        根据 interval 自动调整生成频率，总量不超过 _MAX_KLINES。
-        P3-23: 使用 zlib.crc32 代替 md5 进行确定性随机（更轻量，且不受 FIPS 限制）
-        """
-        import zlib
-
-        try:
-            start = datetime.strptime(start_date, "%Y-%m-%d")
-            end = datetime.strptime(end_date, "%Y-%m-%d")
-            days = max((end - start).days, 1)
-        except ValueError:
-            days = 90
-
-        base_prices = {
-            "BTCUSDT": 98000.0,
-            "ETHUSDT": 3200.0,
-            "SOLUSDT": 185.0,
-            "BNBUSDT": 620.0,
-            "DOGEUSDT": 0.38,
-        }
-        base = base_prices.get(symbol.upper(), 100.0)
-
-        interval_hours = {
-            "1m": 1 / 60,
-            "5m": 5 / 60,
-            "15m": 15 / 60,
-            "30m": 30 / 60,
-            "1h": 1,
-            "4h": 4,
-            "1d": 24,
-        }
-        hours_per_bar = interval_hours.get(interval, 1)
-        total_bars = min(int(days * 24 / hours_per_bar), _MAX_KLINES)
-
-        klines = []
-        current_time = start.replace(tzinfo=UTC)
-        price = base
-
-        for i in range(total_bars):
-            seed = zlib.crc32(f"{symbol}_{interval}_{i}".encode()) % 10000
-            change = ((seed / 10000.0) - 0.48) * 0.02
-            price = price * (1 + change)
-
-            open_price = price
-            high = price * (1 + abs(change) * 0.5)
-            low = price * (1 - abs(change) * 0.5)
-            close = price * (1 + ((seed % 7) - 3) * 0.001)
-            volume = base * 1000 * (1 + (seed % 5) * 0.1)
-
-            klines.append(
-                {
-                    "timestamp": current_time,
-                    "open": Decimal(str(round(open_price, 8))),
-                    "high": Decimal(str(round(high, 8))),
-                    "low": Decimal(str(round(low, 8))),
-                    "close": Decimal(str(round(close, 8))),
-                    "volume": Decimal(str(round(volume, 2))),
-                    "close_time": current_time,
-                }
-            )
-
-            current_time += timedelta(hours=hours_per_bar)
-
-        return klines
+    # _generate_mock_klines 已删除 — 回测必须用真实历史,拉失败直接抛 ValueError,
+    # 不再静默 fallback 假数据让用户误判策略表现。
