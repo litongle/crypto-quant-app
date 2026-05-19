@@ -166,6 +166,19 @@ function renderInstanceList(instances) {
         const pnlColor = pnlNum === 0
           ? 'var(--cq-text-secondary)'
           : pnlNum > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
+        // zombie 检测：status=running 但 runtimeActive=false（task 异常退出 /
+        // 等系统资源），dot 仍是绿色 + 「运行中」label，但 metric 显「闲置」—
+        // 三处自相矛盾。zombie 时整体偏红：metric 显「⚠ 执行器异常」红色
+        const isRunning = String(item.status || '').toLowerCase() === 'running';
+        const isZombie = isRunning && item.runtimeActive === false;
+        let runtimeMetric;
+        if (isZombie) {
+          runtimeMetric = '<span style="color:var(--cq-color-loss);">⚠ 执行器异常</span>';
+        } else if (item.runtimeActive) {
+          runtimeMetric = '在线';
+        } else {
+          runtimeMetric = '闲置';
+        }
         return `
           <button class="cq-instance-row" type="button" onclick="openInstanceDrawer(${item.id})" aria-label="查看实例 ${escapeHtml(item.name || `#${item.id}`)}">
             <span class="cq-instance-row__status cq-instance-row__status--${escapeHtml(item.status)}"></span>
@@ -174,7 +187,7 @@ function renderInstanceList(instances) {
               <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(getInstanceStatusLabel(item.status))}</span>
             </span>
             <span class="cq-instance-row__metric" style="color:${pnlColor};">${formatSignedPnl(item.totalPnl)}</span>
-            <span class="cq-instance-row__metric">${item.runtimeActive ? '在线' : '闲置'}</span>
+            <span class="cq-instance-row__metric">${runtimeMetric}</span>
             <span class="cq-instance-row__action">查看 →</span>
           </button>
         `;
