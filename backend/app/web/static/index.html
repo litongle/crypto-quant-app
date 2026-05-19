@@ -646,6 +646,10 @@ function showLoggedOutView() {
   document.getElementById('app-page').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
 }
+// 闲置 30 分钟 access_token 过期 + refresh 也失败时 api.js 派 cq:logged-out;
+// 之前只 dashboard.js 监听做"停 polling",UI 留在原页面看起来"自动变空白",
+// 这里补一个全局监听切回登录页(handleLogout 已主动调,事件重复 dispatch 无副作用)
+window.addEventListener('cq:logged-out', showLoggedOutView);
 
 async function handleLogin() {
   const email = document.getElementById('login-email').value.trim();
