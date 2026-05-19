@@ -34,15 +34,19 @@ function switchSettingsTab(tab) {
   document.querySelectorAll('.cq-drawer__tab[data-settings-tab]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.settingsTab === tab);
   });
+  // 切 tab 不清空 pane innerHTML — 旧实现切走时清空，下次回来要重新 fetch
+  // + 重 render，用户在 SMTP 输了一半切到 risk 再切回来，输入丢失（实测确认）。
+  // 现在只 toggle hidden，pane DOM 节点+表单状态保留。要清空全部由
+  // closeSettingsDrawer 完成（关 drawer 时清所有 panes，下次 open 拉新数据）。
+  let needLoad = false;
   document.querySelectorAll('.cq-settings-pane').forEach((pane) => {
     const active = pane.dataset.settingsPane === tab;
-    // 切走时清旧 pane innerHTML,避免依次切 5 个 tab 后所有 pane 渲染节点同时驻留(~200 节点)。
-    // 当前 active pane 由下方 loadSettingsDrawerTab(tab) 重 render(已有逻辑)。
-    if (!active) pane.innerHTML = '';
     pane.hidden = !active;
     pane.classList.toggle('is-active', active);
+    // active pane 第一次进入（空 innerHTML）才 load；之前进过保留状态
+    if (active && pane.innerHTML.trim() === '') needLoad = true;
   });
-  loadSettingsDrawerTab(tab);
+  if (needLoad) loadSettingsDrawerTab(tab);
 }
 
 async function loadSettingsDrawerTab(tab) {
