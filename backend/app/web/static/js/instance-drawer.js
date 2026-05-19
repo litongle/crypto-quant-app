@@ -92,9 +92,18 @@ function renderInstanceSummary(instance) {
   const pnlColor = pnlNum === 0
     ? 'var(--cq-text-secondary)'
     : pnlNum > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
+  // 状态着色：running 绿 / paused 黄 / stopped 灰 / draft 蓝。原版无色,
+  // 用户一眼看不出实例当前是否在跑（kn 实例列表/库卡片都给了 tag 颜色）
+  const status = String(instance.status || '').toLowerCase();
+  const statusColor = {
+    running: 'var(--cq-color-profit)',
+    paused: 'var(--cq-color-warning)',
+    stopped: 'var(--cq-text-tertiary)',
+    draft: 'var(--cq-color-info)',
+  }[status] || 'var(--cq-text-secondary)';
   return `
     <div class="cq-instance-summary__grid">
-      <div><span>状态</span><strong>${escapeHtml(getInstanceStatusLabel(instance.status))}</strong></div>
+      <div><span>状态</span><strong style="color:${statusColor};">${escapeHtml(getInstanceStatusLabel(instance.status))}</strong></div>
       <div><span>交易对</span><strong>${escapeHtml(instance.symbol || '--')}</strong></div>
       <div><span>盈亏</span><strong style="color:${pnlColor};">${formatSignedPnl(instance.totalPnl)}</strong></div>
       <div><span>启动时间</span><strong>${escapeHtml(instance.lastStartedAt ? formatEventDateTime(instance.lastStartedAt) : '--')}</strong></div>
