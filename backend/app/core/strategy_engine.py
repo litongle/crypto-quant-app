@@ -148,7 +148,11 @@ class RSIStrategy(BaseStrategy):
         if len(klines) < period + 1:
             return None
 
-        closes = [float(k["close"]) for k in klines]
+        # 性能 — 之前每次 analyze build 全 N 根 closes + smoothing loop O(N),
+        # 主循环 O(N²)。Wilder RSI 是 EMA 平滑, 6 个半衰期(period * 6)后远古数据
+        # 权重 < 0.01% 可忽略。取 period * 6 切片够精度,把 O(N²)→O(period²)。
+        window = period * 6
+        closes = [float(k["close"]) for k in klines[-window:]]
 
         # 计算变动值
         deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
@@ -207,10 +211,15 @@ class BollingerStrategy(BaseStrategy):
         period = int(self.params.get("period", 20))
         std_dev = float(self.params.get("stdDev", 2.0))
 
-        if len(klines) < period:
+        if len(klines) < period + 1:
             return None
 
-        closes = [float(k["close"]) for k in klines]
+        # 性能 — Bollinger 是 SMA + 标准差, 算 close_now/close_prev 两点上下轨
+        # 只需要末尾 period+1 根 (period 算当前+SMA, prev 用前 period 根)。
+        # 之前每次 build 全 N 根 closes + calc_bollinger 整个数组,O(N²) 在 5万根
+        # K 线上巨慢。取 period+1 切片精度无损。
+        slice_for_bb = klines[-(period + 1) :]
+        closes = [float(k["close"]) for k in slice_for_bb]
         close_now = closes[-1]
         close_prev = closes[-2]
         upper, middle, lower, pct_b = calc_bollinger(np.array(closes), period, std_dev)
