@@ -148,7 +148,13 @@ class RsiLayeredStrategy(BaseStrategy):
             return None
         self._last_kline_ts = ts
 
-        closes = np.array([float(k["close"]) for k in klines], dtype=np.float64)
+        # 性能 — calc_rsi/calc_atr 内部 O(N), 主循环 N 次 → O(N²)。
+        # numpy 比 Python 快但 5万 K 线仍要几十秒。RSI/ATR 都是 EMA 平滑,
+        # 6 个半衰期(max_period * 6)外远古数据权重 < 0.01%,精度无损。
+        max_period = max(self.rsi_period, self.atr_period)
+        window = max_period * 6
+        kl_slice = klines[-window:] if len(klines) > window else klines
+        closes = np.array([float(k["close"]) for k in kl_slice], dtype=np.float64)
         rsi_arr = calc_rsi(closes, self.rsi_period)
         if len(rsi_arr) == 0 or np.isnan(rsi_arr[-1]):
             return None
@@ -158,8 +164,8 @@ class RsiLayeredStrategy(BaseStrategy):
 
         # atr 模式: 每根 K 线刷新最新 ATR(下一次开仓会被锁定)
         if self.size_mode == "atr" and len(klines) >= self.atr_period + 1:
-            highs = np.array([float(k["high"]) for k in klines], dtype=np.float64)
-            lows = np.array([float(k["low"]) for k in klines], dtype=np.float64)
+            highs = np.array([float(k["high"]) for k in kl_slice], dtype=np.float64)
+            lows = np.array([float(k["low"]) for k in kl_slice], dtype=np.float64)
             atr_arr = calc_atr(highs, lows, closes, self.atr_period)
             if len(atr_arr) > 0 and not np.isnan(atr_arr[-1]):
                 self._latest_atr = float(atr_arr[-1])
