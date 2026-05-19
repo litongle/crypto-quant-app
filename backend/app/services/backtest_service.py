@@ -136,6 +136,17 @@ def _backtest_margin_and_sizing_params(params: dict) -> tuple[Decimal, Decimal, 
     return max_pct, imr, fr, lev
 
 
+def _iso_z(dt) -> str:
+    """ISO 8601 with Z suffix for UTC datetime. tz-aware → "+00:00" 替换成 "Z",
+    naive → 假设 UTC 直接加 Z。之前到处 `.isoformat() + "Z"` 在 tz-aware 上会
+    产出 "2024-12-11T16:00:00+00:00Z" 这种重复后缀,非标准。
+    """
+    s = dt.isoformat()
+    if s.endswith("+00:00"):
+        return s[:-6] + "Z"
+    return s + "Z"
+
+
 # templateId → strategy_type 映射
 _TEMPLATE_MAP = {
     "ma_cross": "ma",
@@ -209,7 +220,7 @@ class BacktestService:
                     "maxDrawdown": float(r.max_drawdown),
                     "winRate": float(r.win_rate),
                     "totalTrades": r.total_trades,
-                    "createdAt": r.created_at.isoformat() + "Z" if r.created_at else "",
+                    "createdAt": _iso_z(r.created_at) if r.created_at else "",
                 }
             )
         return history
@@ -322,8 +333,8 @@ class BacktestService:
             "duration": int(duration_days) if duration_days is not None else 0,
             "equityCurve": equity_curve,
             "trades": trades_raw,
-            "startTime": record.start_time.isoformat() + "Z" if record.start_time else None,
-            "endTime": record.end_time.isoformat() + "Z" if record.end_time else None,
+            "startTime": _iso_z(record.start_time) if record.start_time else None,
+            "endTime": _iso_z(record.end_time) if record.end_time else None,
         }
 
     @classmethod
@@ -878,8 +889,8 @@ class BacktestService:
                     "exitPrice": float(t.exit_price),
                     "quantity": float(t.quantity),
                     "pnl": float(round(t.pnl, 2)),
-                    "entryTime": t.entry_time.isoformat() + "Z",
-                    "exitTime": t.exit_time.isoformat() + "Z",
+                    "entryTime": _iso_z(t.entry_time),
+                    "exitTime": _iso_z(t.exit_time),
                 }
             )
 
@@ -916,8 +927,8 @@ class BacktestService:
             "duration": report.trading_days,
             "equityCurve": display_equity,
             "trades": trade_records,
-            "startTime": report.start_time.isoformat() + "Z" if report.start_time else None,
-            "endTime": report.end_time.isoformat() + "Z" if report.end_time else None,
+            "startTime": _iso_z(report.start_time) if report.start_time else None,
+            "endTime": _iso_z(report.end_time) if report.end_time else None,
             "dataSource": data_source,
             "market": market,
             "maxInvestPercent": float(max_invest_pct * 100),
