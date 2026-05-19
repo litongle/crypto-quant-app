@@ -427,9 +427,18 @@ class RuleStrategy(BaseStrategy):
 
     async def analyze(self, klines: list[dict]) -> Signal | None:
         rules = self.config.params.get("rules") or self.config.params
+        if not isinstance(rules, dict):
+            logger.warning(
+                "rule_custom params.rules 必须是 dict（含 buy_rules/sell_rules/risk），"
+                "得到 %s — 本轮分析跳过",
+                type(rules).__name__,
+            )
+            return None
         buy_rules = rules.get("buy_rules")
         sell_rules = rules.get("sell_rules")
-        risk = rules.get("risk", {})
+        risk = rules.get("risk", {}) or {}
+        if not isinstance(risk, dict):
+            risk = {}
 
         if not buy_rules and not sell_rules:
             return None
