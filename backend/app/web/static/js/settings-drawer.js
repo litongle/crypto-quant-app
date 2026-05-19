@@ -188,6 +188,20 @@ function bindTelegramForm(container) {
 function bindSmtpForm(container) {
   const form = container.querySelector('form[data-form="smtp"]');
   const status = form.querySelector('[data-status]');
+
+  // port 与 use_tls 联动：465 = SSL（勾选）；587 = STARTTLS（不勾）。
+  // 用户改 port 时自动同步 checkbox，避免「改了 port 忘改 TLS 导致连不上」
+  const portEl = form.querySelector('input[name="smtp_port"]');
+  const tlsEl = form.querySelector('input[name="smtp_use_tls"]');
+  if (portEl && tlsEl) {
+    portEl.addEventListener('change', () => {
+      const port = Number(portEl.value);
+      if (port === 465) tlsEl.checked = true;
+      else if (port === 587) tlsEl.checked = false;
+      // 其他端口保留用户当前选择
+    });
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!form.reportValidity()) return;

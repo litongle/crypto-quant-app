@@ -118,6 +118,16 @@ function syncInstanceDrawerActions(instance) {
   stopBtn.disabled = true;
 }
 
+// 价格 / 数量按值大小动态精度，避免「2180.00000000」「1.95167600」长尾 0 充字符
+//   ETH 2180 → "2180.00"；BTC 数量 0.0162 → "0.016200"；PEPE 0.000001 → "0.00000100"
+// formatBalance 由 accounts.js 提供，加载顺序保证可用
+function _fmtNum(v) {
+  if (v == null || v === '--') return '--';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return typeof formatBalance === 'function' ? formatBalance(n) : n.toString();
+}
+
 function renderInstancePositions(positions) {
   return `
     <div class="cq-section-title"><h3>持仓</h3></div>
@@ -130,9 +140,9 @@ function renderInstancePositions(positions) {
               <tr>
                 <td>${escapeHtml(position.symbol)}</td>
                 <td>${escapeHtml(getOrderSideLabel(position.side))}</td>
-                <td class="cq-num">${escapeHtml(position.quantity)}</td>
-                <td class="cq-num">${escapeHtml(position.entryPrice ?? position.entry_price ?? '--')}</td>
-                <td class="cq-num">${escapeHtml(position.currentPrice ?? position.current_price ?? '--')}</td>
+                <td class="cq-num">${escapeHtml(_fmtNum(position.quantity))}</td>
+                <td class="cq-num">${escapeHtml(_fmtNum(position.entryPrice ?? position.entry_price))}</td>
+                <td class="cq-num">${escapeHtml(_fmtNum(position.currentPrice ?? position.current_price))}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -153,8 +163,8 @@ function renderInstanceOrders(events) {
               <tr>
                 <td>${escapeHtml(item.createdAt ? formatEventDateTime(item.createdAt) : '--')}</td>
                 <td>${escapeHtml(getOrderSideLabel(item.side))}</td>
-                <td class="cq-num">${escapeHtml(item.filledQuantity || item.quantity || '--')}</td>
-                <td class="cq-num">${escapeHtml(item.avgFillPrice || item.price || '--')}</td>
+                <td class="cq-num">${escapeHtml(_fmtNum(item.filledQuantity || item.quantity))}</td>
+                <td class="cq-num">${escapeHtml(_fmtNum(item.avgFillPrice || item.price))}</td>
                 <td>${escapeHtml(getOrderStatusLabel(item.status))}</td>
               </tr>
             `).join('')}
