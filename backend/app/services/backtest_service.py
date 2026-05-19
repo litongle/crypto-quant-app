@@ -1057,10 +1057,11 @@ class BacktestService:
             "dataSource": data_source,
             "market": market,
             "maxInvestPercent": float(max_invest_pct * 100),
-            "leverage": leverage_used,
-            "initialMarginRate": float(initial_margin_rate),
-            "fundingRate8h": float(funding_rate_8h),
-            "fundingFeeTotal": float(round(funding_total_paid, 2)),
+            # spot 没有杠杆/资金费概念，输出 None 让前端 detail 卡正确隐藏 perp-only 行
+            "leverage": leverage_used if market == "perp" else None,
+            "initialMarginRate": float(initial_margin_rate) if market == "perp" else None,
+            "fundingRate8h": float(funding_rate_8h) if market == "perp" else None,
+            "fundingFeeTotal": (float(round(funding_total_paid, 2)) if market == "perp" else None),
             "warning": (
                 "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None
             ),
