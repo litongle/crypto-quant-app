@@ -181,6 +181,7 @@ async function instanceDrawerStop() {
   if (instanceDrawerState.instance.status === 'stopped') return;
   try {
     await api.stopStrategy(instanceDrawerState.instance.id);
+    showToast('策略已停止', 'success');
     closeInstanceDrawer();
     if (_currentPage === 'dashboard') await loadDashboard();
   } catch (err) {

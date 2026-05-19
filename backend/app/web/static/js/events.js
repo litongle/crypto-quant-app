@@ -97,13 +97,27 @@
     renderEventsPagination();
   }
 
+  // 展开/折叠纯前端切换 — 不再回头拉接口（旧实现 refreshEventsPage 重渲染列表
+   //   导致 skeleton 闪一下 + 浪费一次请求）。state 仍记一份，给 jumpToOrderEvent
+   //   预先标记目标卡片用。
   function toggleEventDetail(id) {
     if (eventsPageState.expandedIds.has(id)) {
       eventsPageState.expandedIds.delete(id);
     } else {
       eventsPageState.expandedIds.add(id);
     }
-    refreshEventsPage().catch((err) => console.error('[events] toggle refresh failed:', err));
+    const card = document.getElementById(_eventDomId(id));
+    if (!card) {
+      // 目标卡不在 DOM（例如 jumpToOrderEvent 在 reload 前预标记）— 等下一次 render 时由 state 自动展开
+      return;
+    }
+    const wrap = card.querySelector('.cq-log-card__detail-wrap');
+    const btn = card.querySelector('.cq-log-card__toggle');
+    if (!wrap || !btn) return;
+    const willExpand = eventsPageState.expandedIds.has(id);
+    wrap.hidden = !willExpand;
+    btn.textContent = willExpand ? '收起' : '展开详情';
+    btn.setAttribute('aria-expanded', String(willExpand));
   }
 
   function renderEventsResults(items) {
@@ -131,6 +145,7 @@
     const severity = item.severity || 'info';
     const detail = item.detail && typeof item.detail === 'object' ? item.detail : {};
     const hasDetail = Object.keys(detail).length > 0;
+    // detail 永远渲染（即使 collapsed），用 hidden 控制显隐 — toggle 无需 re-fetch
     return `
       <article id="${escapeHtml(_eventDomId(id))}" class="cq-log-card cq-log-card--sev-${escapeHtml(severity)}">
         <header class="cq-log-card__head">
@@ -143,8 +158,8 @@
         </header>
         <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
         ${hasDetail ? `
-          <button class="cq-log-card__toggle" type="button" data-event-id="${escapeHtml(id)}" onclick="toggleEventDetailFromBtn(this)">${expanded ? '收起' : '展开详情'}</button>
-          ${expanded ? renderEventDetail(detail) : ''}
+          <button class="cq-log-card__toggle" type="button" data-event-id="${escapeHtml(id)}" aria-expanded="${expanded ? 'true' : 'false'}" onclick="toggleEventDetailFromBtn(this)">${expanded ? '收起' : '展开详情'}</button>
+          <div class="cq-log-card__detail-wrap"${expanded ? '' : ' hidden'}>${renderEventDetail(detail)}</div>
         ` : ''}
       </article>
     `;
@@ -153,14 +168,13 @@
   // 点信号 detail 里的"关联订单" chip → 滚到对应 order 卡片。
   // 关联订单事件可能不在当前页/被筛选掉,要按 type 分两种处理:
   //   1. 已在 DOM 里 → scrollIntoView + 高亮
-  //   2. 不在 → 提示用户当前筛选/分页排除了它,给个"跳转过去"快捷操作
+  //   2. 不在 → 强切筛选到 type=order + 30d 后重载，再找一次。toast 告诉用户
   async function jumpToOrderEvent(orderId) {
     try {
       const targetId = _eventDomId('order:' + orderId);
       let el = document.getElementById(targetId);
       if (!el) {
-        // 当前列表里没有 — 尝试清类型筛选 + 切到全时间窗 + 翻页找。简单做法:
-        // 把类型清成 'order',强制 since='30d',重载后再找一次。
+        // 当前列表里没有 — 强切类型 + 时间窗。告知用户避免"筛选条件被神秘改了"
         const typeEl = document.getElementById('events-filter-type');
         const sevEl = document.getElementById('events-filter-severity');
         const sinceEl = document.getElementById('events-filter-since');
@@ -168,11 +182,16 @@
         if (sevEl) sevEl.value = '';
         if (sinceEl) sinceEl.value = '30d';
         eventsPageState.expandedIds.add('order:' + orderId);  // 自动展开目标
+        if (typeof showToast === 'function') {
+          showToast('已切换到「订单 · 最近 30 天」筛选以定位该订单', 'info');
+        }
         await reloadEvents();
         el = document.getElementById(targetId);
       }
       if (!el) {
-        alert(`未找到订单 #${orderId} 的事件，可能已超出 30 天范围或被删除`);
+        if (typeof showToast === 'function') {
+          showToast(`未找到订单 #${orderId} 的事件，可能已超出 30 天范围或被删除`, 'warn');
+        }
         return;
       }
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -217,9 +236,16 @@
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
       .map(([k, v]) => {
         const label = _EVENT_DETAIL_LABELS[k] || k;
-        const value = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        const isObj = v !== null && typeof v === 'object';
+        // 嵌套对象（如 metrics）格式化两空格缩进，单值直接 toString。
+        const value = isObj ? JSON.stringify(v, null, 2) : String(v);
         const isOrderLink = k === 'order_id';
-        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${isOrderLink ? `<button type="button" class="cq-log-card__link" data-order-id="${escapeHtml(value)}" onclick="event.stopPropagation();jumpToOrderEventFromBtn(this)">#${escapeHtml(value)} ↗</button>` : escapeHtml(value)}</span></div>`;
+        const valueHtml = isObj
+          ? `<pre class="cq-log-card__json">${escapeHtml(value)}</pre>`
+          : isOrderLink
+            ? `<button type="button" class="cq-log-card__link" data-order-id="${escapeHtml(value)}" onclick="event.stopPropagation();jumpToOrderEventFromBtn(this)">#${escapeHtml(value)} ↗</button>`
+            : escapeHtml(value);
+        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${valueHtml}</span></div>`;
       }).join('');
     return rows ? `<div class="cq-log-card__detail">${rows}</div>` : '';
   }
@@ -228,10 +254,15 @@
     const container = document.getElementById('events-pagination');
     if (!container) return;
     const totalPages = Math.max(1, Math.ceil(eventsPageState.total / eventsPageState.limit));
+    // 单页就别画分页 — 0 数据时显示「第 1/1 页」纯噪音
+    if (totalPages <= 1) {
+      container.innerHTML = '';
+      return;
+    }
     container.innerHTML = `
       <div class="cq-event-pagination">
         <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="changeEventsPage(-1)" ${eventsPageState.page <= 1 ? 'disabled' : ''}>上一页</button>
-        <span>第 ${eventsPageState.page} / ${totalPages} 页</span>
+        <span>第 ${eventsPageState.page} / ${totalPages} 页（共 ${eventsPageState.total} 条）</span>
         <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="changeEventsPage(1)" ${eventsPageState.page >= totalPages ? 'disabled' : ''}>下一页</button>
       </div>
     `;
@@ -241,6 +272,21 @@
     const totalPages = Math.max(1, Math.ceil(eventsPageState.total / eventsPageState.limit));
     eventsPageState.page = Math.min(totalPages, Math.max(1, eventsPageState.page + delta));
     refreshEventsPage().catch((err) => console.error('[events] pagination refresh failed:', err));
+  }
+
+  // 清空所有筛选回到默认（type/severity 清空、since=24h、query 清空、不显示 system）
+  function clearEventsFilters() {
+    const typeEl = document.getElementById('events-filter-type');
+    const sevEl = document.getElementById('events-filter-severity');
+    const sinceEl = document.getElementById('events-filter-since');
+    const queryEl = document.getElementById('events-filter-q');
+    const sysEl = document.getElementById('events-filter-show-system');
+    if (typeEl) typeEl.value = '';
+    if (sevEl) sevEl.value = '';
+    if (sinceEl) sinceEl.value = '24h';
+    if (queryEl) queryEl.value = '';
+    if (sysEl) sysEl.checked = false;
+    reloadEvents().catch((err) => console.error('[events] clearEventsFilters reload failed:', err));
   }
 
   // 走 data-* 而非 inline 字符串参数:onclick 是 HTML attribute,浏览器解码一次
@@ -267,6 +313,7 @@
   window.toggleEventDetail = toggleEventDetail;
   window.jumpToOrderEvent = jumpToOrderEvent;
   window.changeEventsPage = changeEventsPage;
+  window.clearEventsFilters = clearEventsFilters;
   window.toggleEventDetailFromBtn = toggleEventDetailFromBtn;
   window.jumpToOrderEventFromBtn = jumpToOrderEventFromBtn;
   window.openInstanceDrawerFromBtn = openInstanceDrawerFromBtn;

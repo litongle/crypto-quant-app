@@ -158,10 +158,13 @@ function normalizeWorkspaceState(instance) {
 
   if (status === 'running' && instance.runtimeActive === false) return 'library';
   if (status === 'running') return 'running';
+  // status 已落到 paused/stopped/idle = 运行时事实,workspaceState 此时是
+  // 历史标签(上次启动留下的"running"),不能覆盖真实状态 — 否则会出现
+  // 「已暂停」tag + 「本次运行 X 时 Y 分」语义打架(iter 0b9b477+ 用户主诉)。
+  if (status === 'paused' || status === 'stopped' || status === 'idle') return 'library';
   if (['draft', 'editing', 'workbench', 'workspace', 'drafts'].includes(workspaceState)) return 'draft';
   if (['running', 'active', 'live'].includes(workspaceState)) return 'running';
   if (['library', 'saved', 'warehouse', 'catalog'].includes(workspaceState)) return 'library';
-  if (status === 'paused' || status === 'stopped' || status === 'idle') return 'library';
   return 'library';
 }
 

@@ -144,18 +144,23 @@ function renderInstanceList(instances) {
   container.innerHTML = `
     <div class="cq-instance-table">
       ${instances.map((item) => {
-        const canStop = item.status === 'running' || item.status === 'paused';
-        const stopLabel = item.status === 'stopped' ? '恢复' : item.status === 'paused' ? '恢复' : '暂停';
+        // 全行点击 → 打开 drawer（drawer 内才有真正的暂停/停止按钮）。
+        //   旧实现在最右侧画「暂停 / 恢复」label 像按钮，但点了只能开抽屉，
+        //   误导用户以为快捷操作。统一文案为「查看 →」消除歧义。
+        const pnlNum = Number(item.totalPnl || 0);
+        const pnlColor = pnlNum === 0
+          ? 'var(--cq-text-secondary)'
+          : pnlNum > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)';
         return `
-          <button class="cq-instance-row" type="button" onclick="openInstanceDrawer(${item.id})">
+          <button class="cq-instance-row" type="button" onclick="openInstanceDrawer(${item.id})" aria-label="查看实例 ${escapeHtml(item.name || `#${item.id}`)}">
             <span class="cq-instance-row__status cq-instance-row__status--${escapeHtml(item.status)}"></span>
             <span class="cq-instance-row__main">
               <span class="cq-instance-row__title">${escapeHtml(item.name || item.templateName || `实例 #${item.id}`)}</span>
               <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(getInstanceStatusLabel(item.status))}</span>
             </span>
-            <span class="cq-instance-row__metric">${formatSignedPnl(item.totalPnl)}</span>
+            <span class="cq-instance-row__metric" style="color:${pnlColor};">${formatSignedPnl(item.totalPnl)}</span>
             <span class="cq-instance-row__metric">${item.runtimeActive ? '在线' : '闲置'}</span>
-            <span class="cq-instance-row__action">${canStop ? stopLabel : '查看'}</span>
+            <span class="cq-instance-row__action">查看 →</span>
           </button>
         `;
       }).join('')}

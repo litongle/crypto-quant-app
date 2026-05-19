@@ -3725,3 +3725,20 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   font-variant-numeric: tabular-nums;
 }
 
+/* 嵌套对象（如 metrics）的 pretty-printed JSON — 多行可读不挤一坨 */
+.cq-log-card__json {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--cq-bg-l2);
+  border: 1px solid var(--cq-border-subtle);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--cq-text-secondary);
+  max-height: 240px;
+  overflow: auto;
+}
+

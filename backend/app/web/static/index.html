@@ -15,7 +15,7 @@
 <link rel="apple-touch-icon" href="/web/static/icons/icon.svg">
 <script src="/web/static/vendor/lightweight-charts.standalone.production.min.js?v=2026-05-18a"></script>
 <script src="/web/static/vendor/qrcode.min.js?v=2026-05-18a"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-20a">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-20q">
 </head>
 <body>
 
@@ -348,6 +348,7 @@
             <input type="checkbox" id="events-filter-show-system" onchange="reloadEvents()">
             <span>显示系统事件</span>
           </label>
+          <button class="cq-btn cq-btn--secondary" onclick="clearEventsFilters()" title="清空筛选条件">清空筛选</button>
           <button class="cq-btn cq-btn--secondary" onclick="reloadEvents()">刷新</button>
         </div>
       </div>
@@ -461,7 +462,7 @@
     <div class="cq-dialog__body">
       <div id="danger-confirm-body"></div>
       <div style="margin-top:var(--cq-space-3);">
-        <label class="cq-label" for="danger-confirm-input">输入 <code style="background:var(--cq-bg-l2);padding:2px 6px;border-radius:3px;font-weight:700;color:var(--cq-color-loss);">DELETE</code> 确认</label>
+        <label class="cq-label" for="danger-confirm-input">输入 <code id="danger-confirm-keyword" style="background:var(--cq-bg-l2);padding:2px 6px;border-radius:3px;font-weight:700;color:var(--cq-color-loss);">DELETE</code> 确认</label>
         <input type="text" class="cq-input" id="danger-confirm-input" placeholder="输入 DELETE 确认" autocomplete="off">
       </div>
     </div>
@@ -495,17 +496,17 @@
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
 <script src="/web/static/js/api.js?v=2026-05-19l"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-19d"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-20q"></script>
 <script src="/web/static/js/kline.js?v=2026-05-17ac"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-19t"></script>
-<script src="/web/static/js/strategy.js?v=2026-05-17ac"></script>
+<script src="/web/static/js/strategy.js?v=2026-05-20q"></script>
 <script src="/web/static/js/backtest.js?v=2026-05-20p"></script>
-<script src="/web/static/js/accounts.js?v=2026-05-17ac"></script>
-<script src="/web/static/js/paper.js?v=2026-05-17ac"></script>
+<script src="/web/static/js/accounts.js?v=2026-05-20q"></script>
+<script src="/web/static/js/paper.js?v=2026-05-20q"></script>
 <script src="/web/static/js/settings-drawer.js?v=2026-05-17ac"></script>
-<script src="/web/static/js/instance-drawer.js?v=2026-05-17ac"></script>
-<script src="/web/static/js/events.js?v=2026-05-17ac"></script>
-<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-17ac"></script>
+<script src="/web/static/js/instance-drawer.js?v=2026-05-20q"></script>
+<script src="/web/static/js/events.js?v=2026-05-20q"></script>
+<script src="/web/static/js/instance-logs-drawer.js?v=2026-05-20q"></script>
 <script>
 // ===== 侧栏切换 =====
 const _isMobile = () => window.matchMedia('(max-width: 768px)').matches;
@@ -719,17 +720,26 @@ async function enterApp() {
 
 // ===== 危险操作确认弹窗 =====
 let _dangerResolve = null;
+let _dangerKeyword = 'DELETE';
 let _workbenchLeaveResolve = null;
 
-function confirmDangerous(title, bodyHtml) {
+// 第三个参数 options: { keyword: 'DELETE', confirmLabel: '确认删除' }
+// 让平仓 / 重置等非删除操作也能复用此弹窗而不再误导用户输入 DELETE
+function confirmDangerous(title, bodyHtml, options = {}) {
   return new Promise(resolve => {
     _dangerResolve = resolve;
+    _dangerKeyword = (options.keyword || 'DELETE').toUpperCase();
+    const confirmLabel = options.confirmLabel || '确认删除';
     const dialog = document.getElementById('danger-confirm-dialog');
     document.getElementById('danger-confirm-title').textContent = title;
     document.getElementById('danger-confirm-body').innerHTML = bodyHtml;
+    const kwEl = document.getElementById('danger-confirm-keyword');
+    if (kwEl) kwEl.textContent = _dangerKeyword;
     const input = document.getElementById('danger-confirm-input');
-    const btn = document.getElementById('danger-confirm-btn');
+    input.placeholder = `输入 ${_dangerKeyword} 确认`;
     input.value = '';
+    const btn = document.getElementById('danger-confirm-btn');
+    btn.textContent = confirmLabel;
     btn.disabled = true;
     dialog.classList.add('is-visible');
     input.focus();
@@ -766,10 +776,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (input) {
     input.addEventListener('input', () => {
       const btn = document.getElementById('danger-confirm-btn');
-      btn.disabled = input.value.trim() !== 'DELETE';
+      btn.disabled = input.value.trim() !== _dangerKeyword;
     });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && input.value.trim() === 'DELETE') {
+      if (e.key === 'Enter' && input.value.trim() === _dangerKeyword) {
         closeDangerConfirm(true);
       }
     });

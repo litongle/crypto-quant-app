@@ -431,7 +431,8 @@ async function confirmClosePosition(positionId, isStrategy, strategyName) {
        </div>`;
   const confirmed = await confirmDangerous(
     '确认平仓？',
-    `${warn}<p style="color:var(--cq-text-secondary);">本操作不可撤销，需输入 <code>confirm</code> 确认。</p>`
+    `${warn}<p style="color:var(--cq-text-secondary);">本操作不可撤销。</p>`,
+    { keyword: 'CLOSE', confirmLabel: '确认平仓' }
   );
   if (!confirmed) return;
   try {

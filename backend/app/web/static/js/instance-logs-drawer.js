@@ -140,8 +140,13 @@
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
       .map(([k, v]) => {
         const label = _LOG_DETAIL_LABELS[k] || k;
-        const value = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${escapeHtml(value)}</span></div>`;
+        const isObj = v !== null && typeof v === 'object';
+        // 嵌套对象（如 metrics）pretty-print 多行展示，避免大对象挤成一坨
+        const value = isObj ? JSON.stringify(v, null, 2) : String(v);
+        const valueHtml = isObj
+          ? `<pre class="cq-log-card__json">${escapeHtml(value)}</pre>`
+          : escapeHtml(value);
+        return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${valueHtml}</span></div>`;
       }).join('');
 
     return `

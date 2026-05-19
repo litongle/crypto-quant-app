@@ -103,7 +103,8 @@ function resetPaperAccountFromBtn(btn) {
 async function resetPaperAccount(accountId, accountName) {
   const confirmed = await confirmDangerous(
     `重置模拟盘：${accountName}`,
-    '<p style="color:var(--cq-text-secondary);line-height:1.7;">重置会清空这个模拟盘账户的当前虚拟仓位与余额，并恢复到系统默认初始资金。</p>'
+    '<p style="color:var(--cq-text-secondary);line-height:1.7;">重置会清空这个模拟盘账户的当前虚拟仓位与余额，并恢复到系统默认初始资金。</p>',
+    { keyword: 'RESET', confirmLabel: '确认重置' }
   );
   if (!confirmed) return;
 
