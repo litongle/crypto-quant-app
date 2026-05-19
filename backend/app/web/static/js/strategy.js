@@ -687,6 +687,10 @@ async function ensureWorkbenchFormInfra() {
 }
 
 async function quickLaunchTemplate(templateId) {
+  // 点同模板按钮：当前工作台已经是这个模板（不在编辑某 draft）→ noop。
+  // 旧实现会问「切换模板将丢失改动」误导（用户没在切换），或者直接 reset
+  // 表单丢失参数（无改动时无提示）。两种都不对。
+  if (selectedTemplateId === templateId && !App.state.editingInstanceId) return;
   if (!await ensureWorkbenchCanLeave('切换模板将丢失当前未保存的修改，确定继续吗？')) return;
   return openTemplateWorkbench(templateId);
 }
