@@ -605,7 +605,11 @@ async function navigate(page, pushRoute = true) {
 
   closeSidebar();
 
-  closeInstanceDrawer();
+  // 三个右侧抽屉切页时一并关闭，避免「切到 events 后 settings drawer 还盖着」
+  // 这种孤悬覆盖层（drawer 跟页面无绑定，但视觉上挂在前一页上下文里）
+  if (typeof closeInstanceDrawer === 'function') closeInstanceDrawer();
+  if (typeof closeInstanceLogsDrawer === 'function') closeInstanceLogsDrawer();
+  if (typeof closeSettingsDrawer === 'function') closeSettingsDrawer();
 
   // 任何路由切换先无条件停 dashboard polling；loadDashboard 内部会重新启动。
   // 这样以后新增页面时不会因为忘记加 stop 分支导致 polling 泄漏。
