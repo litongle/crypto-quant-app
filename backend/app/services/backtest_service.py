@@ -548,6 +548,11 @@ class BacktestService:
             EquityPoint(timestamp=klines[0]["timestamp"], equity=initial_capital)
         ]
 
+        # 策略给的固定 USDT 仓位预算 (DCA 用 invest_per_trade, Martingale 等可扩展);
+        # 不为 None 时覆盖 max_invest_pct × capital 默认预算。
+        # 策略通过 Signal.metadata["invest_amount"] 设置, process_signal 转存到这里
+        _strategy_budget_hint: Decimal | None = None
+
         # 初始展示点
         display_equity.append(
             {
@@ -591,7 +596,12 @@ class BacktestService:
 
         def do_open_long(exec_price: Decimal, entry_time: datetime) -> None:
             nonlocal capital, position, trades
-            budget = capital * max_invest_pct
+            # 策略 hint (DCA invest_amount) 优先, 否则按 max_invest_pct
+            budget = (
+                min(_strategy_budget_hint, capital)
+                if _strategy_budget_hint is not None and _strategy_budget_hint > 0
+                else capital * max_invest_pct
+            )
             quantity = budget / exec_price
             notional = quantity * exec_price
             commission = notional * taker_fee
@@ -609,7 +619,12 @@ class BacktestService:
 
         def do_open_short(exec_price: Decimal, entry_time: datetime) -> None:
             nonlocal capital, position, trades
-            budget = capital * max_invest_pct
+            # 策略 hint (DCA invest_amount) 优先, 否则按 max_invest_pct
+            budget = (
+                min(_strategy_budget_hint, capital)
+                if _strategy_budget_hint is not None and _strategy_budget_hint > 0
+                else capital * max_invest_pct
+            )
             quantity = budget / exec_price
             notional = quantity * exec_price
             commission = notional * taker_fee
@@ -630,7 +645,12 @@ class BacktestService:
             pos = position
             if pos is None or pos["side"] != "long":
                 return
-            budget = capital * max_invest_pct
+            # 策略 hint (DCA invest_amount) 优先, 否则按 max_invest_pct
+            budget = (
+                min(_strategy_budget_hint, capital)
+                if _strategy_budget_hint is not None and _strategy_budget_hint > 0
+                else capital * max_invest_pct
+            )
             new_qty = budget / exec_price
             new_notional = new_qty * exec_price
             commission = new_notional * taker_fee
@@ -650,7 +670,12 @@ class BacktestService:
             pos = position
             if pos is None or pos["side"] != "short":
                 return
-            budget = capital * max_invest_pct
+            # 策略 hint (DCA invest_amount) 优先, 否则按 max_invest_pct
+            budget = (
+                min(_strategy_budget_hint, capital)
+                if _strategy_budget_hint is not None and _strategy_budget_hint > 0
+                else capital * max_invest_pct
+            )
             new_qty = budget / exec_price
             new_notional = new_qty * exec_price
             commission = new_notional * taker_fee
@@ -666,7 +691,19 @@ class BacktestService:
             capital -= new_mlocked + commission
 
         def process_signal(sig: Signal | None) -> None:
-            nonlocal capital, position, trades
+            nonlocal capital, position, trades, _strategy_budget_hint
+            # 解析策略给的固定 USDT 预算 (DCA invest_per_trade 等), 让 do_open_*/
+            # do_add_* 优先用它而非 max_invest_pct。None / 缺失则继续按比例下单。
+            _strategy_budget_hint = None
+            if sig is not None and sig.metadata:
+                raw_hint = sig.metadata.get("invest_amount")
+                if raw_hint is not None:
+                    try:
+                        hint_val = Decimal(str(raw_hint))
+                        if hint_val > 0:
+                            _strategy_budget_hint = hint_val
+                    except (TypeError, ValueError):
+                        pass
             if sig is None:
                 return
             meta = sig.metadata or {}
