@@ -764,17 +764,27 @@ function renderBacktestResults(result) {
     </div>
 
     <!-- 交易明细表 -->
-    ${trades.length > 0 ? `
+    ${trades.length > 0 ? (() => {
+      // 缓存完整 trades 给 CSV 导出（避免从 DOM 重新提取丢失精度）
+      App.state.lastBacktestTrades = trades;
+      // 表只渲染最近 200 行避免 5000+ 笔 DOM 卡顿；CSV 导出仍用完整
+      const _displayLimit = 200;
+      const _displayTrades = trades.length > _displayLimit ? trades.slice(-_displayLimit) : trades;
+      const _displayOffset = trades.length - _displayTrades.length;  // 第 1 行的实际 trade 编号
+      const _tagText = trades.length > _displayLimit
+        ? `表内最近 ${_displayLimit} / 完整 ${trades.length} 笔`
+        : `${trades.length} 笔`;
+      return `
     <div class="cq-card cq-trades-detail">
       <div class="cq-metrics-detail__header" onclick="this.parentElement.classList.toggle('is-collapsed')">
         <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span style="font-size:var(--cq-text-md);font-weight:600;">交易明细</span>
-          <span class="cq-tag cq-tag--neutral" style="margin-left:var(--cq-space-1);" title="${trades.length < totalTrades ? `仅展示最近 ${trades.length} 笔，总交易 ${totalTrades} 笔` : ''}">${trades.length < totalTrades ? `最近 ${trades.length} / ${totalTrades}` : `${trades.length}`} 笔</span>
+          <span class="cq-tag cq-tag--neutral" style="margin-left:var(--cq-space-1);" title="${trades.length > _displayLimit ? `表里渲染最近 ${_displayLimit} 行避免性能问题；导出 CSV 可获取完整 ${trades.length} 笔` : ''}">${_tagText}</span>
         </div>
         <div style="display:flex;align-items:center;gap:var(--cq-space-2);" onclick="event.stopPropagation();">
-          <button class="cq-btn cq-btn--ghost cq-btn--sm" type="button" onclick="downloadTradesCsv(event)" title="导出当前 ${trades.length} 笔交易为 CSV" style="font-size:var(--cq-text-xs);padding:4px 10px;">
-            导出 CSV
+          <button class="cq-btn cq-btn--ghost cq-btn--sm" type="button" onclick="downloadTradesCsv(event)" title="导出完整 ${trades.length} 笔交易为 CSV" style="font-size:var(--cq-text-xs);padding:4px 10px;">
+            导出 CSV (${trades.length} 笔)
           </button>
           <svg class="cq-metrics-detail__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </div>
@@ -795,7 +805,8 @@ function renderBacktestResults(result) {
             </tr>
           </thead>
           <tbody>
-            ${trades.map((t, i) => {
+            ${_displayTrades.map((t, idx) => {
+              const i = _displayOffset + idx;
               const pnl = t.pnl ?? 0;
               const sideLabel = t.side === 'long' ? '多' : '空';
               const sideClass = t.side === 'long' ? 'cq-tag--profit' : 'cq-tag--loss';
@@ -834,13 +845,13 @@ function renderBacktestResults(result) {
           </tbody>
         </table>
         </div>
-        ${trades.length < totalTrades ? `
+        ${trades.length > _displayLimit ? `
         <div style="margin-top:var(--cq-space-3);padding:var(--cq-space-3);background:var(--cq-bg-subtle);border-radius:var(--cq-radius);font-size:var(--cq-text-xs);color:var(--cq-text-secondary);line-height:1.6;">
-          ⓘ 此回测共 <strong>${totalTrades}</strong> 笔交易，为减少存储仅保留最近 <strong>${trades.length}</strong> 笔。
-          需要完整明细请缩短回测窗口或选更短周期重跑（确保总笔数 ≤ 100）。已显示部分可点「导出 CSV」保存。
+          ⓘ 共 <strong>${trades.length}</strong> 笔交易，表内只渲染最近 <strong>${_displayLimit}</strong> 行避免页面卡顿。点击右上「导出 CSV」可获取完整 ${trades.length} 笔。
         </div>` : ''}
       </div>
-    </div>` : ''}`;
+    </div>`;
+    })() : ''}`;
 
   const points = result.equityCurve || result.points || [];
   if (points.length > 0) {
@@ -1116,31 +1127,28 @@ async function viewBacktestDetail(id) {
 
 window.viewBacktestDetail = viewBacktestDetail;
 
-/** 导出当前 detail 卡的 trades 列表为 CSV（最多 100 笔，受 backend 持久化上限限制）。 */
+/** 导出当前回测的完整 trades 列表为 CSV。用 App.state.lastBacktestTrades 完整数据
+ *  (不从 DOM 提取，因为 DOM 只渲染最近 200 行)。 */
 function downloadTradesCsv(ev) {
   if (ev) ev.stopPropagation();
-  const rows = Array.from(document.querySelectorAll('.cq-trades-table tbody tr'));
-  if (!rows.length) { showToast('当前没有可导出的交易', 'warn'); return; }
-  const header = ['序号', '方向', '加仓', '开仓价', '平仓价', '数量', '盈亏', '开仓时间(UTC)', '平仓时间(UTC)'];
+  const trades = App.state.lastBacktestTrades || [];
+  if (!trades.length) { showToast('当前没有可导出的交易', 'warn'); return; }
+  const header = ['序号', '方向', '加仓次数', '开仓价', '平仓价', '数量', '盈亏(USDT)', '开仓时间(UTC)', '平仓时间(UTC)'];
+  const fmt = (v) => v == null ? '' : String(v);
   const csvRows = [header.join(',')];
-  for (const r of rows) {
-    const cells = Array.from(r.querySelectorAll('td'));
-    if (cells.length < 8) continue;
-    // 方向列含「多/空 +N」tag — 拆解
-    const sideText = cells[1].querySelector('.cq-tag:not([class*="neutral"])')?.textContent?.trim() || '';
-    const addsText = cells[1].querySelector('.cq-tag--neutral')?.textContent?.trim() || '';
+  trades.forEach((t, i) => {
     csvRows.push([
-      cells[0].textContent.trim(),
-      sideText,
-      addsText,
-      cells[2].textContent.trim(),
-      cells[3].textContent.trim(),
-      cells[4].textContent.trim(),
-      cells[5].textContent.trim(),
-      cells[6].textContent.trim(),
-      cells[7].textContent.trim(),
-    ].map(c => `"${c.replace(/"/g, '""')}"`).join(','));
-  }
+      i + 1,
+      t.side === 'long' ? '多' : t.side === 'short' ? '空' : (t.side || ''),
+      t.adds || 0,
+      fmt(t.entryPrice),
+      fmt(t.exitPrice),
+      fmt(t.quantity),
+      fmt(t.pnl),
+      (t.entryTime || '').replace('T', ' ').replace('Z', ''),
+      (t.exitTime || '').replace('T', ' ').replace('Z', ''),
+    ].map(c => `"${String(c).replace(/"/g, '""')}"`).join(','));
+  });
   const blob = new Blob(['﻿' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1150,7 +1158,7 @@ function downloadTradesCsv(ev) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast(`已导出 ${rows.length} 笔交易`, 'success');
+  showToast(`已导出 ${trades.length} 笔交易`, 'success');
 }
 window.downloadTradesCsv = downloadTradesCsv;
 

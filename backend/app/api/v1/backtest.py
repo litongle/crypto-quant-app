@@ -238,16 +238,18 @@ async def _save_backtest_history(
     """保存回测结果到数据库（单事务，失败自动回滚）"""
     from app.models.backtest import BacktestResult
 
-    # 数据校验：防超限（TEXT 字段上限约 65535）
-    max_field_len = 65535
+    # PG/SQLite TEXT 字段无硬上限（理论 1 GB）。MySQL 64KB 才需要截，但本项目不支持
+    # MySQL 部署。这里仍保留 4 MB 兜底防极端 case（1 万笔以上回测产生超大 JSON 拖慢
+    # 历史 list 查询），但比之前 64KB 宽松 64 倍，覆盖 ~2 万笔 trades。
+    max_field_len = 4 * 1024 * 1024  # 4 MB
     equity_curve_str = json.dumps(result.get("equityCurve", []))
     trades_str = json.dumps(result.get("trades", []))
     if len(equity_curve_str) > max_field_len:
         equity_curve_str = equity_curve_str[:max_field_len]
-        logger.warning("equityCurve 截断至 %d 字符", max_field_len)
+        logger.warning("equityCurve 截断至 %d 字符（极端大小）", max_field_len)
     if len(trades_str) > max_field_len:
         trades_str = trades_str[:max_field_len]
-        logger.warning("trades 截断至 %d 字符", max_field_len)
+        logger.warning("trades 截断至 %d 字符（极端大小）", max_field_len)
 
     # service.execute_backtest 把 analysisWindow / backtest_analysis_window 从 params 弹出处理,
     # 这里塞回 params JSON 让历史回看能恢复（避免 schema migration）
