@@ -275,7 +275,15 @@ class PerformanceCalculator:
 
     @staticmethod
     def _calc_max_drawdown(equity_curve: list[EquityPoint]) -> tuple[Decimal, float]:
-        """计算最大回撤 (%) 和持续时间 (小时)
+        """计算最大回撤 (%) 和最长 drawdown 持续时间 (小时)。
+
+        max_dd_duration 定义: 整个曲线上, 从某峰值到下一次 >= 该峰值 (recovery)
+        的最长间隔。回测结束时仍未 recovery 的 drawdown 也计入 (从 dd 开始到末
+        点距离)。
+
+        之前算法只在 final peak_time 之后找首次 recovery 就 break,既不是"最长
+        drawdown"也不是"最长 underwater 期"——是错的。重写为标准 underwater
+        duration 算法。
 
         Returns:
             (max_drawdown_pct, max_drawdown_duration_hours)
@@ -284,35 +292,39 @@ class PerformanceCalculator:
             return Decimal("0"), 0.0
 
         peak = equity_curve[0].equity
-        max_dd = Decimal("0")
-        dd_start: datetime | None = None
-        max_dd_duration = 0.0
         peak_time = equity_curve[0].timestamp
+        max_dd = Decimal("0")
+        max_dd_duration_hours = 0.0
+        in_drawdown = False
+        dd_start_time: datetime | None = None
 
         for point in equity_curve:
             if point.equity >= peak:
+                if in_drawdown and dd_start_time is not None:
+                    # 从 dd 开始到恢复 peak 的时长
+                    duration = (point.timestamp - dd_start_time).total_seconds() / 3600
+                    if duration > max_dd_duration_hours:
+                        max_dd_duration_hours = duration
+                    in_drawdown = False
+                    dd_start_time = None
                 peak = point.equity
                 peak_time = point.timestamp
-                dd_start = None
             else:
                 if peak > 0:
                     dd = (peak - point.equity) / peak * 100
                     if dd > max_dd:
                         max_dd = dd
-                        dd_start = peak_time
-                if dd_start is None:
-                    dd_start = peak_time
+                if not in_drawdown:
+                    in_drawdown = True
+                    dd_start_time = peak_time  # drawdown 从上次 peak 开始
 
-        # 计算最长回撤持续
-        if dd_start and equity_curve:
-            # 找到恢复到峰值的时间
-            for point in equity_curve:
-                if point.timestamp > peak_time and point.equity >= peak:
-                    duration = (point.timestamp - peak_time).total_seconds() / 3600
-                    max_dd_duration = max(max_dd_duration, duration)
-                    break
+        # 回测结束仍在 drawdown — 用末点时间记录(underwater 未恢复)
+        if in_drawdown and dd_start_time is not None and equity_curve:
+            duration = (equity_curve[-1].timestamp - dd_start_time).total_seconds() / 3600
+            if duration > max_dd_duration_hours:
+                max_dd_duration_hours = duration
 
-        return max_dd, max_dd_duration
+        return max_dd, max_dd_duration_hours
 
     @classmethod
     def _calc_sharpe_ratio(cls, equity_curve: list[EquityPoint]) -> Decimal:

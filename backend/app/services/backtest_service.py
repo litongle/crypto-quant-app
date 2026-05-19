@@ -963,6 +963,7 @@ class BacktestService:
             "sharpeRatio": float(report.sharpe_ratio),
             "calmarRatio": float(report.calmar_ratio),
             "maxDrawdown": float(report.max_drawdown_pct),
+            "maxDrawdownDurationHours": round(report.max_drawdown_duration_hours, 1),
             "winRate": float(report.win_rate),
             "profitFactor": float(report.profit_loss_ratio),
             "totalTrades": report.total_trades,
