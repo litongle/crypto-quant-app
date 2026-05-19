@@ -187,7 +187,9 @@ function renderActivityStream(items) {
 function renderRiskEvents(items) {
   const container = document.getElementById('dashboard-risk-events');
   if (!container) return;
-  container.innerHTML = renderEventListMarkup(items, '24 小时内没有风险事件');
+  // 文案对齐数据：实际只拉 type=auto_pause，empty 提示也用「自动暂停」
+  // 而不是宽泛的「风险事件」（含 risk_alert 等其他类型）
+  container.innerHTML = renderEventListMarkup(items, '24 小时内没有自动暂停事件');
 }
 
 function renderSystemStatus(status) {
