@@ -75,13 +75,29 @@ class RsiLayeredStrategy(BaseStrategy):
     name = "RSI 分层极值追踪"
     strategy_type = "rsi_layered"
 
+    @staticmethod
+    def _parse_levels(raw, name: str) -> list[float]:
+        """levels 兼容 list / 'a,b,c' string / 'a, b, c' string。空/None 返 []。"""
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            return [float(p) for p in parts]
+        try:
+            return [float(x) for x in raw]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} 解析失败: {raw!r}") from exc
+
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
         p = {**DEFAULTS, **(config.params or {})}
 
         self.rsi_period: int = int(p["rsi_period"])
-        self.long_levels: list[float] = [float(x) for x in p["long_levels"]]
-        self.short_levels: list[float] = [float(x) for x in p["short_levels"]]
+        # levels 接受 list[float|str] / 单个 "30,25,20" string / "30, 25, 20" 都 OK，
+        # 前端 UI 走 form parser 已经给 list，但 API direct call 常常传逗号分隔 string，
+        # backend 也要接住免得「could not convert string to float: ','」崩
+        self.long_levels: list[float] = self._parse_levels(p["long_levels"], "long_levels")
+        self.short_levels: list[float] = self._parse_levels(p["short_levels"], "short_levels")
         self.retracement_points: float = float(p["retracement_points"])
         self.max_additional_positions: int = int(p["max_additional_positions"])
         self.max_holding_candles: int = int(p["max_holding_candles"])
