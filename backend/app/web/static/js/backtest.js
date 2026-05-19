@@ -943,9 +943,14 @@ function renderBacktestHistory(history) {
 
   historyEl.innerHTML = `
     <div class="cq-card">
-      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-2);display:flex;align-items:center;gap:var(--cq-space-2);">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        最近回测记录
+      <div style="font-size:var(--cq-text-md);font-weight:600;margin-bottom:var(--cq-space-2);display:flex;align-items:center;justify-content:space-between;gap:var(--cq-space-2);">
+        <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          最近回测记录
+        </div>
+        <button class="cq-btn cq-btn--ghost cq-btn--sm" onclick="clearAllBacktestHistory()" style="font-size:var(--cq-text-xs);color:var(--cq-color-loss);">
+          清空全部
+        </button>
       </div>
       <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-3);">点击一行加载完整图表与交易明细</div>
       <div class="cq-table-wrap">
@@ -1026,6 +1031,19 @@ async function deleteBacktestRow(id, ev) {
   }
 }
 window.deleteBacktestRow = deleteBacktestRow;
+
+async function clearAllBacktestHistory() {
+  if (!confirm('确定清空全部回测历史? 不可恢复')) return;
+  try {
+    const r = await api.deleteAllBacktestHistory();
+    showToast(`已清空 ${r.deleted ?? 0} 条历史`, 'success');
+    const history = await api.getBacktestHistory(20).catch(() => []);
+    renderBacktestHistory(history);
+  } catch (err) {
+    showToast('清空失败: ' + (err.message || String(err)), 'error');
+  }
+}
+window.clearAllBacktestHistory = clearAllBacktestHistory;
 
 /**
  * 渲染回测参数控件,与 strategy.js 的 renderParamSliders 同套类型支持。

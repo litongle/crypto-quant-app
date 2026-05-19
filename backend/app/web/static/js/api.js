@@ -388,6 +388,11 @@ class ApiClient {
     return json.data || json;
   }
 
+  async deleteAllBacktestHistory() {
+    const json = await this.del('/backtest/history/all');
+    return json.data || json;
+  }
+
   // ===== 行情数据 =====
   // market: 'spot' | 'perp'(永续合约)
   async getTicker(symbol, exchange = 'binance', market = 'spot', fresh = false) {

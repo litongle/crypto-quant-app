@@ -244,6 +244,20 @@ class BacktestService:
         await self.session.commit()
         return True
 
+    async def delete_all_results(self, user_id: int) -> int:
+        """清空当前用户全部回测历史。返回删除条数。"""
+        if not self.session:
+            return 0
+        from sqlalchemy import delete as sa_delete
+
+        from app.models.backtest import BacktestResult
+
+        result = await self.session.execute(
+            sa_delete(BacktestResult).where(BacktestResult.user_id == user_id)
+        )
+        await self.session.commit()
+        return result.rowcount or 0
+
     async def get_result_by_id(self, backtest_id: int, user_id: int) -> dict | None:
         """获取回测详情 (P2-17)"""
         if not self.session:

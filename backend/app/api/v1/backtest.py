@@ -191,6 +191,19 @@ async def get_backtest_result(
     return APIResponse(data=result)
 
 
+@router.delete("/history/all")
+async def delete_all_backtest_history(
+    current_user: CurrentUser,
+    session: DbSession,
+) -> APIResponse:
+    """清空当前用户全部回测历史。返回删除条数。"""
+    from app.services.backtest_service import BacktestService
+
+    service = BacktestService(session)
+    deleted = await service.delete_all_results(current_user.id)
+    return APIResponse(data={"deleted": deleted})
+
+
 @router.delete("/{backtest_id}")
 async def delete_backtest_result(
     backtest_id: int,
