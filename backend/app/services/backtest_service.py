@@ -490,8 +490,15 @@ class BacktestService:
 
         try:
             strategy = get_strategy(strategy_type, config)
-        except ValueError:
-            return {"error": f"不支持的策略类型: {template_id}", "code": 3001}
+        except (ValueError, ImportError, AttributeError) as exc:
+            # 记 traceback 到 backend log，方便定位 transient lazy-import 失败之类
+            # 边缘 case（之前出现过首次跑 rsi_layered 报 ValueError 但重启后 OK）
+            logger.exception("策略加载失败 template=%s type=%s", template_id, strategy_type)
+            return {
+                "error": f"不支持的策略类型: {template_id}",
+                "code": 3001,
+                "detail": f"{type(exc).__name__}: {exc}",
+            }
 
         # perp 模式下拉 Binance 真实历史 funding rate(每 8h 一档,30 天 ~90 条).
         # 失败时 fallback 空字典 = 0 funding(不阻塞回测,只少了 funding fee 部分)。
