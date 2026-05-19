@@ -139,7 +139,13 @@
       </div>
       <div class="cq-grid-2" style="margin-bottom:var(--cq-space-5);">
         <div class="cq-card">
-          <div class="cq-section-title"><h3>实时活动</h3><span class="cq-section-meta">最近 50 条</span></div>
+          <div class="cq-section-title">
+            <h3>实时活动</h3>
+            <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
+              <span class="cq-section-meta">最近 50 条</span>
+              <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="navigate('events')" title="去事件页查看完整事件流（可筛选/搜索/翻页）">查看全部 →</button>
+            </div>
+          </div>
           <div id="dashboard-activity-stream"><div class="cq-empty-inline">加载中…</div></div>
         </div>
         <div class="cq-card">
@@ -156,7 +162,13 @@
       </div>
       <div class="cq-grid-2">
         <div class="cq-card">
-          <div class="cq-section-title"><h3>自动暂停</h3><span class="cq-section-meta">24h · 策略风控触发的自停</span></div>
+          <div class="cq-section-title">
+            <h3>自动暂停</h3>
+            <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
+              <span class="cq-section-meta">24h · 策略风控触发的自停</span>
+              <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="goToEventsAutoPause()" title="去事件页查看完整自停历史">查看全部 →</button>
+            </div>
+          </div>
           <div id="dashboard-risk-events"><div class="cq-empty-inline">加载中…</div></div>
         </div>
         <div class="cq-card">
@@ -554,6 +566,19 @@ window.addEventListener('resize', () => {
     closeSidebar();
   }
 });
+
+// dashboard 「自动暂停」section 跳转事件页并预置 type=auto_pause + 7d 时间窗
+async function goToEventsAutoPause() {
+  await navigate('events');
+  // events 页 init 完成需要一帧,等 DOM 就位再设筛选
+  await new Promise(r => setTimeout(r, 50));
+  const typeEl = document.getElementById('events-filter-type');
+  const sinceEl = document.getElementById('events-filter-since');
+  if (typeEl) typeEl.value = 'auto_pause';
+  if (sinceEl) sinceEl.value = '7d';
+  if (typeof reloadEvents === 'function') reloadEvents();
+}
+window.goToEventsAutoPause = goToEventsAutoPause;
 
 // ===== 全局导航 =====
 const _VALID_PAGES = new Set(['dashboard', 'strategy', 'backtest', 'events']);
