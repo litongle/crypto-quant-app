@@ -64,7 +64,7 @@ async function loadBacktestPage() {
     document.getElementById('backtest-template-select').innerHTML = '<option value="">加载失败</option>';
   }
   try {
-    const history = await api.getBacktestHistory(10);
+    const history = await api.getBacktestHistory(50);
     renderBacktestHistory(history);
   } catch {}
 }
@@ -981,8 +981,8 @@ function renderBacktestHistory(history) {
           清空全部
         </button>
       </div>
-      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-3);">点击一行加载完整图表与交易明细</div>
-      <div class="cq-table-wrap">
+      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-bottom:var(--cq-space-3);">点击一行加载完整图表与交易明细${history.length >= 20 ? ` · 显示最近 ${history.length} 条` : ''}</div>
+      <div class="cq-table-wrap" style="max-height:480px;overflow-y:auto;">
       <table class="cq-table">
         <thead>
           <tr>
@@ -1060,7 +1060,7 @@ async function deleteBacktestRow(id, ev) {
     await api.deleteBacktestResult(id);
     showToast('已删除', 'success');
     // 重新拉历史刷新列表
-    const history = await api.getBacktestHistory(20).catch(() => []);
+    const history = await api.getBacktestHistory(50).catch(() => []);
     renderBacktestHistory(history);
   } catch (err) {
     showToast('删除失败: ' + (err.message || String(err)), 'error');
@@ -1073,7 +1073,7 @@ async function clearAllBacktestHistory() {
   try {
     const r = await api.deleteAllBacktestHistory();
     showToast(`已清空 ${r.deleted ?? 0} 条历史`, 'success');
-    const history = await api.getBacktestHistory(20).catch(() => []);
+    const history = await api.getBacktestHistory(50).catch(() => []);
     renderBacktestHistory(history);
   } catch (err) {
     showToast('清空失败: ' + (err.message || String(err)), 'error');
