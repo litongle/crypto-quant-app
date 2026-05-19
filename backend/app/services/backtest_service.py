@@ -736,6 +736,13 @@ class BacktestService:
             elif sig.action == "sell" and position is not None and position["side"] == "long":
                 ep = current_price * (Decimal("1") - slippage_pct)
                 do_close(ep, current_time)
+            # 加仓型策略(martingale/grid 等不发 intent="add" 的 fallback) —
+            # 永续下 buy+持多 / sell+持空 之前被吞,导致 Martingale 加仓功能失效。
+            # 与现货 process_signal 对齐:同向 buy → do_add_long, 同向 sell → do_add_short
+            elif sig.action == "buy" and position is not None and position["side"] == "long":
+                do_add_long(current_price * (Decimal("1") + slippage_pct))
+            elif sig.action == "sell" and position is not None and position["side"] == "short":
+                do_add_short(current_price * (Decimal("1") - slippage_pct))
 
         def mark_equity(cp: Decimal) -> Decimal:
             if position is None:
