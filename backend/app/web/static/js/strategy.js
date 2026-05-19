@@ -105,8 +105,11 @@ function getModeTag(instance) {
 }
 
 function formatMoney(value) {
+  // 单位用 USDT(U) 而非 $ — 用户操作的是稳定币不是美金,$ 符号误导
+  // dashboard/instance-drawer 都用 +5.28U 一致；此前 strategy 卡显 +$5.28 独树一帜
   const num = Number(value ?? 0);
-  return `${num >= 0 ? '+' : ''}$${num.toFixed(2)}`;
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toFixed(2)}U`;
 }
 
 function formatPercent(value, digits = 1) {

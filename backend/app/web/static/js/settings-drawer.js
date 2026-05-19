@@ -174,13 +174,18 @@ function bindTelegramForm(container) {
       status.textContent = `❌ 保存失败：${err.message}`;
     }
   });
-  form.querySelector('[data-action="test-telegram"]').addEventListener('click', async () => {
+  form.querySelector('[data-action="test-telegram"]').addEventListener('click', async (e) => {
+    // 防连点：测试通知会真发到 Telegram,连点会刷屏
+    const btn = e.currentTarget;
+    btn.disabled = true;
     status.textContent = '发送中…';
     try {
       await api.testNotification('telegram');
       status.textContent = '✅ 测试通知已发送，请检查 Telegram';
     } catch (err) {
       status.textContent = `❌ ${err.message}`;
+    } finally {
+      btn.disabled = false;
     }
   });
 }
@@ -225,13 +230,18 @@ function bindSmtpForm(container) {
       status.textContent = `❌ 保存失败：${err.message}`;
     }
   });
-  form.querySelector('[data-action="test-email"]').addEventListener('click', async () => {
+  form.querySelector('[data-action="test-email"]').addEventListener('click', async (e) => {
+    // 防连点：测试邮件会真发，连点会刷垃圾箱
+    const btn = e.currentTarget;
+    btn.disabled = true;
     status.textContent = '发送中…';
     try {
       await api.testNotification('email');
       status.textContent = '✅ 测试邮件已发送，请检查收件箱（含垃圾箱）';
     } catch (err) {
       status.textContent = `❌ ${err.message}`;
+    } finally {
+      btn.disabled = false;
     }
   });
 }
