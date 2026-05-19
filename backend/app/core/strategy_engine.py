@@ -87,51 +87,47 @@ class MAStrategy(BaseStrategy):
         short_window = self.params.get("short_window", 5)
         long_window = self.params.get("long_window", 20)
 
-        if len(klines) < long_window:
+        if len(klines) < long_window + 1:  # 需要 prev 这一根
             return None
 
-        # 提取收盘价
-        closes = [Decimal(str(k["close"])) for k in klines]
+        # 性能 — 之前 closes 用 Decimal(str(...)) 转全 N 根, 回测主循环 O(N²) 在 5万根
+        # 上 35000 次 analyze × 35000 次 Decimal 转 = 12 亿次,实测从 273 bar/s 降到
+        # 183 bar/s。MA 是趋势判断不需要 Decimal 精度,float 求和 + 除法 + 比较够用,
+        # 且只需要末尾 long_window+1 根来算两点 MA。这两步合一砍掉 99% 计算量。
+        slice_for_ma = klines[-(long_window + 1) :]
+        closes = [float(k["close"]) for k in slice_for_ma]
 
-        def calc_ma(data: list[Decimal], window: int) -> Decimal | None:
-            """计算简单移动平均"""
+        def calc_ma(data: list[float], window: int) -> float | None:
             if len(data) < window:
                 return None
             return sum(data[-window:]) / window
 
-        # 计算当前均线值
         short_ma = calc_ma(closes, short_window)
         long_ma = calc_ma(closes, long_window)
-
         if short_ma is None or long_ma is None:
             return None
 
-        # 计算前一根K线的均线值（用于判断交叉）
-        prev_closes = closes[:-1]
-        prev_short_ma = calc_ma(prev_closes, short_window)
-        prev_long_ma = calc_ma(prev_closes, long_window)
-
+        prev_short_ma = calc_ma(closes[:-1], short_window)
+        prev_long_ma = calc_ma(closes[:-1], long_window)
         if prev_short_ma is None or prev_long_ma is None:
             return None
 
-        # 金叉：短均线上穿长均线 -> 买入信号
         if prev_short_ma <= prev_long_ma and short_ma > long_ma:
             return Signal(
                 action="buy",
                 confidence=0.8,
-                entry_price=closes[-1],
+                entry_price=Decimal(str(closes[-1])),
                 reason=f"MA Golden Cross (MA{short_window} crossed above MA{long_window})",
-                metadata={"short_ma": float(short_ma), "long_ma": float(long_ma)},
+                metadata={"short_ma": short_ma, "long_ma": long_ma},
             )
 
-        # 死叉：短均线下穿长均线 -> 卖出信号
         if prev_short_ma >= prev_long_ma and short_ma < long_ma:
             return Signal(
                 action="sell",
                 confidence=0.8,
-                entry_price=closes[-1],
+                entry_price=Decimal(str(closes[-1])),
                 reason=f"MA Death Cross (MA{short_window} crossed below MA{long_window})",
-                metadata={"short_ma": float(short_ma), "long_ma": float(long_ma)},
+                metadata={"short_ma": short_ma, "long_ma": long_ma},
             )
 
         return None

@@ -395,9 +395,10 @@ async function runBacktest() {
       showToast(`该组合预计仅约 ${estBars} 根 K 线,不足 50 根,请增大日期范围或选更短周期`, 'warn');
       return;
     }
-    // 引擎硬上限 50000,实测 30 天 5m=8640 根引擎 120s 还超时,8000 起就需要警告
-    if (estBars > 8000) {
-      const proceed = confirm(`该组合预计约 ${estBars} 根 K 线,数据量较大,回测引擎可能 120 秒超时。\n建议增大周期(如 ${interval} → 1h)或缩小日期范围。\n仍要继续吗?`);
+    // MAStrategy O(N²) 修复后实测速度 ~1500 bar/s, 引擎硬上限 120s × 1500 ≈ 18 万根。
+    // 留余地 30% 阈值定 100000。低于此都能舒服跑完(43200 根 28s,远未到上限)。
+    if (estBars > 100000) {
+      const proceed = confirm(`该组合预计约 ${estBars} 根 K 线,数据量极大,回测引擎可能 120 秒超时。\n建议增大周期(如 ${interval} → 4h/1d)或缩小日期范围。\n仍要继续吗?`);
       if (!proceed) return;
     }
   }
