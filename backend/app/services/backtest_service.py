@@ -296,6 +296,24 @@ class BacktestService:
             except (json.JSONDecodeError, TypeError):
                 trades_raw = []
 
+        # model 缺 max_wins/max_losses 列，从 trades.pnl 序列实时推导
+        if (max_wins is None or max_losses is None) and trades_raw:
+            mw, ml, cw, cl = 0, 0, 0, 0
+            for t in trades_raw:
+                pnl = t.get("pnl", 0) if isinstance(t, dict) else 0
+                if pnl > 0:
+                    cw += 1
+                    cl = 0
+                    mw = max(mw, cw)
+                else:
+                    cl += 1
+                    cw = 0
+                    ml = max(ml, cl)
+            if max_wins is None:
+                max_wins = mw
+            if max_losses is None:
+                max_losses = ml
+
         init_f = float(record.initial_capital)
         tot_ret = float(record.total_return)
         if final_cap is None:

@@ -389,7 +389,9 @@ async def test_get_result_by_id_works_without_optional_db_columns(db_session, te
     assert out is not None
     assert out["finalCapital"] == 102_500.0
     assert out["duration"] == 9
-    assert out["maxConsecutiveWins"] == 0
+    # max_wins/max_losses model 字段缺失时从 trades 实时推导
+    # 这条 fixture 只有 1 笔盈利交易 → 连胜 1 / 连亏 0
+    assert out["maxConsecutiveWins"] == 1
     assert out["maxConsecutiveLosses"] == 0
     assert len(out["equityCurve"]) == 1
     assert out["trades"][0]["entryPrice"] == 100.0
