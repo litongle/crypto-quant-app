@@ -686,6 +686,7 @@ function renderBacktestResults(result) {
           }</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
+          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">数据源</span><span class="cq-metrics-detail__value" style="color:var(--cq-color-primary);">${escapeHtml(metrics.dataSource || result.dataSource || '--')}</span></div>
         </div>
       </div>
     </div>
