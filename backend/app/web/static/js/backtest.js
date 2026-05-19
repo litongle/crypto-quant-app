@@ -761,6 +761,15 @@ function renderBacktestResults(result) {
               const qty = t.quantity ?? 0;
               const entryTime = t.entryTime ? t.entryTime.substring(0, 16).replace('T', ' ') : '--';
               const exitTime = t.exitTime ? t.exitTime.substring(0, 16).replace('T', ' ') : '--';
+              // 智能价格精度：BTC 2 位足够，PEPE 0.00000427 这种 toFixed(2) 会归零
+              const fmtPrice = (p) => {
+                if (p === 0) return '0';
+                const abs = Math.abs(p);
+                if (abs >= 100) return p.toFixed(2);
+                if (abs >= 1) return p.toFixed(4);
+                if (abs >= 0.01) return p.toFixed(6);
+                return p.toPrecision(4);
+              };
               return `
               <tr>
                 <td style="color:var(--cq-text-tertiary);">${i + 1}</td>
@@ -771,9 +780,9 @@ function renderBacktestResults(result) {
                       : ''
                   }
                 </td>
-                <td class="cq-num" style="text-align:right;">${entryPrice.toFixed(2)}</td>
-                <td class="cq-num" style="text-align:right;">${exitPrice.toFixed(2)}</td>
-                <td class="cq-num" style="text-align:right;">${qty.toFixed(4)}</td>
+                <td class="cq-num" style="text-align:right;">${fmtPrice(entryPrice)}</td>
+                <td class="cq-num" style="text-align:right;">${fmtPrice(exitPrice)}</td>
+                <td class="cq-num" style="text-align:right;">${qty < 1 ? qty.toPrecision(4) : qty.toFixed(4)}</td>
                 <td class="cq-num" style="text-align:right;color:${pnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};font-weight:500;">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</td>
                 <td style="color:var(--cq-text-secondary);font-size:var(--cq-text-sm);">${entryTime}</td>
                 <td style="color:var(--cq-text-secondary);font-size:var(--cq-text-sm);">${exitTime}</td>
