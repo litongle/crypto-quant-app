@@ -311,6 +311,12 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* 抽屉打开时锁背景滚动 — 之前 body 加了 is-drawer-open class 但没对应 CSS,
+   导致 drawer 弹出时主页面仍可滚动,焦点和视觉双重错乱 */
+body.is-drawer-open {
+  overflow: hidden;
+}
+
 /* ── 3. Login Page ───────────────────────────────────────────── */
 .login-wrap {
   display: flex;
@@ -2709,6 +2715,12 @@ div.cq-event-list__item.is-static {
   cursor: default;
 }
 
+/* 有 instance_id 的事件项是 button — 给它显式 cursor:pointer，否则光标
+   看不出可点击（UA stylesheet 默认 button cursor 是 default） */
+button.cq-event-list__item {
+  cursor: pointer;
+}
+
 .cq-status-list__item {
   display: flex;
   justify-content: space-between;
@@ -2851,11 +2863,22 @@ div.cq-event-list__item.is-static {
 }
 
 .cq-event-filters {
-  display: grid;
-  grid-template-columns: 1fr 1fr minmax(220px, 320px);
+  /* flex-wrap > grid 3 列：原 grid 设计是 type/sev/since 3 个 select，但
+     后来加了 search input + checkbox + 清空 + 刷新共 7 个元素，强行 wrap
+     成多行后宽度不齐（select 433px vs button 320px）。flex-wrap 让每项按
+     自然宽度排，多余的换行自适应。 */
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--cq-space-3);
   margin-bottom: var(--cq-space-4);
   align-items: center;
+}
+
+/* select / search 给一个弹性基准 — 桌面端排满一行，窄屏自然换行 */
+.cq-event-filters > select.cq-input,
+.cq-event-filters > input[type="search"].cq-input {
+  flex: 1 1 180px;
+  min-width: 160px;
 }
 
 .cq-checkbox-label {

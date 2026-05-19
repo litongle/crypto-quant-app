@@ -8,6 +8,10 @@ const settingsDrawerState = {
 function openSettingsDrawer() {
   const drawer = document.getElementById('settings-drawer');
   if (!drawer) return;
+  // 互斥：打开前先关其他抽屉，否则 UI 重叠（instance drawer 占右侧 + settings
+  // 也占右侧）。ESC 处理已经按优先级关，open 时也守住同一规则
+  if (typeof closeInstanceDrawer === 'function') closeInstanceDrawer();
+  if (typeof closeInstanceLogsDrawer === 'function') closeInstanceLogsDrawer();
   drawer.hidden = false;
   document.body.classList.add('is-drawer-open');
   loadSettingsDrawerTab(settingsDrawerState.activeTab);

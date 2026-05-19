@@ -27,6 +27,9 @@
   async function openInstanceLogsDrawer(instanceId, instanceName) {
     const drawer = document.getElementById('instance-logs-drawer');
     if (!drawer) return;
+    // 互斥：打开前关其他抽屉
+    if (typeof closeSettingsDrawer === 'function') closeSettingsDrawer();
+    if (typeof closeInstanceDrawer === 'function') closeInstanceDrawer();
     instanceLogsState.instanceId = instanceId;
     instanceLogsState.instanceName = instanceName || `实例 #${instanceId}`;
     instanceLogsState.type = '';

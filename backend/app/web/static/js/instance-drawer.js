@@ -8,6 +8,9 @@ const instanceDrawerState = {
 async function openInstanceDrawer(instanceId) {
   const drawer = document.getElementById('instance-drawer');
   if (!drawer) return;
+  // 互斥：打开前关其他抽屉，避免右侧多个抽屉重叠
+  if (typeof closeSettingsDrawer === 'function') closeSettingsDrawer();
+  if (typeof closeInstanceLogsDrawer === 'function') closeInstanceLogsDrawer();
   drawer.hidden = false;
   document.body.classList.add('is-drawer-open');
   instanceDrawerState.klineLoaded = false;
