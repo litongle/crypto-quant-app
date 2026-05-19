@@ -743,8 +743,8 @@ function renderBacktestResults(result) {
               <th style="text-align:right;">平仓价</th>
               <th style="text-align:right;">数量</th>
               <th style="text-align:right;">盈亏</th>
-              <th>开仓时间</th>
-              <th>平仓时间</th>
+              <th title="UTC 时间（北京时间 = UTC + 8h）">开仓时间 (UTC)</th>
+              <th title="UTC 时间（北京时间 = UTC + 8h）">平仓时间 (UTC)</th>
             </tr>
           </thead>
           <tbody>
