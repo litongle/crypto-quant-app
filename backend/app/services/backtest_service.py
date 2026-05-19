@@ -865,8 +865,13 @@ class BacktestService:
             time.monotonic() - engine_t0,
         )
 
+        # totalReturn 用 (final_equity - initial_capital) 与 totalReturnPercent 同源,
+        # 包含期末未平仓 unrealized pnl。之前 report.total_pnl 只算已平仓 trades.pnl,
+        # 与百分比口径不一致,会出现"绝对值 +38 但百分比 -0.05%"的符号矛盾(已平仓
+        # 累计赚但当前持仓浮亏)。
+        total_return_abs = float(report.final_equity - initial_capital)
         return {
-            "totalReturn": float(report.total_pnl),
+            "totalReturn": total_return_abs,
             "totalReturnPercent": float(report.total_return_pct),
             "annualReturn": float(report.annualized_return_pct),
             "sharpeRatio": float(report.sharpe_ratio),
