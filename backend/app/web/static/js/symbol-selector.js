@@ -20,7 +20,9 @@ const FALLBACK_SYMBOL_DATA = [
   { symbol: 'AVAXUSDT', name: 'AVAX/USDT', base: 'AVAX', type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
   { symbol: 'DOTUSDT',  name: 'DOT/USDT',  base: 'DOT',  type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
   { symbol: 'LINKUSDT', name: 'LINK/USDT', base: 'LINK', type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
-  { symbol: 'MATICUSDT',name: 'MATIC/USDT',base: 'MATIC',type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
+  // MATIC 已于 2024.9 被 Polygon 团队 rebrand 成 POL，Binance 现货下架 MATICUSDT
+  // (最后 K 线停在 2024-09-10)。这里用新 ticker POLUSDT，保持主流币位置。
+  { symbol: 'POLUSDT',  name: 'POL/USDT',  base: 'POL',  type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
   { symbol: 'SHIBUSDT', name: 'SHIB/USDT', base: 'SHIB', type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
   { symbol: 'UNIUSDT',  name: 'UNI/USDT',  base: 'UNI',  type: 'spot',    category: '主流币', exchanges: ['binance','okx','htx'] },
 
@@ -164,7 +166,7 @@ const COIN_COLORS = {
   BTC: '#F7931A', ETH: '#627EEA', BNB: '#F3BA2F', SOL: '#9945FF',
   XRP: '#23292F', ADA: '#0033AD', DOGE: '#C3A634', TRX: '#FF0013',
   LTC: '#345D9D', AVAX: '#E84142', DOT: '#E6007A', LINK: '#2A5ADA',
-  MATIC:'#8247E5', SHIB: '#FFA409', UNI: '#FF007A', PEPE: '#3D7B30',
+  MATIC:'#8247E5', POL: '#8247E5', SHIB: '#FFA409', UNI: '#FF007A', PEPE: '#3D7B30',
   WIF: '#D4A373', SUI: '#4DA2FF', APT: '#2DD8A3', ARB: '#28A0F0',
   OP: '#FF0420', NEAR:'#00C1DE', FIL: '#0090FF', ATOM:'#2E3148',
   AAVE: '#B6509E',

@@ -59,7 +59,7 @@ SUPPORTED_SYMBOLS = {
     "ADAUSDT",
     "XRPUSDT",
     "DOTUSDT",
-    "MATICUSDT",
+    "POLUSDT",  # Polygon 2024.9 rebrand: MATIC → POL，Binance 已下架 MATICUSDT
     "LINKUSDT",
     "AVAXUSDT",
     "PEPEUSDT",  # 加几个常用合约币
