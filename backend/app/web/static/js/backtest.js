@@ -685,35 +685,35 @@ function renderBacktestResults(result) {
       </div>
       <div class="cq-metrics-detail__body">
         <div class="cq-metrics-detail__grid">
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">年化收益率</span><span class="cq-metrics-detail__value cq-num" style="color:${annualReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${calmarRatio.toFixed(2)}</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">盈利 / 亏损次数</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${profitTrades}</span> / <span style="color:var(--cq-color-loss);">${lossTrades}</span></span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${profitTrades > 0 ? '+' + avgProfit.toFixed(2) : '—'}</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${lossTrades > 0 ? avgLoss.toFixed(2) : '—'}</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最长回撤时长</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${
+          <div class="cq-metrics-detail__item" title="(1 + 总收益率)^(365/天数) - 1。把回测窗口的实际收益换算成「一年下来等价的」复利收益率"><span class="cq-metrics-detail__label">年化收益率</span><span class="cq-metrics-detail__value cq-num" style="color:${annualReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
+          <div class="cq-metrics-detail__item" title="年化收益率 / 最大回撤。比夏普更关注「亏损深度」，>1 优秀，>3 卓越"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${calmarRatio.toFixed(2)}</span></div>
+          <div class="cq-metrics-detail__item" title="盈利交易笔数 / 亏损交易笔数"><span class="cq-metrics-detail__label">盈利 / 亏损次数</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${profitTrades}</span> / <span style="color:var(--cq-color-loss);">${lossTrades}</span></span></div>
+          <div class="cq-metrics-detail__item" title="所有盈利交易 pnl 均值（已扣手续费）"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${profitTrades > 0 ? '+' + avgProfit.toFixed(2) : '—'}</span></div>
+          <div class="cq-metrics-detail__item" title="所有亏损交易 pnl 绝对值均值（已扣手续费）"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${lossTrades > 0 ? avgLoss.toFixed(2) : '—'}</span></div>
+          <div class="cq-metrics-detail__item" title="连续盈利 / 连续亏损的最长记录条数。从 trades 顺序推导"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
+          <div class="cq-metrics-detail__item" title="回测窗口跨度（端到端天数，非有持仓的实际交易天数）"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
+          <div class="cq-metrics-detail__item" title="从权益曲线峰值跌下来 → 再创新高之间的最长时间间隔。越短说明策略恢复能力越强"><span class="cq-metrics-detail__label">最长回撤时长</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${
             metrics.maxDrawdownDurationHours != null
               ? (metrics.maxDrawdownDurationHours >= 24
                 ? `${(metrics.maxDrawdownDurationHours / 24).toFixed(1)} 天`
                 : `${metrics.maxDrawdownDurationHours.toFixed(1)} 小时`)
               : '--'
           }</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
+          <div class="cq-metrics-detail__item" title="每根 bar 传给策略 analyze() 的 K 线长度。「全量前缀」= 从第 1 根到当前 bar 都传入；「最近 N 根」= 只传最近 N 根省内存"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
+          <div class="cq-metrics-detail__item" title="回测起点资金 → 终点资金（含手续费、资金费等所有成本）"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
           ${(() => {
             if (result.market !== 'perp') return '';
             const lev = result.leverage ?? metrics.leverage;
             if (lev == null) return '';
-            return `<div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">杠杆</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${Number(lev).toFixed(0)}×</span></div>`;
+            return `<div class="cq-metrics-detail__item" title="永续合约杠杆倍数。仅决定保证金占用 (1/杠杆)，不放大持仓 — 名义本金始终 = 单笔最大资金比例 × 余额"><span class="cq-metrics-detail__label">杠杆</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${Number(lev).toFixed(0)}×</span></div>`;
           })()}
           ${(() => {
             const fft = result.fundingFeeTotal ?? metrics.fundingFeeTotal;
             if (result.market !== 'perp' || fft == null) return '';
             const isPaid = fft >= 0;
-            return `<div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">资金费用累计</span><span class="cq-metrics-detail__value cq-num" style="color:${isPaid ? 'var(--cq-color-loss)' : 'var(--cq-color-profit)'};">${isPaid ? '-' : '+'}${Math.abs(fft).toFixed(2)}</span></div>`;
+            return `<div class="cq-metrics-detail__item" title="累计资金费用（仅永续）。正值 = 账户净支付（红），负值 = 账户净收（绿）。已从最终权益中扣除/加入"><span class="cq-metrics-detail__label">资金费用累计</span><span class="cq-metrics-detail__value cq-num" style="color:${isPaid ? 'var(--cq-color-loss)' : 'var(--cq-color-profit)'};">${isPaid ? '-' : '+'}${Math.abs(fft).toFixed(2)}</span></div>`;
           })()}
-          <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">数据源</span><span class="cq-metrics-detail__value" style="color:var(--cq-color-primary);">${escapeHtml(metrics.dataSource || result.dataSource || '--')}</span></div>
+          <div class="cq-metrics-detail__item" title="K 线数据来源。binance-spot / binance-perp = 真实历史"><span class="cq-metrics-detail__label">数据源</span><span class="cq-metrics-detail__value" style="color:var(--cq-color-primary);">${escapeHtml(metrics.dataSource || result.dataSource || '--')}</span></div>
         </div>
       </div>
     </div>
