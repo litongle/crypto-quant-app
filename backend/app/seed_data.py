@@ -181,6 +181,7 @@ STRATEGY_TEMPLATES = [
                     "min": 10,
                     "max": 10000,
                     "step": 10,
+                    "description": "回测忽略此字段(回测按 max_invest_percent 比例下单);实盘订单参考值",
                 },
                 {
                     "key": "priceRange",
@@ -213,6 +214,7 @@ STRATEGY_TEMPLATES = [
                     "min": 10,
                     "max": 1000,
                     "step": 10,
+                    "description": "回测忽略此字段(回测按 max_invest_percent 比例下单);实盘订单参考值",
                 },
                 {
                     "key": "multiplier",
