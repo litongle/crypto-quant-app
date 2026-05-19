@@ -67,6 +67,23 @@ class BacktestResult(Base):
     equity_curve: Mapped[str | None] = mapped_column(Text, nullable=True, comment="权益曲线 JSON")
     trades: Mapped[str | None] = mapped_column(Text, nullable=True, comment="交易记录 JSON")
 
+    # 元数据 (P3-?: perp 历史回看)
+    market: Mapped[str | None] = mapped_column(
+        String(10), nullable=True, comment="市场类型 spot/perp"
+    )
+    data_source: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, comment="K线数据来源"
+    )
+    leverage: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, comment="杠杆倍数（perp）"
+    )
+    funding_fee_total: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 8), nullable=True, comment="累计资金费用（perp，>0 账户净支付）"
+    )
+    max_drawdown_duration_hours: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, comment="最长回撤水下时长（小时）"
+    )
+
     # 时间
     start_time: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="回测开始时间"

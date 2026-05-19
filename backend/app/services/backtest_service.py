@@ -349,6 +349,22 @@ class BacktestService:
             "trades": trades_raw,
             "startTime": _iso_z(record.start_time) if record.start_time else None,
             "endTime": _iso_z(record.end_time) if record.end_time else None,
+            # 元数据 perp 历史回看
+            "market": getattr(record, "market", None),
+            "dataSource": getattr(record, "data_source", None),
+            "leverage": (
+                float(record.leverage) if getattr(record, "leverage", None) is not None else None
+            ),
+            "fundingFeeTotal": (
+                float(record.funding_fee_total)
+                if getattr(record, "funding_fee_total", None) is not None
+                else None
+            ),
+            "maxDrawdownDurationHours": (
+                float(record.max_drawdown_duration_hours)
+                if getattr(record, "max_drawdown_duration_hours", None) is not None
+                else None
+            ),
         }
 
     @classmethod

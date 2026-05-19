@@ -275,6 +275,12 @@ async def _save_backtest_history(
         # 详细数据（已截断校验）
         equity_curve=equity_curve_str,
         trades=trades_str,
+        # 元数据：perp 历史回看用
+        market=result.get("market"),
+        data_source=result.get("dataSource"),
+        leverage=result.get("leverage"),
+        funding_fee_total=result.get("fundingFeeTotal"),
+        max_drawdown_duration_hours=result.get("maxDrawdownDurationHours"),
         # 时间
         start_time=(
             datetime.fromisoformat(result["startTime"].rstrip("Z"))
