@@ -2082,10 +2082,17 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 }
 
 /* 解除继承自 .cq-metrics-detail__body 的 max-height:2000px 限制（43+笔 trade 会被
-   切掉无法滚动），改为表格内部容器自身限高 + 垂直滚动条。折叠瞬切牺牲掉，但 60+
-   笔回测能看全。 */
+   切掉无法滚动），改为表格内部容器自身限高 + 垂直滚动条。 */
 .cq-trades-detail .cq-metrics-detail__body {
   max-height: none;
+}
+
+/* 折叠状态：必须覆盖上面的 max-height:none，否则点击 chevron 折叠不生效 */
+.cq-trades-detail.is-collapsed .cq-metrics-detail__body {
+  max-height: 0 !important;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
 }
 
 .cq-trades-detail .cq-table-wrap {

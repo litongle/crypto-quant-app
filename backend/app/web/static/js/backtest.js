@@ -772,7 +772,12 @@ function renderBacktestResults(result) {
           <span style="font-size:var(--cq-text-md);font-weight:600;">交易明细</span>
           <span class="cq-tag cq-tag--neutral" style="margin-left:var(--cq-space-1);" title="${trades.length < totalTrades ? `仅展示最近 ${trades.length} 笔，总交易 ${totalTrades} 笔` : ''}">${trades.length < totalTrades ? `最近 ${trades.length} / ${totalTrades}` : `${trades.length}`} 笔</span>
         </div>
-        <svg class="cq-metrics-detail__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        <div style="display:flex;align-items:center;gap:var(--cq-space-2);" onclick="event.stopPropagation();">
+          <button class="cq-btn cq-btn--ghost cq-btn--sm" type="button" onclick="downloadTradesCsv(event)" title="导出当前 ${trades.length} 笔交易为 CSV" style="font-size:var(--cq-text-xs);padding:4px 10px;">
+            导出 CSV
+          </button>
+          <svg class="cq-metrics-detail__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
       </div>
       <div class="cq-metrics-detail__body">
         <div class="cq-table-wrap">
@@ -829,6 +834,11 @@ function renderBacktestResults(result) {
           </tbody>
         </table>
         </div>
+        ${trades.length < totalTrades ? `
+        <div style="margin-top:var(--cq-space-3);padding:var(--cq-space-3);background:var(--cq-bg-subtle);border-radius:var(--cq-radius);font-size:var(--cq-text-xs);color:var(--cq-text-secondary);line-height:1.6;">
+          ⓘ 此回测共 <strong>${totalTrades}</strong> 笔交易，为减少存储仅保留最近 <strong>${trades.length}</strong> 笔。
+          需要完整明细请缩短回测窗口或选更短周期重跑（确保总笔数 ≤ 100）。已显示部分可点「导出 CSV」保存。
+        </div>` : ''}
       </div>
     </div>` : ''}`;
 
@@ -1105,6 +1115,44 @@ async function viewBacktestDetail(id) {
 }
 
 window.viewBacktestDetail = viewBacktestDetail;
+
+/** 导出当前 detail 卡的 trades 列表为 CSV（最多 100 笔，受 backend 持久化上限限制）。 */
+function downloadTradesCsv(ev) {
+  if (ev) ev.stopPropagation();
+  const rows = Array.from(document.querySelectorAll('.cq-trades-table tbody tr'));
+  if (!rows.length) { showToast('当前没有可导出的交易', 'warn'); return; }
+  const header = ['序号', '方向', '加仓', '开仓价', '平仓价', '数量', '盈亏', '开仓时间(UTC)', '平仓时间(UTC)'];
+  const csvRows = [header.join(',')];
+  for (const r of rows) {
+    const cells = Array.from(r.querySelectorAll('td'));
+    if (cells.length < 8) continue;
+    // 方向列含「多/空 +N」tag — 拆解
+    const sideText = cells[1].querySelector('.cq-tag:not([class*="neutral"])')?.textContent?.trim() || '';
+    const addsText = cells[1].querySelector('.cq-tag--neutral')?.textContent?.trim() || '';
+    csvRows.push([
+      cells[0].textContent.trim(),
+      sideText,
+      addsText,
+      cells[2].textContent.trim(),
+      cells[3].textContent.trim(),
+      cells[4].textContent.trim(),
+      cells[5].textContent.trim(),
+      cells[6].textContent.trim(),
+      cells[7].textContent.trim(),
+    ].map(c => `"${c.replace(/"/g, '""')}"`).join(','));
+  }
+  const blob = new Blob(['﻿' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backtest_trades_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`已导出 ${rows.length} 笔交易`, 'success');
+}
+window.downloadTradesCsv = downloadTradesCsv;
 
 function _resetBacktestResultsArea() {
   _disposeBacktestChart();
