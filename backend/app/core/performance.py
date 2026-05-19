@@ -26,7 +26,12 @@ from typing import Any
 
 @dataclass
 class TradeRecord:
-    """单笔交易记录（用于绩效计算）"""
+    """单笔交易记录（用于绩效计算）
+
+    一个 trade 是"开仓 → ... 加仓 ... → 平仓"的完整周期。加仓次数 adds
+    让用户能区分:DCA/Grid/Martingale 等策略多次加仓最后一次平仓 vs 简单
+    买入卖出。
+    """
 
     entry_price: Decimal
     exit_price: Decimal
@@ -36,6 +41,7 @@ class TradeRecord:
     exit_time: datetime
     pnl: Decimal
     commission: Decimal = Decimal("0")
+    adds: int = 0  # 加仓次数(do_add_long/short 调用计数,0=无加仓)
 
 
 @dataclass

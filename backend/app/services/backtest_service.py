@@ -604,6 +604,7 @@ class BacktestService:
                     exit_time=exit_time,
                     pnl=pnl,
                     commission=commission_open_total + commission_exit,
+                    adds=int(pos.get("add_count", 0)),
                 )
             )
             position = None
@@ -677,6 +678,7 @@ class BacktestService:
             pos["commission_paid"] += commission
             pos["margin_locked"] = pos.get("margin_locked", Decimal(0)) + new_mlocked
             pos["margin_notional"] = pos.get("margin_notional", old_e * old_q) + new_notional
+            pos["add_count"] = pos.get("add_count", 0) + 1
             capital -= new_mlocked + commission
 
         def do_add_short(exec_price: Decimal) -> None:
@@ -702,6 +704,7 @@ class BacktestService:
             pos["commission_paid"] += commission
             pos["margin_locked"] = pos.get("margin_locked", Decimal(0)) + new_mlocked
             pos["margin_notional"] = pos.get("margin_notional", old_e * old_q) + new_notional
+            pos["add_count"] = pos.get("add_count", 0) + 1
             capital -= new_mlocked + commission
 
         def process_signal(sig: Signal | None) -> None:
@@ -955,6 +958,7 @@ class BacktestService:
                     "pnl": float(round(t.pnl, 2)),
                     "entryTime": _iso_z(t.entry_time),
                     "exitTime": _iso_z(t.exit_time),
+                    "adds": int(getattr(t, "adds", 0)),
                 }
             )
 

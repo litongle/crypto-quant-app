@@ -737,7 +737,13 @@ function renderBacktestResults(result) {
               return `
               <tr>
                 <td style="color:var(--cq-text-tertiary);">${i + 1}</td>
-                <td><span class="cq-tag ${sideClass}">${sideLabel}</span></td>
+                <td>
+                  <span class="cq-tag ${sideClass}">${sideLabel}</span>${
+                    t.adds && t.adds > 0
+                      ? ` <span class="cq-tag cq-tag--neutral" style="margin-left:4px;" title="此 trade 包含 ${t.adds} 次加仓 (DCA/Grid/Martingale)">+${t.adds}</span>`
+                      : ''
+                  }
+                </td>
                 <td class="cq-num" style="text-align:right;">${entryPrice.toFixed(2)}</td>
                 <td class="cq-num" style="text-align:right;">${exitPrice.toFixed(2)}</td>
                 <td class="cq-num" style="text-align:right;">${qty.toFixed(4)}</td>
