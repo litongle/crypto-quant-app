@@ -82,7 +82,10 @@ class RsiLayeredStrategy(BaseStrategy):
             return []
         if isinstance(raw, str):
             parts = [p.strip() for p in raw.split(",") if p.strip()]
-            return [float(p) for p in parts]
+            try:
+                return [float(p) for p in parts]
+            except ValueError as exc:
+                raise ValueError(f"{name} 解析失败: {raw!r}") from exc
         try:
             return [float(x) for x in raw]
         except (TypeError, ValueError) as exc:

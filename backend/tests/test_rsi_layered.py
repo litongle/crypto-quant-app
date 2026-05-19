@@ -620,3 +620,31 @@ class TestSizeModeValidation:
 
         with pytest.raises(ValueError, match="size_mode"):
             make_strategy(size_mode="absolute")
+
+
+class TestLevelsParser:
+    """levels 字段兼容多种 input 格式（前端 form / API direct call / JSON config）。"""
+
+    def test_levels_accept_list(self):
+        s = make_strategy(long_levels=[30, 25, 20])
+        assert s.long_levels == [30.0, 25.0, 20.0]
+
+    def test_levels_accept_csv_string(self):
+        """API direct call 常传逗号分隔 string，之前会 float(',') 崩。"""
+        s = make_strategy(long_levels="30,25,20", short_levels="70,75,80")
+        assert s.long_levels == [30.0, 25.0, 20.0]
+        assert s.short_levels == [70.0, 75.0, 80.0]
+
+    def test_levels_accept_spaced_csv(self):
+        s = make_strategy(long_levels=" 30 , 25 , 20 ")
+        assert s.long_levels == [30.0, 25.0, 20.0]
+
+    def test_levels_empty_or_none(self):
+        s = make_strategy(long_levels=None)
+        assert s.long_levels == []
+
+    def test_levels_bad_value_raises_with_field_name(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="long_levels"):
+            make_strategy(long_levels="abc,def")
