@@ -108,7 +108,14 @@ async function refreshDashboardSlow({ silent = false } = {}) {
   dashboardState.equity = equity;
 
   renderRiskEvents(dashboardState.riskEvents);
+  _renderEquityChart(equity);
+  if (hasFailure) throw new Error('partial polling failure');
+}
 
+// equity 曲线渲染抽出 — refreshDashboardSlow 和 changeEquityDays 共用,
+// 后者切日期时只拉 equity 不再连带 events（旧实现注释自己说"没必要
+// 全量"却仍调 refreshDashboardSlow 拉两个 API）
+function _renderEquityChart(equity) {
   const chartEl = document.getElementById('dashboard-equity-chart');
   if (equity?.points?.length) {
     renderEquityCurveChart(equity, 'dashboard-equity-chart');
@@ -121,7 +128,6 @@ async function refreshDashboardSlow({ silent = false } = {}) {
     disposeEquityChart('dashboard-equity-chart');
     if (chartEl) chartEl.innerHTML = '<div class="cq-empty-inline">暂无权益曲线数据</div>';
   }
-  if (hasFailure) throw new Error('partial polling failure');
 }
 
 async function changeEquityDays(days) {
@@ -129,8 +135,12 @@ async function changeEquityDays(days) {
   document.querySelectorAll('.cq-day-pill').forEach((button) => {
     button.classList.toggle('is-active', String(button.dataset.days) === String(days));
   });
-  // 切换日期范围只影响 equity 曲线，没必要触发全量刷新
-  await refreshDashboardSlow({ silent: true });
+  // 只重拉 equity，不连带 events — 切日期不该刷新风险事件列表
+  const chartEl = document.getElementById('dashboard-equity-chart');
+  if (chartEl) chartEl.innerHTML = '<div class="cq-skeleton" style="height:100%;"></div>';
+  const equity = await api.getEquityCurve(dashboardEquityDays).catch(() => null);
+  dashboardState.equity = equity;
+  _renderEquityChart(equity);
 }
 
 function renderInstanceList(instances) {
