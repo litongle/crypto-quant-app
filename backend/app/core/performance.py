@@ -143,8 +143,17 @@ class PerformanceCalculator:
 
         # 基础统计
         report.total_trades = len(sorted_trades)
-        report.start_time = sorted_trades[0].entry_time
-        report.end_time = sorted_trades[-1].exit_time
+        # start_time/end_time 反映**回测请求范围**(用 equity_curve 边界), 不是
+        # "有交易的时间跨度"。之前用 trades[0].entry / trades[-1].exit, 在策略
+        # 只在中间触发时(如 31 天请求只有 12-14~12-29 有 trade), startTime 显示
+        # 12-14 让用户困惑"我请求的不是 12-01 吗"。与 iter 10 trading_days
+        # 修复保持一致。equity_curve 没传时回退到 trades 跨度。
+        if equity_curve and len(equity_curve) >= 2:
+            report.start_time = equity_curve[0].timestamp
+            report.end_time = equity_curve[-1].timestamp
+        else:
+            report.start_time = sorted_trades[0].entry_time
+            report.end_time = sorted_trades[-1].exit_time
 
         wins = [t for t in sorted_trades if t.pnl > 0]
         losses = [t for t in sorted_trades if t.pnl <= 0]
