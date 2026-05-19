@@ -168,8 +168,16 @@ class PerformanceCalculator:
                 (report.final_equity - initial_capital) / initial_capital * 100
             )
 
-        # 交易天数
-        if report.start_time and report.end_time:
+        # 交易天数 — 优先用 equity_curve 范围(反映回测请求的真实时间跨度),
+        # 否则回退到 trades 跨度。
+        # 之前: report.start_time/end_time 取自 trades[0].entry / trades[-1].exit,
+        # 是"有交易的时间跨度"。如果回测请求 30 天但策略只在中间 10 天有交易,
+        # trading_days=10 → annual_return = total_return × 365/10 虚高 3 倍。
+        # 用 equity_curve 范围则反映真实"持有期"。
+        if equity_curve and len(equity_curve) >= 2:
+            delta = equity_curve[-1].timestamp - equity_curve[0].timestamp
+            report.trading_days = max(1, delta.days)
+        elif report.start_time and report.end_time:
             delta = report.end_time - report.start_time
             report.trading_days = max(1, delta.days)
 
