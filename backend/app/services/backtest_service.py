@@ -888,9 +888,13 @@ class BacktestService:
             equity_curve=perf_equity,
             initial_capital=initial_capital,
         )
-        # 交易记录（最多 100 条）
+        # 交易记录(最多 100 条) — 取最近 100 笔而非最早 100 笔。
+        # 之前 trades[:100] 让 200 笔的回测用户只看到一个月前的旧 trade,
+        # 看不到末期策略表现。用户视角更关心最新 N 笔。
+        max_trade_display = 100
+        trades_to_show = trades[-max_trade_display:] if len(trades) > max_trade_display else trades
         trade_records = []
-        for t in trades[:100]:
+        for t in trades_to_show:
             trade_records.append(
                 {
                     "side": t.side,
