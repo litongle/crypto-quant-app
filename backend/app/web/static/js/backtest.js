@@ -629,6 +629,16 @@ function renderBacktestResults(result) {
     ? '全量前缀（第1根→当前）'
     : `最近 ${analysisWindowUsed} 根`;
 
+  // 智能金额精度：极小本金 (10 USDT 跑 PEPE) 时 avgProfit 0.005 toFixed(2)
+  // 会 round 成 0.01 误导，用 toPrecision 保留有效数字
+  const fmtAmount = (v) => {
+    if (v === 0) return '0.00';
+    const abs = Math.abs(v);
+    if (abs >= 1) return v.toFixed(2);
+    if (abs >= 0.01) return v.toFixed(4);
+    return v.toPrecision(2);
+  };
+
   el.innerHTML = `
     ${warning ? `
     <div class="cq-alert cq-alert--warn" style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3);border:1px solid var(--cq-color-loss);border-radius:var(--cq-radius);background:rgba(239,68,68,0.08);display:flex;align-items:flex-start;gap:var(--cq-space-3);">
@@ -688,8 +698,8 @@ function renderBacktestResults(result) {
           <div class="cq-metrics-detail__item" title="(1 + 总收益率)^(365/天数) - 1。把回测窗口的实际收益换算成「一年下来等价的」复利收益率"><span class="cq-metrics-detail__label">年化收益率</span><span class="cq-metrics-detail__value cq-num" style="color:${annualReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
           <div class="cq-metrics-detail__item" title="年化收益率 / 最大回撤。比夏普更关注「亏损深度」，>1 优秀，>3 卓越"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${calmarRatio.toFixed(2)}</span></div>
           <div class="cq-metrics-detail__item" title="盈利交易笔数 / 亏损交易笔数"><span class="cq-metrics-detail__label">盈利 / 亏损次数</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${profitTrades}</span> / <span style="color:var(--cq-color-loss);">${lossTrades}</span></span></div>
-          <div class="cq-metrics-detail__item" title="所有盈利交易 pnl 均值（已扣手续费）"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${profitTrades > 0 ? '+' + avgProfit.toFixed(2) : '—'}</span></div>
-          <div class="cq-metrics-detail__item" title="所有亏损交易 pnl 绝对值均值（已扣手续费）"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${lossTrades > 0 ? avgLoss.toFixed(2) : '—'}</span></div>
+          <div class="cq-metrics-detail__item" title="所有盈利交易 pnl 均值（已扣手续费）"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${profitTrades > 0 ? '+' + fmtAmount(avgProfit) : '—'}</span></div>
+          <div class="cq-metrics-detail__item" title="所有亏损交易 pnl 绝对值均值（已扣手续费）"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${lossTrades > 0 ? fmtAmount(avgLoss) : '—'}</span></div>
           <div class="cq-metrics-detail__item" title="连续盈利 / 连续亏损的最长记录条数。从 trades 顺序推导"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
           <div class="cq-metrics-detail__item" title="回测窗口跨度（端到端天数，非有持仓的实际交易天数）"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
           <div class="cq-metrics-detail__item" title="从权益曲线峰值跌下来 → 再创新高之间的最长时间间隔。越短说明策略恢复能力越强"><span class="cq-metrics-detail__label">最长回撤时长</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${
