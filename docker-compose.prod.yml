@@ -45,11 +45,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须在 .env 里设置}@postgres:5432/crypto_quant
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD 必须在 .env 里设置}@redis:6379/0
       - ENVIRONMENT=production
-    # 启动前自动跑 alembic 迁移; --proxy-headers 让 8000 信任反代头
-    command:
-      - sh
-      - -c
-      - "alembic upgrade head && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
+    # lifespan 里的 init_db() 已经处理建表/迁移(fresh DB stamp head, existing DB upgrade),
+    # 这里不再前置 alembic upgrade head — SQLite 上 0005 PG-comment migration 会报错。
+    # --proxy-headers 让 8000 信任反代头(1Panel OpenResty 注入 X-Forwarded-Proto)
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
     depends_on:
       postgres:
         condition: service_healthy

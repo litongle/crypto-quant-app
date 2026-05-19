@@ -97,6 +97,13 @@ async def lifespan(app: FastAPI):
         "Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.environment
     )
 
+    # SQLite 试用模式 — 业务表数据量小够用,但写并发/崩溃恢复弱,不要拿来跑真盘
+    if settings.database_url.startswith("sqlite"):
+        logger.warning(
+            "⚠️  SQLite 模式 — 仅适合试用/演示。跑真盘请设 "
+            "DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname"
+        )
+
     # 数据库 schema
     try:
         from app.database import init_db

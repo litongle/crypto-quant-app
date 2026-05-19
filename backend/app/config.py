@@ -43,10 +43,10 @@ class Settings(BaseSettings):
     secret_key: str = _DEFAULT_SECRET_KEY
     jwt_secret_key: str = _DEFAULT_JWT_SECRET_KEY
 
-    # 数据库（强制 PostgreSQL；默认指向 docker-compose 内置服务）
-    database_url: str = (
-        "postgresql+asyncpg://postgres:dev-postgres-password@postgres:5432/crypto_quant"
-    )
+    # 数据库 — 默认 SQLite 让零配置启动可行(单用户系统业务表数据量小,SQLite 够用)。
+    # 生产/真盘强烈推荐 PG: DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname
+    # init_db() 会自动 mkdir 创建文件目录,无需手动准备。
+    database_url: str = "sqlite+aiosqlite:///./data/cq-dev.db"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -118,6 +118,12 @@ class Settings(BaseSettings):
             errors.append("jwt_secret_key 仍为默认开发值，必须通过 .env 或安装向导设置")
         if self.is_production and self.debug:
             errors.append("生产环境不允许 debug=True，请设置 DEBUG=false")
+        # SQLite 不适合跑真盘 — 写并发/崩溃恢复/在线备份都弱;生产明确拒绝
+        if self.is_production and self.database_url.startswith("sqlite"):
+            errors.append(
+                "生产环境拒绝 SQLite (写锁/崩溃恢复/在线备份均不安全),"
+                "请设 DATABASE_URL=postgresql+asyncpg://..."
+            )
 
         if errors:
             print("\n" + "=" * 60, file=sys.stderr)
