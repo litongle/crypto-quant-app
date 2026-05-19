@@ -702,13 +702,13 @@ function renderBacktestResults(result) {
           <div class="cq-metrics-detail__item" title="所有亏损交易 pnl 绝对值均值（已扣手续费）"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${lossTrades > 0 ? fmtAmount(avgLoss) : '—'}</span></div>
           <div class="cq-metrics-detail__item" title="连续盈利 / 连续亏损的最长记录条数。从 trades 顺序推导"><span class="cq-metrics-detail__label">最大连胜 / 连亏</span><span class="cq-metrics-detail__value cq-num"><span style="color:var(--cq-color-profit);">${maxConWins}</span> / <span style="color:var(--cq-color-loss);">${maxConLosses}</span></span></div>
           <div class="cq-metrics-detail__item" title="回测窗口跨度（端到端天数，非有持仓的实际交易天数）"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${duration} 天</span></div>
-          <div class="cq-metrics-detail__item" title="从权益曲线峰值跌下来 → 再创新高之间的最长时间间隔。越短说明策略恢复能力越强"><span class="cq-metrics-detail__label">最长回撤时长</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${
-            metrics.maxDrawdownDurationHours != null
-              ? (metrics.maxDrawdownDurationHours >= 24
-                ? `${(metrics.maxDrawdownDurationHours / 24).toFixed(1)} 天`
-                : `${metrics.maxDrawdownDurationHours.toFixed(1)} 小时`)
-              : '--'
-          }</span></div>
+          <div class="cq-metrics-detail__item" title="从权益曲线峰值跌下来 → 再创新高之间的最长时间间隔。越短说明策略恢复能力越强；0 表示从未跌破峰值"><span class="cq-metrics-detail__label">最长回撤时长</span>${(() => {
+            const mddh = metrics.maxDrawdownDurationHours;
+            if (mddh == null) return '<span class="cq-metrics-detail__value cq-num">--</span>';
+            if (mddh === 0) return '<span class="cq-metrics-detail__value cq-num" style="color:var(--cq-text-tertiary);">—</span>';
+            const display = mddh >= 24 ? `${(mddh / 24).toFixed(1)} 天` : `${mddh.toFixed(1)} 小时`;
+            return `<span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${display}</span>`;
+          })()}</div>
           ${(() => {
             const iv = result.interval || metrics.interval;
             const kc = result.klineCount ?? metrics.klineCount;
