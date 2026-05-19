@@ -1001,7 +1001,14 @@ function renderBacktestHistory(history) {
             return `
             <tr style="cursor:pointer;" onclick="viewBacktestDetail(${h.id})">
               <td style="color:var(--cq-text-primary);font-weight:500;">${escapeHtml(h.templateName || h.templateId)}</td>
-              <td style="color:var(--cq-text-secondary);">${escapeHtml(h.symbol)}</td>
+              <td style="color:var(--cq-text-secondary);">
+                ${escapeHtml(h.symbol)}
+                ${h.market === 'perp'
+                  ? '<span class="cq-tag cq-tag--loss" style="margin-left:6px;font-size:var(--cq-text-xs);padding:1px 6px;">永续</span>'
+                  : h.market === 'spot'
+                  ? '<span class="cq-tag cq-tag--neutral" style="margin-left:6px;font-size:var(--cq-text-xs);padding:1px 6px;">现货</span>'
+                  : ''}
+              </td>
               <td class="cq-num" style="text-align:right;color:${ret >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-color-primary);">${sharpe.toFixed(2)}</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-color-loss);">${dd.toFixed(2)}%</td>

@@ -211,6 +211,7 @@ class BacktestService:
                     "templateName": name_map.get(r.template_id, r.template_id),
                     "symbol": r.symbol,
                     "exchange": r.exchange,
+                    "market": getattr(r, "market", None),
                     "startDate": r.start_date,
                     "endDate": r.end_date,
                     "initialCapital": float(r.initial_capital),
