@@ -35,8 +35,34 @@ from app.core.strategy_engine import (
     get_strategy,
 )
 from app.core.strategy_runner import CLOSE_INTENTS
+from app.database import get_db_context
+from app.repositories import kline_cache_repo
 
 logger = logging.getLogger(__name__)
+
+
+# K 线周期 → 毫秒（用于算 cache 命中覆盖 / 标记"未完成 K 线" cutoff）
+_INTERVAL_MS = {
+    "1m": 60_000,
+    "3m": 180_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "2h": 7_200_000,
+    "4h": 14_400_000,
+    "6h": 21_600_000,
+    "8h": 28_800_000,
+    "12h": 43_200_000,
+    "1d": 86_400_000,
+    "3d": 259_200_000,
+    "1w": 604_800_000,
+}
+
+
+def _interval_to_ms(interval: str) -> int:
+    """K 线周期字符串 → 毫秒。未知周期回退到 1h（保守，宁可少缓存）。"""
+    return _INTERVAL_MS.get(interval, 3_600_000)
 
 
 def _coerce_analysis_window(raw: object) -> int | None:
@@ -896,31 +922,161 @@ class BacktestService:
         exchange: str = "binance",
         market: str = "spot",
     ) -> tuple[list[dict], bool]:
-        """获取历史K线数据内部实现。
+        """获取历史K线数据内部实现 —— 本地缓存优先。
+
+        策略：
+        1. 算 ts 范围 [start_ms, end_ms]，end_ms 不能超过"现在"
+        2. cutoff_ms = now - interval_ms：最后一根可能未收盘，不缓存
+        3. 读 cache.get_range：若 [start_ms, min(end_ms, cutoff_ms)] 全段都被缓存命中
+           （按 interval_ms 等距点检查覆盖）→ 完整命中，直接返
+        4. 否则 → 走原拉取逻辑（分页 REST），拉完后只把 ts < cutoff_ms 的部分 upsert 回 cache
+        5. 若用户请求范围超过 cutoff，cache 完整命中也要补拉那一小段未完成 K 线（不写回 cache）
 
         内置最大数量限制 _MAX_KLINES，超过自动截断。
         返回 (klines, is_mock)
         """
-        all_klines = []
+        try:
+            start_ms = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+            end_ms = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
+        except ValueError as e:
+            logger.warning("[backtest] 日期解析失败: %s，回退模拟数据", e)
+            return self._generate_mock_klines(symbol, start_date, end_date, interval), True
+
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        end_ms = min(end_ms, now_ms)
+        interval_ms = _interval_to_ms(interval)
+        cutoff_ms = now_ms - interval_ms  # 严格早于 cutoff 的 K 线视为已完成
+
+        # ===== 缓存读 =====
+        cached_klines: list[dict] = []
+        cache_hit = False
+        try:
+            async with get_db_context() as session:
+                cached_rows = await kline_cache_repo.get_range(
+                    session, exchange, symbol, interval, start_ms, end_ms
+                )
+            # 检查缓存覆盖：从 start_ms 对齐到 interval，每隔 interval_ms 一个点，
+            # 直到 min(end_ms, cutoff_ms)；这些点都必须在 cache 里才算完整命中。
+            coverage_end = min(end_ms, cutoff_ms)
+            if cached_rows and coverage_end >= start_ms:
+                # 用第一根 cached ts 当对齐基准（交易所返回的 ts 本身就按 interval 对齐）
+                base_ts = cached_rows[0].ts
+                cached_ts_set = {r.ts for r in cached_rows}
+                # 期望覆盖的所有 ts 点
+                expected_ts = []
+                t = base_ts
+                # base_ts 必须 <= start_ms + interval_ms（否则区间起点都没缓存）
+                if base_ts <= start_ms + interval_ms:
+                    while t <= coverage_end:
+                        expected_ts.append(t)
+                        t += interval_ms
+                    cache_hit = all(ts in cached_ts_set for ts in expected_ts) and bool(expected_ts)
+            if cache_hit:
+                cached_klines = [self._cache_row_to_kline(r, interval_ms) for r in cached_rows]
+                logger.info(
+                    "[backtest] cache 完整命中 %s %s %s %s~%s（%d 根）",
+                    exchange,
+                    symbol,
+                    interval,
+                    start_date,
+                    end_date,
+                    len(cached_klines),
+                )
+        except Exception as e:
+            logger.warning("[backtest] 读 K 线缓存失败，回退到 REST 拉取: %s", e)
+            cache_hit = False
+            cached_klines = []
+
+        if cache_hit:
+            # 用户请求范围若延伸到 cutoff 之后，可能漏最新 1-2 根；补拉一小段（不写回 cache）
+            if end_ms > cutoff_ms and cached_klines:
+                last_cached_ts = cached_klines[-1]["timestamp"]
+                tail_start_ms = int(last_cached_ts.timestamp() * 1000) + interval_ms
+                if tail_start_ms <= end_ms:
+                    tail_klines, _ = await self._fetch_from_rest(
+                        symbol, tail_start_ms, end_ms, interval, exchange, market
+                    )
+                    cached_klines.extend(tail_klines)
+            return cached_klines[:_MAX_KLINES], False
+
+        # ===== cache miss / 部分命中：全量拉 + 写回 =====
+        all_klines, is_mock = await self._fetch_from_rest(
+            symbol, start_ms, end_ms, interval, exchange, market
+        )
+        if not is_mock and all_klines:
+            try:
+                rows_to_cache = [
+                    {
+                        "exchange": exchange,
+                        "symbol": symbol,
+                        "interval": interval,
+                        "ts": int(k["timestamp"].timestamp() * 1000),
+                        "open": k["open"],
+                        "high": k["high"],
+                        "low": k["low"],
+                        "close": k["close"],
+                        "volume": k["volume"],
+                    }
+                    for k in all_klines
+                    if int(k["timestamp"].timestamp() * 1000) < cutoff_ms
+                ]
+                if rows_to_cache:
+                    async with get_db_context() as session:
+                        inserted = await kline_cache_repo.bulk_upsert(session, rows_to_cache)
+                        await session.commit()
+                        logger.info(
+                            "[backtest] 写回 cache: %d/%d 根（已跳过未完成 K 线）",
+                            inserted,
+                            len(rows_to_cache),
+                        )
+            except Exception as e:
+                # 缓存写失败不影响回测主流程
+                logger.warning("[backtest] 写 K 线缓存失败，忽略: %s", e)
+
+        return all_klines, is_mock
+
+    @staticmethod
+    def _cache_row_to_kline(row, interval_ms: int) -> dict:
+        """KlineCache ORM 行 → 引擎期望的 K 线 dict（timestamp 为 UTC datetime，价格为 Decimal）。"""
+        open_ts = datetime.fromtimestamp(row.ts / 1000, tz=UTC)
+        close_ts = datetime.fromtimestamp((row.ts + interval_ms - 1) / 1000, tz=UTC)
+        return {
+            "timestamp": open_ts,
+            "open": row.open,
+            "high": row.high,
+            "low": row.low,
+            "close": row.close,
+            "volume": row.volume,
+            "close_time": close_ts,
+        }
+
+    async def _fetch_from_rest(
+        self,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        interval: str,
+        exchange: str,
+        market: str,
+    ) -> tuple[list[dict], bool]:
+        """从交易所 REST 拉 K 线（原 _fetch_klines_impl 主体）。返回 (klines, is_mock)。"""
+        all_klines: list[dict] = []
         is_mock = False
         fetch_t0 = time.monotonic()
         page_index = 0
         try:
-            start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
-            end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
-
             client = await self._get_client()
-            current_start = start_ts
+            current_start = start_ms
             logger.info(
-                "[backtest] 开始拉 K 线 %s %s %s~%s (market=%s)",
+                "[backtest] 开始拉 K 线 %s %s %d~%d (market=%s)",
                 exchange,
                 symbol,
-                start_date,
-                end_date,
+                start_ms,
+                end_ms,
                 market,
             )
 
-            while current_start < end_ts and len(all_klines) < _MAX_KLINES:
+            while current_start < end_ms and len(all_klines) < _MAX_KLINES:
                 if exchange != "binance":
                     raise ValueError(f"暂不支持 {exchange} 回测数据拉取")
 
@@ -933,7 +1089,7 @@ class BacktestService:
                     "symbol": symbol.upper(),
                     "interval": interval,
                     "startTime": current_start,
-                    "endTime": end_ts,
+                    "endTime": end_ms,
                     "limit": 1000,
                 }
 
@@ -982,11 +1138,11 @@ class BacktestService:
 
                 if len(all_klines) >= _MAX_KLINES:
                     logger.warning(
-                        "K线数量已达上限 %d，截断。interval=%s, %s ~ %s",
+                        "K线数量已达上限 %d，截断。interval=%s, %d~%d",
                         _MAX_KLINES,
                         interval,
-                        start_date,
-                        end_date,
+                        start_ms,
+                        end_ms,
                     )
                     break
 
@@ -998,7 +1154,10 @@ class BacktestService:
                 time.monotonic() - fetch_t0,
                 e,
             )
-            all_klines = self._generate_mock_klines(symbol, start_date, end_date, interval)
+            # 失败时构造日期字符串走 mock —— mock 内部要用日期不要 ms
+            start_date_str = datetime.fromtimestamp(start_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
+            end_date_str = datetime.fromtimestamp(end_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
+            all_klines = self._generate_mock_klines(symbol, start_date_str, end_date_str, interval)
             is_mock = True
         else:
             is_mock = False

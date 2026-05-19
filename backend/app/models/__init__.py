@@ -4,6 +4,7 @@ from app.models.audit_event import AuditEvent
 from app.models.backtest import BacktestResult
 from app.models.equity_snapshot import DailyEquitySnapshot
 from app.models.exchange import ExchangeAccount, Position
+from app.models.kline_cache import KlineCache
 from app.models.order import Order, Signal
 from app.models.runtime_config import RuntimeConfig
 from app.models.strategy import StrategyInstance, StrategyTemplate
@@ -29,4 +30,6 @@ __all__ = [
     "DailyEquitySnapshot",
     # 审计事件
     "AuditEvent",
+    # K 线本地缓存
+    "KlineCache",
 ]
