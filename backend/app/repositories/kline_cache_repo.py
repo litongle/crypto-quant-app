@@ -48,22 +48,32 @@ async def bulk_upsert(session: AsyncSession, rows: Iterable[dict[str, Any]]) -> 
 
     rows 元素至少包含 exchange / symbol / interval / ts / open / high / low / close / volume。
     PG 走 ON CONFLICT DO NOTHING，SQLite 走 INSERT OR IGNORE。
+
+    分 batch — PG 协议 32767 参数上限,本表 10 字段 × N 行,一次塞 4 万行直接报
+    InterfaceError 让缓存写失败,1m 30 天 43200 根会全军覆没。每 batch 1000 行
+    留足余量。
     """
     payload = list(rows)
     if not payload:
         return 0
 
+    batch_size = 1000
+
     dialect_name = session.bind.dialect.name if session.bind else ""
     if dialect_name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        stmt = pg_insert(KlineCache).values(payload)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["exchange", "symbol", "interval", "ts"])
+        def make_stmt(batch: list[dict[str, Any]]):
+            s = pg_insert(KlineCache).values(batch)
+            return s.on_conflict_do_nothing(index_elements=["exchange", "symbol", "interval", "ts"])
+
     elif dialect_name == "sqlite":
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-        stmt = sqlite_insert(KlineCache).values(payload)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["exchange", "symbol", "interval", "ts"])
+        def make_stmt(batch: list[dict[str, Any]]):
+            s = sqlite_insert(KlineCache).values(batch)
+            return s.on_conflict_do_nothing(index_elements=["exchange", "symbol", "interval", "ts"])
+
     else:
         # 兜底（mysql 等）：逐条尝试插入，靠唯一约束去重。生产只跑 PG/SQLite，这里只保兼容。
         inserted = 0
@@ -77,7 +87,10 @@ async def bulk_upsert(session: AsyncSession, rows: Iterable[dict[str, Any]]) -> 
                 await session.rollback()
         return inserted
 
-    result = await session.execute(stmt)
+    total_inserted = 0
+    for i in range(0, len(payload), batch_size):
+        batch = payload[i : i + batch_size]
+        result = await session.execute(make_stmt(batch))
+        total_inserted += result.rowcount or 0
     await session.flush()
-    # rowcount 在 ON CONFLICT DO NOTHING 下：PG 报跳过后实际插入的行数；SQLite 同语义。
-    return result.rowcount or 0
+    return total_inserted
