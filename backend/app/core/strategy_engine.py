@@ -365,6 +365,11 @@ class MartingaleStrategy(BaseStrategy):
 
         multiplier = max(1.0, float(self.params.get("multiplier", 2.0)))
         max_losses = max(1, int(self.params.get("maxLosses", 5)))
+        # initialInvestment 是 seed_data 模板字段(每次开仓 USDT 基础值),
+        # 之前死参数 — 策略不读,所以 multiplier 算的 scale 没传给引擎,
+        # 用户改 1.5x/2.0x 完全没区别。现在 invest_amount = init × scale
+        # 真实反映"亏损后翻倍下单"语义。
+        initial_invest = float(self.params.get("initialInvestment", 100))
         closes = [float(k["close"]) for k in klines[-6:]]
         current_price = closes[-1]
 
@@ -373,6 +378,7 @@ class MartingaleStrategy(BaseStrategy):
 
         if self._position_entry_price is None and falling_streak:
             scale = min(multiplier**self._loss_streak, multiplier**max_losses)
+            invest_amount = initial_invest * scale
             self._position_entry_price = current_price
             return Signal(
                 action="buy",
@@ -382,6 +388,7 @@ class MartingaleStrategy(BaseStrategy):
                 metadata={
                     "martingale_step": self._loss_streak,
                     "position_scale": round(scale, 4),
+                    "invest_amount": round(invest_amount, 2),
                 },
             )
 
@@ -407,6 +414,7 @@ class MartingaleStrategy(BaseStrategy):
             self._loss_streak += 1
             self._position_entry_price = current_price
             scale = min(multiplier**self._loss_streak, multiplier**max_losses)
+            invest_amount = initial_invest * scale
             return Signal(
                 action="buy",
                 confidence=min(0.92, 0.68 + self._loss_streak * 0.05),
@@ -415,6 +423,7 @@ class MartingaleStrategy(BaseStrategy):
                 metadata={
                     "martingale_step": self._loss_streak,
                     "position_scale": round(scale, 4),
+                    "invest_amount": round(invest_amount, 2),
                 },
             )
 
