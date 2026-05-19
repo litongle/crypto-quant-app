@@ -438,7 +438,7 @@ function renderLibraryCard(instance) {
           </div>
         </div>
         <div class="cq-instance-card__pnl">
-          <div class="cq-instance-card__pnl-value" style="color:${pnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${formatMoney(pnl)}</div>
+          <div class="cq-instance-card__pnl-value" style="color:${pnl === 0 ? 'var(--cq-text-secondary)' : pnl > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${formatMoney(pnl)}</div>
           <div class="cq-instance-card__pnl-rate">${formatPercent(instance.winRate ?? 0, 1)} 胜率</div>
         </div>
       </div>
@@ -803,7 +803,11 @@ async function showCreateForm(templateId, options = {}) {
   const nameInput = document.getElementById('new-strategy-name');
   const exchangeSelect = document.getElementById('new-strategy-exchange');
   const accountSelect = document.getElementById('new-strategy-account');
-  if (nameInput) nameInput.value = strategy.name || '';
+  if (nameInput) {
+    nameInput.value = strategy.name || '';
+    // placeholder 随模板走 — 否则选 RSI 策略却看到「我的双均线策略」误导
+    nameInput.placeholder = `我的${template.name}`;
+  }
   if (exchangeSelect) exchangeSelect.value = strategy.exchange || 'binance';
   filterAccountsByExchange();
   if (accountSelect && !accountSelect.disabled) {

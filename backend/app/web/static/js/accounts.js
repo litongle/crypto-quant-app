@@ -94,14 +94,16 @@ function renderAccounts() {
         <label class="cq-label" for="acc-passphrase">Passphrase <span style="color:var(--cq-color-warning);font-weight:600;">(OKX 必须，其他可不填)</span></label>
         <input type="password" class="cq-input" id="acc-passphrase" placeholder="输入 Passphrase">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);">
-        <label style="display:flex;align-items:center;gap:var(--cq-space-2);cursor:pointer;">
+      <!-- testnet / demo 是两个交易所专属的概念：Binance 用 testnet，OKX 用 demo。
+           按 exchange 切换显隐(JS 在 onExchangeChange 里调整)，避免两者同时勾上的歧义。 -->
+      <div id="env-flags-row" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--cq-space-3);margin-bottom:var(--cq-space-4);">
+        <label id="acc-testnet-label" style="display:flex;align-items:center;gap:var(--cq-space-2);cursor:pointer;">
           <input type="checkbox" id="acc-testnet" style="width:16px;height:16px;accent-color:var(--cq-color-primary);">
-          <span style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">测试网 (Testnet)</span>
+          <span style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">测试网 (Binance Testnet)</span>
         </label>
-        <label style="display:flex;align-items:center;gap:var(--cq-space-2);cursor:pointer;">
+        <label id="acc-demo-label" style="display:flex;align-items:center;gap:var(--cq-space-2);cursor:pointer;">
           <input type="checkbox" id="acc-demo" style="width:16px;height:16px;accent-color:var(--cq-color-primary);">
-          <span style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">模拟盘 (Demo)</span>
+          <span style="font-size:var(--cq-text-sm);color:var(--cq-text-secondary);">模拟盘 (OKX Demo)</span>
         </label>
       </div>
       <div style="background:var(--cq-bg-l2);border:1px solid var(--cq-border-default);border-radius:var(--cq-radius-lg);padding:var(--cq-space-3);margin-bottom:var(--cq-space-4);display:flex;gap:var(--cq-space-2);align-items:flex-start;">
@@ -193,6 +195,8 @@ function renderAccounts() {
   }
 
   container.innerHTML = html;
+  // 表单渲染完后用一次 — 让 testnet/demo 按默认 exchange (binance) 立即正确显隐
+  if (showAddForm) onExchangeChange();
 }
 
 /* ── 工具函数 ── */
@@ -223,6 +227,28 @@ function onExchangeChange() {
       passphraseLabel.innerHTML = 'Passphrase <span style="color:var(--cq-color-loss);font-weight:600;">*必须填写</span>';
     } else {
       passphraseLabel.innerHTML = 'Passphrase <span style="color:var(--cq-text-disabled);">(OKX 必须，其他可不填)</span>';
+    }
+  }
+  // testnet / demo 按交易所切显隐，并清空互斥的另一项 — 避免歧义勾选
+  const testnetLabel = document.getElementById('acc-testnet-label');
+  const demoLabel = document.getElementById('acc-demo-label');
+  const testnetEl = document.getElementById('acc-testnet');
+  const demoEl = document.getElementById('acc-demo');
+  if (testnetLabel && demoLabel && testnetEl && demoEl) {
+    if (exchange === 'binance') {
+      testnetLabel.style.display = 'flex';
+      demoLabel.style.display = 'none';
+      demoEl.checked = false;
+    } else if (exchange === 'okx') {
+      testnetLabel.style.display = 'none';
+      demoLabel.style.display = 'flex';
+      testnetEl.checked = false;
+    } else {
+      // 火币等暂无明确环境标记 — 两项都不显示
+      testnetLabel.style.display = 'none';
+      demoLabel.style.display = 'none';
+      testnetEl.checked = false;
+      demoEl.checked = false;
     }
   }
 }

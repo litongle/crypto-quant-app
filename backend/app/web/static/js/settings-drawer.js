@@ -152,6 +152,8 @@ function bindTelegramForm(container) {
   const status = form.querySelector('[data-status]');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    // 先跑浏览器 native 校验 — 否则用户输入超长/格式不合规也会直接打后端
+    if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const token = fd.get('telegram_bot_token');
     const chatId = fd.get('telegram_chat_id');
@@ -184,6 +186,7 @@ function bindSmtpForm(container) {
   const status = form.querySelector('[data-status]');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const pw = fd.get('smtp_password');
     const body = {
@@ -263,6 +266,9 @@ function bindRiskForm(container) {
   const status = container.querySelector('[data-status]');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    // 风控参数都是 number + min/max 限制；submit 前先跑 native 校验避免
+    // 越界值打到后端再失败（之前用户填 99999 才看到「需 ≤ 3600」提示）
+    if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const body = {
       consecutive_errors: Number(fd.get('consecutive_errors')),
