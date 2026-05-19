@@ -988,11 +988,11 @@ function renderBacktestHistory(history) {
           <tr>
             <th>策略</th>
             <th>交易对</th>
-            <th style="text-align:right;">收益率</th>
-            <th style="text-align:right;">夏普</th>
-            <th style="text-align:right;">回撤</th>
-            <th style="text-align:right;">胜率</th>
-            <th style="text-align:right;">交易数</th>
+            <th style="text-align:right;" title="(最终权益 - 初始资金) / 初始资金 × 100%">收益率</th>
+            <th style="text-align:right;" title="年化收益率 / 年化波动率，越高越好（cap ±10）">夏普</th>
+            <th style="text-align:right;" title="权益曲线从历史峰值最大跌幅%，越小越稳">回撤</th>
+            <th style="text-align:right;" title="盈利交易 / 总交易">胜率</th>
+            <th style="text-align:right;" title="完整开仓→平仓次数（不含加仓动作）">交易数</th>
             <th style="text-align:right;">时间</th>
             <th style="text-align:right;width:42px;"></th>
           </tr>
