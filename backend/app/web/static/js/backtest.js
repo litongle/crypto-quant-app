@@ -40,6 +40,12 @@ async function loadBacktestPage() {
       App.state.backtestSymbolSel = new SymbolSelector({
         containerId: 'backtest-symbol-selector',
         value: 'BTCUSDT',
+        // 切币种时重渲参数面板：spot ↔ perp 切换决定是否显示 perp-only 参数
+        onChange: () => {
+          if (App.state.backtestCurrentParams) {
+            renderBacktestParamControls(App.state.backtestCurrentParams);
+          }
+        },
       });
     }
   } else if (typeof App.state.backtestSymbolSel.refreshData === 'function') {
@@ -1083,8 +1089,20 @@ window.clearAllBacktestHistory = clearAllBacktestHistory;
  *       json        → textarea
  *       rules / 其他 → 跳过(rules 由 renderBacktestRuleBuilder 处理)
  */
+// perp 专属参数：spot 模式下回测引擎根本不读，UI 显示会误导用户
+const PERP_ONLY_PARAM_KEYS = new Set(['leverage', 'initial_margin_rate', 'funding_rate_8h']);
+
 function renderBacktestParamControls(params) {
   const root = document.getElementById('backtest-params');
+  // 记录当前 params 给 symbol 切换时复用
+  App.state.backtestCurrentParams = params;
+  // 取当前 market：spot 时过滤掉 perp-only 参数
+  let currentMarket = 'spot';
+  try {
+    const v = App.state.backtestSymbolSel?.getValue?.() || 'BTCUSDT';
+    currentMarket = (typeof splitMarket === 'function' ? splitMarket(v).market : 'spot') || 'spot';
+  } catch { /* fallback spot */ }
+
   root.innerHTML = params.map(p => {
     const t = p.type || 'double';
     const desc = p.description
@@ -1094,6 +1112,8 @@ function renderBacktestParamControls(params) {
     if (t === 'rules') return '';  // rule_custom 不会走到这里(已被 strategyType==='rule' 拦截)
     // auto_trade 是实盘 runner 开关,回测路径根本不读这字段,UI 显示反而误导(文案说"真实下单")
     if (p.key === 'auto_trade') return '';
+    // spot 模式下隐藏 perp-only 参数（杠杆/初始保证金率/资金费率）
+    if (currentMarket === 'spot' && PERP_ONLY_PARAM_KEYS.has(p.key)) return '';
 
     if (t === 'bool') {
       const checked = p.default ? 'checked' : '';
