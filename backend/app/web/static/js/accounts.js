@@ -402,13 +402,18 @@ function renderAccountPositionRow(p) {
   const sourceChip = isStrategy
     ? `<span class="cq-tag cq-tag--info" title="策略实例 #${p.strategyInstanceId}">策略 · ${escapeHtml(p.strategyName || `#${p.strategyInstanceId}`)}</span>`
     : '<span class="cq-tag cq-tag--neutral">外部</span>';
-  const sideChip = p.side === 'long'
+  // side 显式分流 long/short，避免 spot buy/sell 数据被误显示成「空」
+  const sideRaw = String(p.side || '').toLowerCase();
+  const sideChip = sideRaw === 'long'
     ? '<span class="cq-tag cq-tag--profit">多</span>'
-    : '<span class="cq-tag cq-tag--loss">空</span>';
+    : sideRaw === 'short'
+      ? '<span class="cq-tag cq-tag--loss">空</span>'
+      : `<span class="cq-tag cq-tag--neutral">${escapeHtml(getOrderSideLabel(p.side))}</span>`;
   const pnl = Number(p.unrealizedPnl || 0);
   const pnlPct = Number(p.unrealizedPnlPercent || 0);
-  const pnlSign = pnl >= 0 ? '+' : '';
-  const pnlClass = pnl >= 0 ? 'cq-text-profit' : 'cq-text-loss';
+  // 零值不染色：0 PnL 显示中性灰 + 不加 + 号，避免和 +0.00 绿色误导
+  const pnlSign = pnl > 0 ? '+' : '';
+  const pnlClass = pnl === 0 ? '' : pnl > 0 ? 'cq-text-profit' : 'cq-text-loss';
   const lev = p.leverage && p.leverage > 1 ? ` · ${p.leverage}x` : '';
   return `
     <div class="cq-account-position-row" data-position-id="${p.positionId}">

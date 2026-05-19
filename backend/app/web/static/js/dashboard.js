@@ -190,18 +190,40 @@ function renderSystemStatus(status) {
   }
   const runner = status.strategy_runner;
   const exchanges = Array.isArray(status.exchanges) ? status.exchanges : [];
-  const runnerLine = runner
-    ? `<div class="cq-status-list__item"><span>执行器</span><span>${runner.alive_count}/${runner.task_count} 就绪</span></div>`
-    : '<div class="cq-status-list__item"><span>执行器</span><span>--</span></div>';
+  // 执行器状态分 3 档：无任务（中性）/ 全部就绪（profit）/ 部分异常（loss）
+  // 旧版只显示 "0/0 就绪" 含糊不清 — 是没策略还是 runner 挂了？
+  let runnerLine;
+  if (!runner) {
+    runnerLine = '<div class="cq-status-list__item"><span>执行器</span><span>--</span></div>';
+  } else if ((runner.task_count || 0) === 0) {
+    runnerLine = '<div class="cq-status-list__item"><span>执行器</span><span style="color:var(--cq-text-tertiary);">空闲（无运行实例）</span></div>';
+  } else if (runner.alive_count < runner.task_count) {
+    const failed = runner.task_count - runner.alive_count;
+    runnerLine = `<div class="cq-status-list__item"><span>执行器</span><span style="color:var(--cq-color-loss);">${runner.alive_count}/${runner.task_count} 就绪（${failed} 异常）</span></div>`;
+  } else {
+    runnerLine = `<div class="cq-status-list__item"><span>执行器</span><span style="color:var(--cq-color-profit);">${runner.alive_count}/${runner.task_count} 就绪</span></div>`;
+  }
   container.innerHTML = `
     <div class="cq-status-list">
       ${runnerLine}
-      ${exchanges.map((item) => `
-        <div class="cq-status-list__item">
-          <span>${escapeHtml(getExchangeLabel(item.name))}</span>
-          <span>${item.ws_connected ? `${item.rest_latency_ms ?? '--'}ms` : '离线'}</span>
-        </div>
-      `).join('')}
+      ${exchanges.map((item) => {
+        // ws_connected=true 但 latency=null（刚连上还没探活）— 显示「已连接」
+        //   比「--ms」清晰；ws_connected=false → 离线（红）
+        let valueHtml;
+        if (!item.ws_connected) {
+          valueHtml = '<span style="color:var(--cq-color-loss);">离线</span>';
+        } else if (item.rest_latency_ms == null) {
+          valueHtml = '<span style="color:var(--cq-color-profit);">已连接</span>';
+        } else {
+          valueHtml = `<span class="cq-num">${item.rest_latency_ms}ms</span>`;
+        }
+        return `
+          <div class="cq-status-list__item">
+            <span>${escapeHtml(getExchangeLabel(item.name))}</span>
+            ${valueHtml}
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
 }
