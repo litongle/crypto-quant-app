@@ -19,10 +19,21 @@ async function openInstanceDrawer(instanceId) {
   document.getElementById('instance-drawer-positions').innerHTML = '';
   document.getElementById('instance-drawer-orders').innerHTML = '';
 
+  // detail 失败兜底：旧实现 detail 无 catch，网络抖 / 实例被删 → 整个抽屉
+  // unhandled rejection，title 永远停留在「加载中...」用户摸不着头脑
   const [instance, snapshot] = await Promise.all([
-    api.getStrategyDetail(instanceId),
+    api.getStrategyDetail(instanceId).catch((err) => { return { _loadError: err?.message || '加载失败' }; }),
     api.getStrategySnapshot(instanceId).catch(() => ({ positions: [], orders: [] })),
   ]);
+
+  if (instance && instance._loadError) {
+    document.getElementById('instance-drawer-title').textContent = `实例 #${instanceId}`;
+    document.getElementById('instance-drawer-summary').innerHTML =
+      `<div class="cq-empty-state" style="padding:var(--cq-space-4);"><h3>${escapeHtml(instance._loadError)}</h3><p>请刷新重试或关闭抽屉</p></div>`;
+    document.getElementById('instance-drawer-positions').innerHTML = '';
+    document.getElementById('instance-drawer-orders').innerHTML = '';
+    return;
+  }
 
   instanceDrawerState.instance = instance;
   const positions = Array.isArray(snapshot?.positions) ? snapshot.positions : [];
