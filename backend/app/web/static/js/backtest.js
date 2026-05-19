@@ -383,6 +383,25 @@ async function runBacktest() {
   const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000);
   if (daysDiff > 3650) { showToast('回测跨度不能超过 10 年', 'warn'); return; }
 
+  // K 线数量预估校验 — 避免用户白点等几十秒才报"数据不足"或"引擎超时"
+  // 周期 → 每天 K 线数;rule_custom 跑前可能拿不到 kline_interval,跳过
+  const interval = (() => {
+    try { return collectBacktestParams().kline_interval; } catch { return null; }
+  })();
+  const barsPerDay = { '1m': 1440, '5m': 288, '15m': 96, '30m': 48, '1h': 24, '4h': 6, '1d': 1 };
+  if (interval && barsPerDay[interval]) {
+    const estBars = daysDiff * barsPerDay[interval];
+    if (estBars < 50) {
+      showToast(`该组合预计仅约 ${estBars} 根 K 线,不足 50 根,请增大日期范围或选更短周期`, 'warn');
+      return;
+    }
+    // 引擎硬上限 50000,实测 30 天 5m=8640 根引擎 120s 还超时,8000 起就需要警告
+    if (estBars > 8000) {
+      const proceed = confirm(`该组合预计约 ${estBars} 根 K 线,数据量较大,回测引擎可能 120 秒超时。\n建议增大周期(如 ${interval} → 1h)或缩小日期范围。\n仍要继续吗?`);
+      if (!proceed) return;
+    }
+  }
+
   const selectedTemplate = (App.state.backtestTemplates || []).find(t => t.id === templateId);
   const isRuleTemplate = selectedTemplate?.strategyType === 'rule';
   let params = {};
@@ -456,7 +475,11 @@ async function runBacktest() {
       const result = finalState.result || {};
       renderBacktestResults(result);
       const awHint = result.analysisWindow != null ? `, 窗口${result.analysisWindow}根` : ', 全量窗口';
-      const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒${awHint})` : '';
+      // elapsedSeconds 0 是合法值(引擎 <0.05s 被 round(0) 了),用 ?? 而不是 || 防误判;
+      // < 0.1 显示 "<0.1" 比 "0" 更准确反映"快得测不出"
+      const es = result.elapsedSeconds;
+      const esText = (es == null) ? '?' : (es < 0.1 ? '<0.1' : es);
+      const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${esText}秒${awHint})` : '';
       showToast('回测完成！' + extra, 'success');
     } else if (finalState.status === 'cancelled') {
       showToast('回测已取消', 'warn');
