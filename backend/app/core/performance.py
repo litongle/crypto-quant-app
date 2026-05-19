@@ -376,6 +376,10 @@ class PerformanceCalculator:
         annualized_rf = float(cls.RISK_FREE_RATE)  # risk_free_rate 本身就是年化值
 
         sharpe = (annualized_return - annualized_rf) / annualized_std
+        # Cap 到 ±10 — 行业 sharpe 极少超过 5,绝对值 >10 几乎都是 std 数值噪声
+        # (用户用极小仓位 invest=100 / capital=10万 → equity 波动 ~0.01% 让分母失稳)。
+        # 之前用户看到 sharpe -47 会怀疑数据正确性。Cap 保护数学正确但可读。
+        sharpe = max(-10.0, min(10.0, sharpe))
         return Decimal(str(round(sharpe, 4)))
 
     @classmethod
