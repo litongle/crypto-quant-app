@@ -732,7 +732,10 @@ STRATEGY_TEMPLATES = [
                     "default": 30,
                     "min": 1,
                     "max": 95,
-                    "description": "与实盘 runner 一致：每笔下单最多占用当前可用余额的比例。",
+                    "description": (
+                        "每笔下单的名义本金 = 该比例 × 当前可用余额。"
+                        "spot 模式即实际花费；perp 模式叠加杠杆得保证金占用 (notional × 1/杠杆)。"
+                    ),
                 },
                 {
                     "key": "leverage",
@@ -741,7 +744,10 @@ STRATEGY_TEMPLATES = [
                     "default": 20,
                     "min": 1,
                     "max": 125,
-                    "description": "回测永续时用于推导初始保证金率 1/杠杆（可被下方 initial_margin_rate 覆盖）。",
+                    "description": (
+                        "永续模式：杠杆仅决定保证金占用（占名义本金 1/杠杆）。"
+                        "不放大持仓 — 名义本金始终 = 单笔最大资金比例 × 余额。"
+                    ),
                 },
                 {
                     "key": "initial_margin_rate",
