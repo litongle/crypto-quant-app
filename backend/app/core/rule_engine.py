@@ -438,9 +438,15 @@ class RuleStrategy(BaseStrategy):
         if len(klines) < 30:
             return None
 
+        # 性能 — RuleEngine.__init__ 每次 build 全 N 根 numpy 数组 + 每次 analyze
+        # 都重算指标, 主循环 O(N²)。切末尾 500 根, 覆盖 6 半衰期至 period=80 的
+        # 指标(常见 RSI 14 / MA 20 / Bollinger 20 都远小于此)。
+        # 5万 K 线下 O(N²) 是几亿次计算,切到 500 后等同 O(N×500) 线性。
+        slice_klines = klines[-500:] if len(klines) > 500 else klines
+
         # 执行时再次验证规则，防止绕过
         try:
-            engine = RuleEngine(klines, rules)
+            engine = RuleEngine(slice_klines, rules)
         except RuleValidationError as e:
             logger.warning("规则验证失败: %s", e)
             return None
