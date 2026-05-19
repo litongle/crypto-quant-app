@@ -15,7 +15,7 @@
 <link rel="apple-touch-icon" href="/web/static/icons/icon.svg">
 <script src="/web/static/vendor/lightweight-charts.standalone.production.min.js?v=2026-05-18a"></script>
 <script src="/web/static/vendor/qrcode.min.js?v=2026-05-18a"></script>
-<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-20q">
+<link rel="stylesheet" href="/web/static/css/app.css?v=2026-05-20r">
 </head>
 <body>
 
@@ -496,7 +496,7 @@
 
 <!-- JS（带版本号 querystring 以绕过 SW stale-while-revalidate 缓存） -->
 <script src="/web/static/js/api.js?v=2026-05-19l"></script>
-<script src="/web/static/js/dashboard.js?v=2026-05-20q"></script>
+<script src="/web/static/js/dashboard.js?v=2026-05-20r"></script>
 <script src="/web/static/js/kline.js?v=2026-05-17ac"></script>
 <script src="/web/static/js/symbol-selector.js?v=2026-05-19t"></script>
 <script src="/web/static/js/strategy.js?v=2026-05-20r"></script>
@@ -783,6 +783,45 @@ document.addEventListener('DOMContentLoaded', () => {
         closeDangerConfirm(true);
       }
     });
+  }
+});
+
+// 全局 ESC 关闭最上层模态（按 z-order 优先级：dialog → modal → drawer）
+// a11y 兜底：所有覆盖层都该支持 ESC 关闭，否则键盘用户被困在弹窗里。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // 优先级 1：危险确认弹窗 / workbench 离开弹窗（窄确认型，最上层）
+  const danger = document.getElementById('danger-confirm-dialog');
+  if (danger && danger.classList.contains('is-visible')) {
+    closeDangerConfirm(false);
+    return;
+  }
+  const leave = document.getElementById('workbench-leave-dialog');
+  if (leave && leave.classList.contains('is-visible')) {
+    closeWorkbenchLeaveDialog(false);
+    return;
+  }
+  // 优先级 2：策略绩效弹窗
+  const perfModal = document.getElementById('strategy-perf-modal');
+  if (perfModal && perfModal.classList.contains('is-visible') && typeof closeStrategyPerfModal === 'function') {
+    closeStrategyPerfModal();
+    return;
+  }
+  // 优先级 3：抽屉（右侧滑入式）
+  const logsDrawer = document.getElementById('instance-logs-drawer');
+  if (logsDrawer && !logsDrawer.hidden && typeof closeInstanceLogsDrawer === 'function') {
+    closeInstanceLogsDrawer();
+    return;
+  }
+  const instDrawer = document.getElementById('instance-drawer');
+  if (instDrawer && !instDrawer.hidden && typeof closeInstanceDrawer === 'function') {
+    closeInstanceDrawer();
+    return;
+  }
+  const settingsDrawer = document.getElementById('settings-drawer');
+  if (settingsDrawer && !settingsDrawer.hidden && typeof closeSettingsDrawer === 'function') {
+    closeSettingsDrawer();
+    return;
   }
 });
 

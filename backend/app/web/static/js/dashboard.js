@@ -215,12 +215,23 @@ function renderEventListMarkup(items, emptyText) {
       ${items.slice(0, 50).map((item) => {
         const sev = item.severity || 'info';
         const typeLabel = getEventTypeLabel(item.type);
+        // 有 instance_id 才是可点击 button（打开实例 drawer）；否则用 div
+        // 渲染，视觉上仍是列表项但 hover 没 button affordance，避免点了无反应
+        if (item.instance_id) {
+          return `
+            <button class="cq-event-list__item cq-event-list__item--sev-${escapeHtml(sev)}" type="button" onclick="openInstanceDrawer(${item.instance_id})" title="查看实例 #${escapeHtml(String(item.instance_id))} 详情">
+              <span class="cq-event-list__time">${escapeHtml(formatEventTime(item.at))}</span>
+              <span class="cq-event-list__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(typeLabel)}</span>
+              <span class="cq-event-list__summary">${escapeHtml(item.summary || '--')}</span>
+            </button>
+          `;
+        }
         return `
-          <button class="cq-event-list__item cq-event-list__item--sev-${escapeHtml(sev)}" type="button" onclick="${item.instance_id ? `openInstanceDrawer(${item.instance_id})` : 'void(0)'}">
+          <div class="cq-event-list__item cq-event-list__item--sev-${escapeHtml(sev)} is-static" title="${escapeHtml(item.summary || '')}">
             <span class="cq-event-list__time">${escapeHtml(formatEventTime(item.at))}</span>
             <span class="cq-event-list__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(typeLabel)}</span>
             <span class="cq-event-list__summary">${escapeHtml(item.summary || '--')}</span>
-          </button>
+          </div>
         `;
       }).join('')}
     </div>

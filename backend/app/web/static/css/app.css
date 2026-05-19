@@ -2703,6 +2703,12 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
   text-align: left;
 }
 
+/* 无 instance_id 的事件项（如系统全局信号），渲染为 div.is-static —
+   不可点击，cursor 不变 pointer，避免视觉/行为不一致 */
+div.cq-event-list__item.is-static {
+  cursor: default;
+}
+
 .cq-status-list__item {
   display: flex;
   justify-content: space-between;

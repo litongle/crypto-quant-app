@@ -1361,24 +1361,32 @@ function renderStrategyPerformance(perf) {
   const maxConsecLosses = Number(perf.max_consecutive_losses ?? 0);
   const maxDrawdownHours = Number(perf.max_drawdown_duration_hours ?? 0);
 
+  // 零值不染色 — 对齐回测页历史修复系列（iter 7594af7 / 75396a5 / 512477a etc）
+  // 0 PnL 显示绿色 / 0 胜率显示绿色 / 0 回撤显示红色 都是误导。
+  const neutral = 'var(--cq-text-secondary)';
+  const profit = 'var(--cq-color-profit)';
+  const loss = 'var(--cq-color-loss)';
+  const sign = (n) => n === 0 ? neutral : n > 0 ? profit : loss;
+  const dashIfZero = (n, fmt) => n === 0 ? '<span style="color:var(--cq-text-disabled);">—</span>' : fmt(n);
+
   body.innerHTML = `
     <div class="cq-grid-3" style="margin-bottom:var(--cq-space-4);">
-      <div class="stat-card"><div class="stat-label">累计盈亏</div><div class="stat-value cq-num" style="color:${totalPnl >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}</div><div class="stat-sub cq-num" style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:var(--cq-space-1);">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(4)}%</div></div>
-      <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value cq-num" style="color:var(--cq-color-primary);">${sharpeRatio.toFixed(2)}</div></div>
-      <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value cq-num" style="color:var(--cq-color-loss);">${maxDrawdown.toFixed(2)}%</div></div>
-      <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value cq-num" style="color:var(--cq-color-profit);">${winRate.toFixed(1)}%</div></div>
-      <div class="stat-card"><div class="stat-label">盈亏比</div><div class="stat-value cq-num">${profitFactor.toFixed(2)}</div></div>
+      <div class="stat-card"><div class="stat-label">累计盈亏</div><div class="stat-value cq-num" style="color:${sign(totalPnl)};">${totalPnl > 0 ? '+' : ''}${totalPnl.toFixed(2)}</div><div class="stat-sub cq-num" style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:var(--cq-space-1);">${totalReturn > 0 ? '+' : ''}${totalReturn.toFixed(4)}%</div></div>
+      <div class="stat-card"><div class="stat-label">夏普比率</div><div class="stat-value cq-num" style="color:${sharpeRatio === 0 ? neutral : 'var(--cq-color-primary)'};">${sharpeRatio.toFixed(2)}</div></div>
+      <div class="stat-card"><div class="stat-label">最大回撤</div><div class="stat-value cq-num" style="color:${maxDrawdown === 0 ? neutral : loss};">${maxDrawdown.toFixed(2)}%</div></div>
+      <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value cq-num" style="color:${winRate === 0 ? neutral : profit};">${winRate.toFixed(1)}%</div></div>
+      <div class="stat-card"><div class="stat-label">盈亏比</div><div class="stat-value cq-num">${dashIfZero(profitFactor, n => n.toFixed(2))}</div></div>
       <div class="stat-card"><div class="stat-label">交易次数</div><div class="stat-value cq-num">${totalTrades} 笔</div></div>
     </div>
     <div class="cq-metrics-detail__grid" style="border-top:1px solid var(--cq-border-subtle);padding-top:var(--cq-space-3);">
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">年化收益</span><span class="cq-metrics-detail__value cq-num" style="color:${annualReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${calmarRatio.toFixed(2)}</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">+${avgProfit.toFixed(2)}</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${avgLoss.toFixed(2)}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">年化收益</span><span class="cq-metrics-detail__value cq-num" style="color:${sign(annualReturn)};">${annualReturn > 0 ? '+' : ''}${annualReturn.toFixed(2)}%</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">卡玛比率</span><span class="cq-metrics-detail__value cq-num" style="color:${calmarRatio === 0 ? neutral : 'var(--cq-color-primary)'};">${calmarRatio.toFixed(2)}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均盈利</span><span class="cq-metrics-detail__value cq-num" style="color:${avgProfit === 0 ? neutral : profit};">${avgProfit > 0 ? '+' : ''}${avgProfit.toFixed(2)}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">平均亏损</span><span class="cq-metrics-detail__value cq-num" style="color:${avgLoss === 0 ? neutral : loss};">${avgLoss.toFixed(2)}</span></div>
       <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">交易天数</span><span class="cq-metrics-detail__value cq-num">${tradingDays} 天</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-profit);">${maxConsecWins}</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连亏</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-loss);">${maxConsecLosses}</span></div>
-      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">回撤持续</span><span class="cq-metrics-detail__value cq-num">${maxDrawdownHours.toFixed(1)}h</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连胜</span><span class="cq-metrics-detail__value cq-num" style="color:${maxConsecWins === 0 ? neutral : profit};">${maxConsecWins}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">最大连亏</span><span class="cq-metrics-detail__value cq-num" style="color:${maxConsecLosses === 0 ? neutral : loss};">${maxConsecLosses}</span></div>
+      <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">回撤持续</span><span class="cq-metrics-detail__value cq-num">${dashIfZero(maxDrawdownHours, n => n.toFixed(1) + 'h')}</span></div>
     </div>`;
 }
 
