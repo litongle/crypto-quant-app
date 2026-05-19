@@ -563,16 +563,18 @@ class BacktestService:
                 return
             commission_exit = pos["quantity"] * exec_price * taker_fee
             mlocked = pos.get("margin_locked") or pos.get("margin_notional") or Decimal(0)
-            if pos["side"] == "long":
-                pnl = (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
-                capital += (
-                    mlocked + (exec_price - pos["entry_price"]) * pos["quantity"] - commission_exit
-                )
-            else:
-                pnl = (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
-                capital += (
-                    mlocked + (pos["entry_price"] - exec_price) * pos["quantity"] - commission_exit
-                )
+            # 开仓手续费 do_open_long/short 时已经从 capital 扣过且累计在 pos["commission_paid"],
+            # trade.pnl 必须把它也扣掉才反映真实净盈亏 — 否则:
+            # 1. 用户在交易明细看到的 pnl 比实际多(虚高)
+            # 2. sum(trade.pnl) != totalReturn(差额 = 所有开仓费, 数据自相矛盾)
+            commission_open_total = pos.get("commission_paid", Decimal("0"))
+            gross_pnl = (
+                (exec_price - pos["entry_price"]) * pos["quantity"]
+                if pos["side"] == "long"
+                else (pos["entry_price"] - exec_price) * pos["quantity"]
+            )
+            pnl = gross_pnl - commission_exit - commission_open_total
+            capital += mlocked + gross_pnl - commission_exit
             trades.append(
                 TradeRecord(
                     entry_price=pos["entry_price"],
@@ -582,7 +584,7 @@ class BacktestService:
                     entry_time=pos["entry_time"],
                     exit_time=exit_time,
                     pnl=pnl,
-                    commission=pos["commission_paid"] + commission_exit,
+                    commission=commission_open_total + commission_exit,
                 )
             )
             position = None
