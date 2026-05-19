@@ -651,19 +651,19 @@ function renderBacktestResults(result) {
     <div class="cq-grid-3" style="margin-bottom:var(--cq-space-4);">
       <div class="cq-card stat-card" title="(最终权益 - 初始资金) / 初始资金 × 100%">
         <div class="stat-label">总收益率</div>
-        <div class="stat-value cq-num" style="color:${totalReturn >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
+        <div class="stat-value cq-num" style="color:${totalReturn === 0 ? 'var(--cq-text-tertiary)' : (totalReturn > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)')};">${totalReturn > 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
       </div>
       <div class="cq-card stat-card" title="年化收益率 / 年化波动率。>1 良好，>2 优秀；小样本下数值不稳定，已 cap 到 ±10">
         <div class="stat-label">夏普比率</div>
-        <div class="stat-value cq-num" style="color:var(--cq-color-primary);">${sharpeRatio.toFixed(2)}</div>
+        <div class="stat-value cq-num" style="color:${sharpeRatio === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-primary)'};">${sharpeRatio.toFixed(2)}</div>
       </div>
-      <div class="cq-card stat-card" title="权益曲线从历史峰值的最大跌幅%。越小越稳健">
+      <div class="cq-card stat-card" title="权益曲线从历史峰值的最大跌幅%。越小越稳健；0 表示从未跌破峰值">
         <div class="stat-label">最大回撤</div>
-        <div class="stat-value cq-num" style="color:var(--cq-color-loss);">${maxDrawdown.toFixed(2)}%</div>
+        <div class="stat-value cq-num" style="color:${maxDrawdown === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-loss)'};">${maxDrawdown.toFixed(2)}%</div>
       </div>
       <div class="cq-card stat-card" title="盈利交易笔数 / 总交易笔数。注意：高胜率不代表正收益（小赢大亏会让总收益为负）">
         <div class="stat-label">胜率</div>
-        <div class="stat-value cq-num" style="color:var(--cq-color-profit);">${winRate.toFixed(1)}%</div>
+        <div class="stat-value cq-num" style="color:${totalTrades === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-profit)'};">${winRate.toFixed(1)}%</div>
       </div>
       <div class="cq-card stat-card" title="所有盈利交易总和 / 所有亏损交易总和。>1 说明赚的比亏的多；∞ 表示无亏损">
         <div class="stat-label">盈亏比</div>
