@@ -692,6 +692,12 @@ function renderBacktestResults(result) {
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
           <div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
           ${(() => {
+            if (result.market !== 'perp') return '';
+            const lev = result.leverage ?? metrics.leverage;
+            if (lev == null) return '';
+            return `<div class="cq-metrics-detail__item"><span class="cq-metrics-detail__label">杠杆</span><span class="cq-metrics-detail__value cq-num" style="color:var(--cq-color-primary);">${Number(lev).toFixed(0)}×</span></div>`;
+          })()}
+          ${(() => {
             const fft = result.fundingFeeTotal ?? metrics.fundingFeeTotal;
             if (result.market !== 'perp' || fft == null) return '';
             const isPaid = fft >= 0;
