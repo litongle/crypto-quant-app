@@ -713,6 +713,11 @@ class BacktestService:
 
         for i in range(min_history, len(klines)):
             processed = i - min_history
+            # 每 100 根 K 线让出一次 event loop。strategy.analyze 标 async 但内部全同步,
+            # await 是假 await,主循环会把 event loop 卡死几十秒到几分钟,导致 /health、
+            # 前端 polling、新请求全部超时(unhealthy 容器健康挂掉)。sleep(0) 几乎零开销。
+            if processed > 0 and processed % 100 == 0:
+                await asyncio.sleep(0)
             if processed > 0 and processed % progress_step == 0:
                 elapsed = time.monotonic() - engine_t0
                 pct = processed / total_bars * 100 if total_bars else 100
