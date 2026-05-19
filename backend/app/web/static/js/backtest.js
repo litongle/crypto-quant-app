@@ -1042,6 +1042,8 @@ async function viewBacktestDetail(id) {
   const resultsEl = document.getElementById('backtest-results');
   if (!resultsEl) return;
   _disposeBacktestChart();
+  // 记录正在展示的历史 ID，用于删除时判断是否清空详情
+  App.state.backtestDisplayedDetailId = id;
   resultsEl.innerHTML =
     '<div class="cq-card cq-empty-state" style="padding:var(--cq-space-6);text-align:center;color:var(--cq-text-secondary);">正在加载回测详情…</div>';
   try {
@@ -1057,12 +1059,28 @@ async function viewBacktestDetail(id) {
 
 window.viewBacktestDetail = viewBacktestDetail;
 
+function _resetBacktestResultsArea() {
+  _disposeBacktestChart();
+  const resultsEl = document.getElementById('backtest-results');
+  if (resultsEl) {
+    resultsEl.innerHTML = `<div class="cq-card cq-empty-state" style="padding:var(--cq-space-8);text-align:center;color:var(--cq-text-secondary);">
+      <h3 style="margin:0 0 var(--cq-space-2) 0;font-size:var(--cq-text-md);">选择策略模板并运行回测</h3>
+      <p style="margin:0;font-size:var(--cq-text-sm);">回测结果将在此处展示</p>
+    </div>`;
+  }
+  App.state.backtestDisplayedDetailId = null;
+}
+
 async function deleteBacktestRow(id, ev) {
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
   if (!confirm(`确定删除回测记录 #${id}? 不可恢复`)) return;
   try {
     await api.deleteBacktestResult(id);
     showToast('已删除', 'success');
+    // 删除的是正在展示的那条 → 清空详情区，避免显示已删除数据
+    if (App.state.backtestDisplayedDetailId === id) {
+      _resetBacktestResultsArea();
+    }
     // 重新拉历史刷新列表
     const history = await api.getBacktestHistory(50).catch(() => []);
     renderBacktestHistory(history);
@@ -1077,6 +1095,10 @@ async function clearAllBacktestHistory() {
   try {
     const r = await api.deleteAllBacktestHistory();
     showToast(`已清空 ${r.deleted ?? 0} 条历史`, 'success');
+    // 清空详情区（如果当前在展示历史详情，里面的数据都被删了）
+    if (App.state.backtestDisplayedDetailId != null) {
+      _resetBacktestResultsArea();
+    }
     const history = await api.getBacktestHistory(50).catch(() => []);
     renderBacktestHistory(history);
   } catch (err) {
