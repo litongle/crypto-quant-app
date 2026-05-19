@@ -109,11 +109,27 @@ class ApiClient {
     return { 'Content-Type': 'application/json', 'Accept': 'application/json' };
   }
 
+  // 单请求超时 — 网关 hang 死时 fetch 没默认 timeout,会一直挂着,
+  // 让 polling 永远等不到 .catch,也没法切到"加载失败"状态。
+  // 用 AbortController 强制 10s 上限,超时 throw 后 polling 走退避。
+  async _fetchWithTimeout(url, opts, timeout = 10000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      return await fetch(url, { ...opts, signal: controller.signal });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw new Error(`请求超时 (${timeout / 1000}s)`);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async request(method, path, body = null) {
     const opts = { method, headers: this.headers, credentials: 'same-origin' };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
-    let res = await fetch(`${API_BASE}${path}`, opts);
+    let res = await this._fetchWithTimeout(`${API_BASE}${path}`, opts);
 
     // 401 → 尝试 refresh(server 从 refresh_token cookie 读)。
     // 显式登出后(_isLoggedIn===false)直接快速失败,不打无意义 refresh;
@@ -126,7 +142,7 @@ class ApiClient {
       }
       const refreshed = await this._refreshAccessToken();
       if (refreshed) {
-        res = await fetch(`${API_BASE}${path}`, opts);
+        res = await this._fetchWithTimeout(`${API_BASE}${path}`, opts);
       } else {
         this._markLoggedOut();
         throw new Error('认证已过期，请重新登录');

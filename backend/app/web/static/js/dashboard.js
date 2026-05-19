@@ -3,6 +3,8 @@
 let dashboardEquityDays = 30;
 let dashboardFastTimer = null;
 let dashboardSlowTimer = null;
+let dashboardFastFailCount = 0;  // 连续失败计数(指数退避用)
+let dashboardSlowFailCount = 0;
 let dashboardState = {
   instances: [],
   activity: [],
@@ -15,25 +17,51 @@ let dashboardState = {
 // 低频 30s：权益曲线 30 天全量 / 24h 风险事件（变化慢，5s 拉是浪费）
 const DASHBOARD_FAST_MS = 5000;
 const DASHBOARD_SLOW_MS = 30000;
+const POLL_BACKOFF_MAX = 8;  // 退避封顶 8 倍 (5s→40s / 30s→240s),挂久了别再傻打
 
 async function loadDashboard() {
   stopDashboardPolling();
+  // 重置失败计数,避免上次的退避状态延续到本次
+  dashboardFastFailCount = 0;
+  dashboardSlowFailCount = 0;
   await Promise.all([refreshDashboardFast(), refreshDashboardSlow()]);
-  dashboardFastTimer = setInterval(() => {
-    refreshDashboardFast({ silent: true }).catch(() => {});
-  }, DASHBOARD_FAST_MS);
-  dashboardSlowTimer = setInterval(() => {
-    refreshDashboardSlow({ silent: true }).catch(() => {});
-  }, DASHBOARD_SLOW_MS);
+  _scheduleFastPolling();
+  _scheduleSlowPolling();
+}
+
+// setTimeout 链而不是 setInterval:确保前一轮 finally 后才启下一轮,
+// 网关慢/挂时不会重叠多个 polling 形成错误风暴
+function _scheduleFastPolling() {
+  const backoff = Math.min(1 << dashboardFastFailCount, POLL_BACKOFF_MAX);
+  dashboardFastTimer = setTimeout(() => {
+    refreshDashboardFast({ silent: true })
+      .then(() => { dashboardFastFailCount = 0; })
+      .catch(() => { dashboardFastFailCount = Math.min(dashboardFastFailCount + 1, 3); })
+      .finally(() => {
+        if (dashboardFastTimer !== null) _scheduleFastPolling();
+      });
+  }, DASHBOARD_FAST_MS * backoff);
+}
+
+function _scheduleSlowPolling() {
+  const backoff = Math.min(1 << dashboardSlowFailCount, POLL_BACKOFF_MAX);
+  dashboardSlowTimer = setTimeout(() => {
+    refreshDashboardSlow({ silent: true })
+      .then(() => { dashboardSlowFailCount = 0; })
+      .catch(() => { dashboardSlowFailCount = Math.min(dashboardSlowFailCount + 1, 3); })
+      .finally(() => {
+        if (dashboardSlowTimer !== null) _scheduleSlowPolling();
+      });
+  }, DASHBOARD_SLOW_MS * backoff);
 }
 
 function stopDashboardPolling() {
   if (dashboardFastTimer) {
-    clearInterval(dashboardFastTimer);
+    clearTimeout(dashboardFastTimer);
     dashboardFastTimer = null;
   }
   if (dashboardSlowTimer) {
-    clearInterval(dashboardSlowTimer);
+    clearTimeout(dashboardSlowTimer);
     dashboardSlowTimer = null;
   }
 }
@@ -44,10 +72,14 @@ window.addEventListener('cq:logged-out', stopDashboardPolling);
 async function refreshDashboardFast({ silent = false } = {}) {
   // 实时活动剔除 system 启停（这类事件下沉到日志页查）。走后端 exclude_system 比
   // 前端 filter 更准确(total/分页都对得上)。
+  // hasFailure 标记 — 任一接口失败让外层 _scheduleFastPolling 走指数退避,
+  // 各接口仍 .catch 兜底返默认值,保证 render 永远跑(避免"加载中..."卡死)
+  let hasFailure = false;
+  const fail = (defaultVal) => () => { hasFailure = true; return defaultVal; };
   const [instances, activityResp, runnerStatus] = await Promise.all([
-    api.getStrategyInstances('all').catch(() => []),
-    api.getEvents({ limit: 50, exclude_system: true }).catch(() => ({ items: [] })),
-    api.getRunnerStatus().catch(() => null),
+    api.getStrategyInstances('all').catch(fail([])),
+    api.getEvents({ limit: 50, exclude_system: true }).catch(fail({ items: [] })),
+    api.getRunnerStatus().catch(fail(null)),
   ]);
 
   dashboardState.instances = Array.isArray(instances) ? instances : [];
@@ -61,12 +93,15 @@ async function refreshDashboardFast({ silent = false } = {}) {
   if (!silent && typeof window.refreshEventsPageIfVisible === 'function') {
     window.refreshEventsPageIfVisible();
   }
+  if (hasFailure) throw new Error('partial polling failure');
 }
 
 async function refreshDashboardSlow({ silent = false } = {}) {
+  let hasFailure = false;
+  const fail = (defaultVal) => () => { hasFailure = true; return defaultVal; };
   const [riskResp, equity] = await Promise.all([
-    api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(() => ({ items: [] })),
-    api.getEquityCurve(dashboardEquityDays).catch(() => null),
+    api.getEvents({ event_type: 'auto_pause', since: resolveSinceParam('24h'), limit: 50 }).catch(fail({ items: [] })),
+    api.getEquityCurve(dashboardEquityDays).catch(fail(null)),
   ]);
 
   dashboardState.riskEvents = Array.isArray(riskResp?.items) ? riskResp.items : [];
@@ -86,6 +121,7 @@ async function refreshDashboardSlow({ silent = false } = {}) {
     disposeEquityChart('dashboard-equity-chart');
     if (chartEl) chartEl.innerHTML = '<div class="cq-empty-inline">暂无权益曲线数据</div>';
   }
+  if (hasFailure) throw new Error('partial polling failure');
 }
 
 async function changeEquityDays(days) {
