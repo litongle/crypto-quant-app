@@ -655,9 +655,13 @@ function renderBacktestResults(result) {
         <div class="stat-label">胜率</div>
         <div class="stat-value cq-num" style="color:var(--cq-color-profit);">${winRate.toFixed(1)}%</div>
       </div>
-      <div class="cq-card stat-card" title="所有盈利交易总和 / 所有亏损交易总和。>1 说明赚的比亏的多；=∞ 表示无亏损">
+      <div class="cq-card stat-card" title="所有盈利交易总和 / 所有亏损交易总和。>1 说明赚的比亏的多；∞ 表示无亏损">
         <div class="stat-label">盈亏比</div>
-        <div class="stat-value cq-num">${profitFactor.toFixed(2)}</div>
+        <div class="stat-value cq-num"${winRate === 100 && totalTrades > 0 ? ' style="color:var(--cq-color-profit);"' : ''}>${
+          winRate === 100 && totalTrades > 0
+            ? '∞'
+            : profitFactor.toFixed(2)
+        }</div>
       </div>
       <div class="cq-card stat-card" title="完整开仓 → 平仓的次数（不含加仓动作）。DCA/Martingale/Grid 因为持续加仓，单次开平可能含多次 adds">
         <div class="stat-label">总交易次数</div>
