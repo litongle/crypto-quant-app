@@ -823,6 +823,10 @@ class BacktestService:
             unreal = position["quantity"] * (position["entry_price"] - cp)
             return capital + mlocked + unreal
 
+        # 累计 funding fee 总额(用户视角: long 付费时为正,空头收费时为负;
+        # 写到 result 让 totalReturn - sum(trade.pnl) 的差额可解释)
+        funding_total_paid: Decimal = Decimal(0)
+
         engine_t0 = time.monotonic()
         total_bars = len(klines) - min_history
         # 每 ~5% 一次心跳；max(50,...) 让 1000 根以内的小回测也能看见进度
@@ -875,8 +879,10 @@ class BacktestService:
                     if delta != 0:
                         if position["side"] == "long":
                             capital -= delta
+                            funding_total_paid += delta
                         else:
                             capital += delta
+                            funding_total_paid -= delta
                 elif funding_rate_8h != 0:
                     # fallback hardcode rate
                     n_f = _count_binance_funding_events_utc(
@@ -886,8 +892,10 @@ class BacktestService:
                         delta = notional * funding_rate_8h * Decimal(n_f)
                         if position["side"] == "long":
                             capital -= delta
+                            funding_total_paid += delta
                         else:
                             capital += delta
+                            funding_total_paid -= delta
 
             hist_end = i + 1
             window_start = 0 if analysis_window is None else max(0, hist_end - analysis_window)
@@ -1036,6 +1044,7 @@ class BacktestService:
             "leverage": leverage_used,
             "initialMarginRate": float(initial_margin_rate),
             "fundingRate8h": float(funding_rate_8h),
+            "fundingFeeTotal": float(round(funding_total_paid, 2)),
             "warning": (
                 "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None
             ),
