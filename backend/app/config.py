@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     # 管理员账户（唯一登录账户；由 app.main.seed_admin 启动时种子）
     admin_username: str = "admin@example.com"
+    # 二选一: ADMIN_PASSWORD 填明文(启动时自动 hash,方便) 或 ADMIN_PASSWORD_HASH 直接填 bcrypt hash(生产推荐)
+    # 都填则 ADMIN_PASSWORD_HASH 优先;都空则不创建 admin(只打 warning)
+    admin_password: str = ""
     admin_password_hash: str = ""
 
     # 安全密钥（开发占位值，生产环境必须通过 .env 设置）

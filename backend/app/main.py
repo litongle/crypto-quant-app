@@ -40,21 +40,34 @@ logger = logging.getLogger(__name__)
 async def seed_admin() -> None:
     """启动时确保单一 admin 存在；幂等。
 
-    - users 表为空 → 用 .env 中的 ADMIN_USERNAME + ADMIN_PASSWORD_HASH 创建。
-    - 已存在 admin → 同步 email/hash（支持改 .env 后重启即生效）。
-    - ADMIN_PASSWORD_HASH 为空 → 仅警告，不创建（避免裸奔）。
+    - 凭证来源(二选一): ADMIN_PASSWORD_HASH 优先,否则 ADMIN_PASSWORD 自动 hash
+    - users 表为空 → 用 ADMIN_USERNAME + 上面凭证创建
+    - 已存在 admin → 同步 email/hash(改 .env 后重启即生效)
+    - 两者都空 → 仅警告,不创建(避免裸奔)
     """
     from sqlalchemy import select
 
     from app.config import get_settings
+    from app.core.security import hash_password
     from app.database import get_session_maker
     from app.models.user import User
 
     settings = get_settings()
-    if not settings.admin_password_hash:
+
+    # 决定本次启动用的 password_hash:HASH 优先,否则明文自动 hash
+    password_hash = settings.admin_password_hash
+    if not password_hash and settings.admin_password:
+        password_hash = hash_password(settings.admin_password)
         logger.warning(
-            "ADMIN_PASSWORD_HASH 未设置；请在 .env 配置后重启。"
-            "（运行 `docker compose run --rm backend python -m scripts.generate_admin_hash` 生成）"
+            "⚠️  检测到明文 ADMIN_PASSWORD — 已自动 hash 入库。"
+            "生产环境建议改用 ADMIN_PASSWORD_HASH(跑 "
+            "`docker compose run --rm backend python -m scripts.generate_admin_hash`),"
+            "并清空 ADMIN_PASSWORD 字段(避免明文留在 .env)"
+        )
+
+    if not password_hash:
+        logger.warning(
+            "ADMIN_PASSWORD / ADMIN_PASSWORD_HASH 都未设置;admin 未创建,请在 .env 配置后重启"
         )
         return
 
@@ -68,7 +81,7 @@ async def seed_admin() -> None:
         if not users:
             admin = User(
                 email=settings.admin_username,
-                hashed_password=settings.admin_password_hash,
+                hashed_password=password_hash,
                 name="admin",
                 status="active",
             )
@@ -81,8 +94,10 @@ async def seed_admin() -> None:
             if admin.email != settings.admin_username:
                 admin.email = settings.admin_username
                 changed = True
-            if admin.hashed_password != settings.admin_password_hash:
-                admin.hashed_password = settings.admin_password_hash
+            # 仅当用户显式给了 HASH 才同步(明文每次启动 hash 结果不同会无限刷库;
+            # 想改密码请用 HASH 或者直接登录后在 UI 改)
+            if settings.admin_password_hash and admin.hashed_password != password_hash:
+                admin.hashed_password = password_hash
                 changed = True
             if changed:
                 await session.commit()
