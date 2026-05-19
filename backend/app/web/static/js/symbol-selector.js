@@ -254,7 +254,7 @@ class SymbolSelector {
 
     container.innerHTML = `
       <div class="sym-sel" data-id="${this.containerId}">
-        <div class="sym-sel__trigger">
+        <div class="sym-sel__trigger" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="选择交易对" tabindex="0">
           ${this._renderSelected(this.value, displayName)}
           <svg class="sym-sel__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </div>
@@ -263,13 +263,13 @@ class SymbolSelector {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" class="sym-sel__search" name="symbolSearch" form="" aria-label="搜索币种" placeholder="搜索币种..." autocomplete="off">
           </div>
-          <div class="sym-sel__filters">
+          <div class="sym-sel__filters" role="group" aria-label="市场类型筛选">
             <button class="sym-sel__filter active" data-type="all">全部</button>
             <button class="sym-sel__filter" data-type="spot">现货</button>
             <button class="sym-sel__filter" data-type="perp">永续合约</button>
 
           </div>
-          <div class="sym-sel__list"></div>
+          <div class="sym-sel__list" role="listbox" aria-label="交易对列表"></div>
         </div>
       </div>
     `;
@@ -322,7 +322,7 @@ class SymbolSelector {
         const typeClass = s.type === 'perp' ? 'sym-sel__tag--perp' : 'sym-sel__tag--spot';
         const typeLabel = s.type === 'perp' ? '合约' : '现货';
         html += `
-          <div class="sym-sel__item${isActive ? ' is-active' : ''}" data-symbol="${escapeHtml(s.symbol)}">
+          <div class="sym-sel__item${isActive ? ' is-active' : ''}" data-symbol="${escapeHtml(s.symbol)}" role="option" aria-selected="${isActive ? 'true' : 'false'}">
             <span class="sym-sel__icon" style="background:${color}1A;color:${color};">${escapeHtml(s.base)}</span>
             <span class="sym-sel__item-name">${escapeHtml(s.name)}</span>
             <span class="sym-sel__tag ${typeClass}">${typeLabel}</span>
@@ -406,6 +406,8 @@ class SymbolSelector {
     const dd = container.querySelector('.sym-sel__dropdown');
     dd.style.display = 'block';
     this.isOpen = true;
+    // 屏幕阅读器：通知 combobox 已展开
+    container.querySelector('.sym-sel__trigger')?.setAttribute('aria-expanded', 'true');
     // 聚焦搜索框
     const search = container.querySelector('.sym-sel__search');
     if (search) setTimeout(() => search.focus(), 50);
@@ -417,6 +419,7 @@ class SymbolSelector {
     const dd = container.querySelector('.sym-sel__dropdown');
     dd.style.display = 'none';
     this.isOpen = false;
+    container.querySelector('.sym-sel__trigger')?.setAttribute('aria-expanded', 'false');
     // 重置搜索
     this.search = '';
     const search = container.querySelector('.sym-sel__search');
