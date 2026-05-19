@@ -756,6 +756,7 @@ STRATEGY_TEMPLATES = [
                     "default": 0,
                     "min": 0,
                     "max": 1,
+                    "step": 0.01,
                     "description": "0 表示按 1/杠杆 计算；例如 0.05=名义本金的 5% 作为初始保证金。",
                 },
                 {
@@ -765,9 +766,10 @@ STRATEGY_TEMPLATES = [
                     "default": 0,
                     "min": -0.01,
                     "max": 0.01,
+                    "step": 0.0001,
                     "description": (
                         "每期(UTC 约 8h 一档)名义价值×费率；与 Binance 符号一致：正=多付空收。"
-                        "0=回测不计资金费。"
+                        "0=回测不计资金费（默认走真实历史 funding rate）。"
                     ),
                 },
                 {
