@@ -642,9 +642,15 @@ class BacktestService:
             direction_meta = meta.get("direction")
 
             if not perp:
-                if sig.action == "buy" and position is None:
+                if sig.action == "buy":
                     ep = current_price * (Decimal("1") + slippage_pct)
-                    do_open_long(ep, current_time)
+                    if position is None:
+                        do_open_long(ep, current_time)
+                    elif position["side"] == "long":
+                        # DCA / 网格 / 加仓型策略:已开多仓时 buy 信号当加仓处理,
+                        # 否则策略发再多 buy 信号都被吞,trades 只有 1 次。
+                        # take_profit/stop_loss 路径走 sell,跟 close 逻辑配合正常。
+                        do_add_long(ep)
                 elif sig.action == "sell" and position is not None:
                     ep = current_price * (Decimal("1") - slippage_pct)
                     do_close(ep, current_time)

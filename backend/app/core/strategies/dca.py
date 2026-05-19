@@ -111,6 +111,9 @@ class DCAStrategy(BaseStrategy):
                     self._avg_entry_price = entry_price
                     self._total_quantity = quantity
 
+                # 首次买入 intent=open,后续定投 intent=add — 永续引擎按 intent 分流,
+                # 没有"add"时第二次以后 buy 信号会被引擎吞掉,变成"只定投 1 次"
+                was_open = self._in_position
                 self._total_invested += invest_amount
                 self._in_position = True
 
@@ -124,7 +127,7 @@ class DCAStrategy(BaseStrategy):
                         + (" [智能:RSI缩减]" if invest_amount < self.invest_per_trade else "")
                     ),
                     metadata={
-                        "intent": "open",
+                        "intent": "add" if was_open else "open",
                         "direction": "long",
                         "invest_amount": float(invest_amount),
                     },
