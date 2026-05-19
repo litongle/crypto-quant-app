@@ -727,8 +727,11 @@ function renderBacktestResults(result) {
           ${(() => {
             const fft = result.fundingFeeTotal ?? metrics.fundingFeeTotal;
             if (result.market !== 'perp' || fft == null) return '';
-            const isPaid = fft >= 0;
-            return `<div class="cq-metrics-detail__item" title="累计资金费用（仅永续）。正值 = 账户净支付（红），负值 = 账户净收（绿）。已从最终权益中扣除/加入"><span class="cq-metrics-detail__label">资金费用累计</span><span class="cq-metrics-detail__value cq-num" style="color:${isPaid ? 'var(--cq-color-loss)' : 'var(--cq-color-profit)'};">${isPaid ? '-' : '+'}${Math.abs(fft).toFixed(2)}</span></div>`;
+            // 0 是中性（无 funding 影响），非 0 才上色
+            const cell = fft === 0
+              ? `<span class="cq-metrics-detail__value cq-num" style="color:var(--cq-text-tertiary);">—</span>`
+              : `<span class="cq-metrics-detail__value cq-num" style="color:${fft > 0 ? 'var(--cq-color-loss)' : 'var(--cq-color-profit)'};">${fft > 0 ? '-' : '+'}${Math.abs(fft).toFixed(2)}</span>`;
+            return `<div class="cq-metrics-detail__item" title="累计资金费用（仅永续）。正值 = 账户净支付（红），负值 = 账户净收（绿），0 表示该回测窗口无 funding 结算"><span class="cq-metrics-detail__label">资金费用累计</span>${cell}</div>`;
           })()}
           <div class="cq-metrics-detail__item" title="K 线数据来源。binance-spot / binance-perp = 真实历史"><span class="cq-metrics-detail__label">数据源</span><span class="cq-metrics-detail__value" style="color:var(--cq-color-primary);">${escapeHtml(metrics.dataSource || result.dataSource || '--')}</span></div>
         </div>
