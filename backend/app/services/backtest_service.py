@@ -368,6 +368,9 @@ class BacktestService:
             "trades": trades_raw,
             "startTime": _iso_z(record.start_time) if record.start_time else None,
             "endTime": _iso_z(record.end_time) if record.end_time else None,
+            "analysisWindow": (
+                json.loads(record.params).get("backtest_analysis_window") if record.params else None
+            ),
             # 元数据 perp 历史回看
             "market": getattr(record, "market", None),
             "dataSource": getattr(record, "data_source", None),

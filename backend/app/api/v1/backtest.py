@@ -249,6 +249,11 @@ async def _save_backtest_history(
         trades_str = trades_str[:max_field_len]
         logger.warning("trades 截断至 %d 字符", max_field_len)
 
+    # service.execute_backtest 把 analysisWindow / backtest_analysis_window 从 params 弹出处理,
+    # 这里塞回 params JSON 让历史回看能恢复（避免 schema migration）
+    persisted_params = {**params}
+    if result.get("analysisWindow") is not None:
+        persisted_params["backtest_analysis_window"] = result["analysisWindow"]
     record = BacktestResult(
         user_id=user_id,
         template_id=template_id,
@@ -257,7 +262,7 @@ async def _save_backtest_history(
         start_date=start_date,
         end_date=end_date,
         initial_capital=initial_capital,
-        params=json.dumps(params),
+        params=json.dumps(persisted_params),
         # 绩效指标
         total_return=result.get("totalReturn", 0),
         total_return_pct=result.get("totalReturnPercent", 0),
