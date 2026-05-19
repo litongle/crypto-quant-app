@@ -767,20 +767,16 @@ function renderBacktestResults(result) {
     ${trades.length > 0 ? (() => {
       // 缓存完整 trades 给 CSV 导出（避免从 DOM 重新提取丢失精度）
       App.state.lastBacktestTrades = trades;
-      // 表只渲染最近 200 行避免 5000+ 笔 DOM 卡顿；CSV 导出仍用完整
-      const _displayLimit = 200;
-      const _displayTrades = trades.length > _displayLimit ? trades.slice(-_displayLimit) : trades;
-      const _displayOffset = trades.length - _displayTrades.length;  // 第 1 行的实际 trade 编号
-      const _tagText = trades.length > _displayLimit
-        ? `表内最近 ${_displayLimit} / 完整 ${trades.length} 笔`
-        : `${trades.length} 笔`;
+      // 默认按时间 asc 排（#1 = 最早），表头有 sticky + 70vh 滚动框，DOM 5000 行也能正常浏览
+      const _displayTrades = trades;
+      const _tagText = `${trades.length} 笔`;
       return `
     <div class="cq-card cq-trades-detail">
       <div class="cq-metrics-detail__header" onclick="this.parentElement.classList.toggle('is-collapsed')">
         <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span style="font-size:var(--cq-text-md);font-weight:600;">交易明细</span>
-          <span class="cq-tag cq-tag--neutral" style="margin-left:var(--cq-space-1);" title="${trades.length > _displayLimit ? `表里渲染最近 ${_displayLimit} 行避免性能问题；导出 CSV 可获取完整 ${trades.length} 笔` : ''}">${_tagText}</span>
+          <span class="cq-tag cq-tag--neutral" style="margin-left:var(--cq-space-1);">${_tagText}</span>
         </div>
         <div style="display:flex;align-items:center;gap:var(--cq-space-2);" onclick="event.stopPropagation();">
           <button class="cq-btn cq-btn--ghost cq-btn--sm" type="button" onclick="downloadTradesCsv(event)" title="导出完整 ${trades.length} 笔交易为 CSV" style="font-size:var(--cq-text-xs);padding:4px 10px;">
@@ -806,7 +802,7 @@ function renderBacktestResults(result) {
           </thead>
           <tbody>
             ${_displayTrades.map((t, idx) => {
-              const i = _displayOffset + idx;
+              const i = idx;
               const pnl = t.pnl ?? 0;
               const sideLabel = t.side === 'long' ? '多' : '空';
               const sideClass = t.side === 'long' ? 'cq-tag--profit' : 'cq-tag--loss';
@@ -845,10 +841,6 @@ function renderBacktestResults(result) {
           </tbody>
         </table>
         </div>
-        ${trades.length > _displayLimit ? `
-        <div style="margin-top:var(--cq-space-3);padding:var(--cq-space-3);background:var(--cq-bg-subtle);border-radius:var(--cq-radius);font-size:var(--cq-text-xs);color:var(--cq-text-secondary);line-height:1.6;">
-          ⓘ 共 <strong>${trades.length}</strong> 笔交易，表内只渲染最近 <strong>${_displayLimit}</strong> 行避免页面卡顿。点击右上「导出 CSV」可获取完整 ${trades.length} 笔。
-        </div>` : ''}
       </div>
     </div>`;
     })() : ''}`;
