@@ -17,8 +17,16 @@
     hideSystem: true,
   };
 
-  function presetEventsFilters({ instanceId = '' } = {}) {
-    eventsPageState.instanceId = instanceId ? String(instanceId) : '';
+  function presetEventsFilters({ instanceId, type, severity, range, query } = {}) {
+    // navigate('events') 调 loadEventsPage 会 syncEventsControls(state → DOM) +
+    // reloadEvents(DOM → state → fetch)。如果 navigate 后再异步改 DOM,会跟
+    // loadEventsPage 内部时序竞态。改成 navigate 前 preset state,让 loadEventsPage
+    // 自然读 state 写 DOM 跑出一致结果。
+    if (instanceId !== undefined) eventsPageState.instanceId = instanceId ? String(instanceId) : '';
+    if (type !== undefined) eventsPageState.type = type || '';
+    if (severity !== undefined) eventsPageState.severity = severity || '';
+    if (range !== undefined) eventsPageState.range = range || '24h';
+    if (query !== undefined) eventsPageState.query = query || '';
     eventsPageState.page = 1;
   }
 
