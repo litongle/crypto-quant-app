@@ -316,50 +316,54 @@ class PerformanceCalculator:
 
     @classmethod
     def _calc_sharpe_ratio(cls, equity_curve: list[EquityPoint]) -> Decimal:
-        """计算夏普比率（基于日收益率）
+        """计算夏普比率(基于 equity_curve 实际采样周期年化)。
 
         Sharpe = (R_p - R_f) / σ_p
-
-        其中:
         - R_p = 年化收益率
         - R_f = 无风险利率
-        - σ_p = 收益率标准差（年化）
+        - σ_p = 收益率标准差(年化)
+
+        之前 bug: equity_curve 按 K 线周期采样(1h/5m/15m...), 但年化倍数
+        硬编码 TRADING_DAYS_PER_YEAR(365), 仅在"日"级 K 线下正确。1h K 线
+        每天 24 个点, 应该用 365*24 年化, 否则 sharpe 低估 sqrt(24)≈4.9 倍;
+        5m 低估 sqrt(288)≈17 倍。修: 从 equity_curve.timestamp 推真实周期。
         """
         if len(equity_curve) < 2:
             return Decimal("0")
 
-        # 计算日收益率序列
-        daily_returns: list[float] = []
+        # 推导每年采样点数:从相邻两点 timestamp 间隔反推
+        try:
+            dt_seconds = (equity_curve[1].timestamp - equity_curve[0].timestamp).total_seconds()
+        except (AttributeError, TypeError):
+            dt_seconds = 0
+        if dt_seconds <= 0:
+            # fallback 到"日"假设(向后兼容,但有 log 提示)
+            points_per_year = cls.TRADING_DAYS_PER_YEAR
+        else:
+            points_per_year = cls.TRADING_DAYS_PER_YEAR * 86400 / dt_seconds
+
+        # 周期收益率序列(不再叫"日"收益率)
+        period_returns: list[float] = []
         for i in range(1, len(equity_curve)):
             prev = float(equity_curve[i - 1].equity)
             curr = float(equity_curve[i].equity)
             if prev > 0:
-                daily_returns.append((curr - prev) / prev)
+                period_returns.append((curr - prev) / prev)
 
-        if not daily_returns:
+        if len(period_returns) < 2:
             return Decimal("0")
 
-        # 平均日收益率
-        avg_return = sum(daily_returns) / len(daily_returns)
-
-        # 标准差
-        if len(daily_returns) < 2:
-            return Decimal("0")
-
-        variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+        avg_return = sum(period_returns) / len(period_returns)
+        variance = sum((r - avg_return) ** 2 for r in period_returns) / (len(period_returns) - 1)
         std_dev = math.sqrt(variance) if variance > 0 else 0
-
         if std_dev == 0:
             return Decimal("0")
 
-        # 年化
-        annualized_return = avg_return * cls.TRADING_DAYS_PER_YEAR
-        annualized_std = std_dev * math.sqrt(cls.TRADING_DAYS_PER_YEAR)
-        risk_free_daily = float(cls.RISK_FREE_RATE) / cls.TRADING_DAYS_PER_YEAR
-        annualized_rf = risk_free_daily * cls.TRADING_DAYS_PER_YEAR
+        annualized_return = avg_return * points_per_year
+        annualized_std = std_dev * math.sqrt(points_per_year)
+        annualized_rf = float(cls.RISK_FREE_RATE)  # risk_free_rate 本身就是年化值
 
         sharpe = (annualized_return - annualized_rf) / annualized_std
-
         return Decimal(str(round(sharpe, 4)))
 
     @classmethod
