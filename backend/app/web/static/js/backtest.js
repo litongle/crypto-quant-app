@@ -1048,10 +1048,10 @@ function renderBacktestHistory(history) {
                   ? '<span class="cq-tag cq-tag--neutral" style="margin-left:6px;font-size:var(--cq-text-xs);padding:1px 6px;">现货</span>'
                   : ''}
               </td>
-              <td class="cq-num" style="text-align:right;color:${ret >= 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)'};">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</td>
-              <td class="cq-num" style="text-align:right;color:var(--cq-color-primary);">${sharpe.toFixed(2)}</td>
-              <td class="cq-num" style="text-align:right;color:var(--cq-color-loss);">${dd.toFixed(2)}%</td>
-              <td class="cq-num" style="text-align:right;color:var(--cq-color-profit);">${wr.toFixed(1)}%</td>
+              <td class="cq-num" style="text-align:right;color:${ret === 0 ? 'var(--cq-text-tertiary)' : (ret > 0 ? 'var(--cq-color-profit)' : 'var(--cq-color-loss)')};">${ret > 0 ? '+' : ''}${ret.toFixed(2)}%</td>
+              <td class="cq-num" style="text-align:right;color:${sharpe === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-primary)'};">${sharpe.toFixed(2)}</td>
+              <td class="cq-num" style="text-align:right;color:${dd === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-loss)'};">${dd.toFixed(2)}%</td>
+              <td class="cq-num" style="text-align:right;color:${trades === 0 ? 'var(--cq-text-tertiary)' : 'var(--cq-color-profit)'};">${wr.toFixed(1)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-text-secondary);">${trades}</td>
               <td style="text-align:right;color:var(--cq-text-tertiary);">${h.createdAt ? h.createdAt.substring(0, 10) : ''}</td>
               <td style="text-align:right;" onclick="event.stopPropagation();">
