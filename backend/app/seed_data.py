@@ -181,7 +181,7 @@ STRATEGY_TEMPLATES = [
                     "min": 10,
                     "max": 10000,
                     "step": 10,
-                    "description": "回测忽略此字段(回测按 max_invest_percent 比例下单);实盘订单参考值",
+                    "description": "每次买入/卖出固定 USDT,覆盖 max_invest_percent",
                 },
                 {
                     "key": "priceRange",
@@ -214,7 +214,7 @@ STRATEGY_TEMPLATES = [
                     "min": 10,
                     "max": 1000,
                     "step": 10,
-                    "description": "回测忽略此字段(回测按 max_invest_percent 比例下单);实盘订单参考值",
+                    "description": "首次开仓 USDT;后续按 multiplier 翻倍加仓",
                 },
                 {
                     "key": "multiplier",

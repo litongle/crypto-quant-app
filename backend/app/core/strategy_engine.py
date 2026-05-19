@@ -283,6 +283,9 @@ class GridStrategy(BaseStrategy):
     async def analyze(self, klines: list[dict]) -> Signal | None:
         grid_count = max(2, int(self.params.get("gridCount", 10)))
         price_range_pct = max(0.5, float(self.params.get("priceRange", 10.0)))
+        # investmentPerGrid 之前死参数 — 策略不读。现在加 invest_amount metadata
+        # 真实控制每格下单量。
+        investment_per_grid = float(self.params.get("investmentPerGrid", 100))
         window = max(grid_count * 2, 20)
         if len(klines) < window:
             return None
@@ -318,6 +321,7 @@ class GridStrategy(BaseStrategy):
                     "grid_index": grid_index,
                     "anchor_price": round(anchor_price, 4),
                     "grid_size": round(grid_size, 4),
+                    "invest_amount": round(investment_per_grid, 2),
                 },
             )
 
@@ -331,6 +335,7 @@ class GridStrategy(BaseStrategy):
                     "grid_index": grid_index,
                     "anchor_price": round(anchor_price, 4),
                     "grid_size": round(grid_size, 4),
+                    "invest_amount": round(investment_per_grid, 2),
                 },
             )
 
