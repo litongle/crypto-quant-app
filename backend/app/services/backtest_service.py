@@ -476,6 +476,17 @@ class BacktestService:
         except ValueError:
             return {"error": f"不支持的策略类型: {template_id}", "code": 3001}
 
+        # perp 模式下拉 Binance 真实历史 funding rate(每 8h 一档,30 天 ~90 条).
+        # 失败时 fallback 空字典 = 0 funding(不阻塞回测,只少了 funding fee 部分)。
+        funding_rates_map: dict[int, Decimal] = {}
+        if market.lower() == "perp" and exchange.lower() == "binance" and klines:
+            try:
+                start_ms = int(klines[0]["timestamp"].timestamp() * 1000)
+                end_ms = int(klines[-1]["timestamp"].timestamp() * 1000)
+                funding_rates_map = await self._fetch_funding_rates(symbol, start_ms, end_ms)
+            except Exception as e:
+                logger.warning("[backtest] 拉 funding rate 失败,fallback 到 0: %s", e)
+
         # 3. 运行回测引擎（带超时保护）
         try:
             result = await asyncio.wait_for(
@@ -487,6 +498,7 @@ class BacktestService:
                     data_source=data_source,
                     analysis_window=resolved_aw,
                     market=market,
+                    funding_rates_map=funding_rates_map,
                 ),
                 timeout=_BACKTEST_TIMEOUT,
             )
@@ -513,6 +525,7 @@ class BacktestService:
         data_source: str = "mock",
         analysis_window: int | None = None,
         market: str = "spot",
+        funding_rates_map: dict[int, Decimal] | None = None,
     ) -> dict:
         """回测引擎核心 v2 — 内存优化版
 
@@ -846,16 +859,35 @@ class BacktestService:
             current_price = klines[i]["close"]
             current_time = klines[i]["timestamp"]
 
-            if i > min_history and perp and funding_rate_8h != 0 and position is not None:
-                n_f = _count_binance_funding_events_utc(klines[i - 1]["timestamp"], current_time)
-                if n_f > 0:
-                    mark = current_price
-                    notional = position["quantity"] * mark
-                    delta = notional * funding_rate_8h * Decimal(n_f)
-                    if position["side"] == "long":
-                        capital -= delta
-                    else:
-                        capital += delta
+            # 资金费扣减: 优先用真实历史 funding_rates_map(每个 fundingTime 一档),
+            # 其次回退到 params.funding_rate_8h × n_f。真实历史更准确反映 perp 持仓成本。
+            if i > min_history and perp and position is not None:
+                prev_ms = int(klines[i - 1]["timestamp"].timestamp() * 1000)
+                curr_ms = int(current_time.timestamp() * 1000)
+                mark = current_price
+                notional = position["quantity"] * mark
+                if funding_rates_map:
+                    # 真实历史: 遍历 [prev_ms, curr_ms] 跨过的所有 fundingTime
+                    delta = Decimal(0)
+                    for ft_ms, rate in funding_rates_map.items():
+                        if prev_ms < ft_ms <= curr_ms:
+                            delta += notional * rate
+                    if delta != 0:
+                        if position["side"] == "long":
+                            capital -= delta
+                        else:
+                            capital += delta
+                elif funding_rate_8h != 0:
+                    # fallback hardcode rate
+                    n_f = _count_binance_funding_events_utc(
+                        klines[i - 1]["timestamp"], current_time
+                    )
+                    if n_f > 0:
+                        delta = notional * funding_rate_8h * Decimal(n_f)
+                        if position["side"] == "long":
+                            capital -= delta
+                        else:
+                            capital += delta
 
             hist_end = i + 1
             window_start = 0 if analysis_window is None else max(0, hist_end - analysis_window)
@@ -1008,6 +1040,41 @@ class BacktestService:
                 "⚠️ 使用模拟数据回测，结果可能失真，仅供参考" if data_source == "mock" else None
             ),
         }
+
+    async def _fetch_funding_rates(
+        self, symbol: str, start_ms: int, end_ms: int
+    ) -> dict[int, Decimal]:
+        """拉 Binance 永续 funding rate 历史。返回 {fundingTime_ms: Decimal(rate)}。
+
+        每 8h 一档,30 天 ~90 条,limit=1000 一次拉够。失败时返空字典(回测继续,
+        funding fee = 0)。
+        """
+        try:
+            client = await self._get_client()
+            resp = await client.get(
+                "https://fapi.binance.com/fapi/v1/fundingRate",
+                params={
+                    "symbol": symbol,
+                    "startTime": start_ms,
+                    "endTime": end_ms,
+                    "limit": 1000,
+                },
+            )
+            if resp.status_code != 200:
+                return {}
+            data = resp.json()
+            result = {int(r["fundingTime"]): Decimal(r["fundingRate"]) for r in data}
+            logger.info(
+                "[backtest] 拉 funding rate: %s 共 %d 条 (%s ~ %s)",
+                symbol,
+                len(result),
+                datetime.fromtimestamp(start_ms / 1000, tz=UTC).strftime("%Y-%m-%d"),
+                datetime.fromtimestamp(end_ms / 1000, tz=UTC).strftime("%Y-%m-%d"),
+            )
+            return result
+        except Exception as e:
+            logger.warning("[backtest] funding rate API 失败: %s", e)
+            return {}
 
     async def _fetch_klines(
         self,
