@@ -340,8 +340,13 @@ async function syncAccount(accountId) {
   } catch (err) {
     showToast(err.message || '同步失败，请检查 API Key 和网络', 'error');
   } finally {
-    // renderAccounts() 会全量重建 DOM，无需手动恢复按钮状态
-    accounts = await api.getExchangeAccounts();
+    // renderAccounts() 会全量重建 DOM，无需手动恢复按钮状态。
+    // reload 单独 try — 失败也不该 unhandled rejection（同步本身已 toast 反馈）
+    try {
+      accounts = await api.getExchangeAccounts();
+    } catch (reloadErr) {
+      console.warn('[accounts] reload after sync failed:', reloadErr);
+    }
     renderAccounts();
   }
 }
@@ -359,10 +364,16 @@ async function deleteAccount(id) {
   try {
     await api.deleteExchangeAccount(id);
     showToast('账户已删除', 'success');
-    accounts = await api.getExchangeAccounts();
-    renderAccounts();
   } catch (err) {
     showToast(err.message || '删除失败', 'error');
+    return;  // 删除失败别 reload，否则会把"删除失败"toast 覆盖掉
+  }
+  // 删除成功后 reload — 失败时单独提示而不是误报"删除失败"
+  try {
+    accounts = await api.getExchangeAccounts();
+    renderAccounts();
+  } catch (reloadErr) {
+    showToast('账户已删除，但列表刷新失败：' + (reloadErr.message || ''), 'warn');
   }
 }
 
