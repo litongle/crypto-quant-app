@@ -699,7 +699,7 @@ function renderBacktestResults(result) {
                 : `${metrics.maxDrawdownDurationHours.toFixed(1)} 小时`)
               : '--'
           }</span></div>
-          <div class="cq-metrics-detail__item" title="每根 bar 传给策略 analyze() 的 K 线长度。「全量前缀」= 从第 1 根到当前 bar 都传入；「最近 N 根」= 只传最近 N 根省内存"><span class="cq-metrics-detail__label">策略输入K线</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
+          <div class="cq-metrics-detail__item" title="每根 bar 传给策略 analyze() 的 K 线长度。「全量前缀」= 从第 1 根到当前 bar 都传入；「最近 N 根」= 只传最近 N 根省内存"><span class="cq-metrics-detail__label">策略K线窗口</span><span class="cq-metrics-detail__value">${escapeHtml(analysisWindowLabel)}</span></div>
           <div class="cq-metrics-detail__item" title="回测起点资金 → 终点资金（含手续费、资金费等所有成本）"><span class="cq-metrics-detail__label">初始 / 最终权益</span><span class="cq-metrics-detail__value cq-num">${initialCapital.toFixed(2)} → ${finalCapital.toFixed(2)}</span></div>
           ${(() => {
             if (result.market !== 'perp') return '';
