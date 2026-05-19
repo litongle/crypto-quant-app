@@ -564,6 +564,8 @@ class BacktestService:
         result["interval"] = interval_label
         result["klineCount"] = len(klines)
         result["analysisWindow"] = resolved_aw
+        # 实时跑也带 symbol，前端 banner 才能显示「BTCUSDT · 永续 · 20×」
+        result["symbol"] = symbol.upper()
 
         return result
 

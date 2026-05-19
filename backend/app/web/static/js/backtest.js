@@ -639,7 +639,25 @@ function renderBacktestResults(result) {
     return v.toPrecision(2);
   };
 
+  // 回测对象 banner：把 symbol + 市场类型 + (perp 杠杆) 高亮显示，避免用户「分不清是合约还是现货」
+  const _bnSymbol = result.symbol || metrics.symbol || '';
+  const _bnMarket = result.market || metrics.market || '';
+  const _bnLeverage = result.leverage ?? metrics.leverage;
+  const _bnMarketLabel = _bnMarket === 'perp'
+    ? '永续合约'
+    : _bnMarket === 'spot'
+    ? '现货'
+    : '';
+  const _bnMarketColor = _bnMarket === 'perp' ? 'var(--cq-color-loss)' : 'var(--cq-color-primary)';
+  const _bnLevText = _bnMarket === 'perp' && _bnLeverage != null ? ` · ${Number(_bnLeverage).toFixed(0)}× 杠杆` : '';
+  const banner = (_bnSymbol || _bnMarketLabel) ? `
+    <div class="cq-card" style="margin-bottom:var(--cq-space-3);padding:var(--cq-space-3) var(--cq-space-4);display:flex;align-items:center;gap:var(--cq-space-2);">
+      <span style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);">${escapeHtml(_bnSymbol)}</span>
+      ${_bnMarketLabel ? `<span class="cq-tag" style="background:${_bnMarketColor}1A;color:${_bnMarketColor};font-weight:500;">${_bnMarketLabel}${escapeHtml(_bnLevText)}</span>` : ''}
+    </div>` : '';
+
   el.innerHTML = `
+    ${banner}
     ${warning ? `
     <div class="cq-alert cq-alert--warn" style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3);border:1px solid var(--cq-color-loss);border-radius:var(--cq-radius);background:rgba(239,68,68,0.08);display:flex;align-items:flex-start;gap:var(--cq-space-3);">
       <span style="font-size:18px;flex-shrink:0;line-height:1;">⚠️</span>
