@@ -655,7 +655,12 @@ function renderBacktestResults(result) {
       </div>
       <div class="cq-card stat-card">
         <div class="stat-label">总交易次数</div>
-        <div class="stat-value cq-num">${totalTrades} 笔</div>
+        <div class="stat-value cq-num">${totalTrades} 笔${(() => {
+          const totalAdds = (trades || []).reduce((s, t) => s + (t.adds || 0), 0);
+          return totalAdds > 0
+            ? `<span style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-left:6px;font-weight:400;">含 ${totalAdds} 次加仓</span>`
+            : '';
+        })()}</div>
       </div>
     </div>
 
