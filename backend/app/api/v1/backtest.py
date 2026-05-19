@@ -254,6 +254,11 @@ async def _save_backtest_history(
     persisted_params = {**params}
     if result.get("analysisWindow") is not None:
         persisted_params["backtest_analysis_window"] = result["analysisWindow"]
+    # interval / klineCount 也持久化用于历史回看（用户看历史能知道用的什么 K 线周期）
+    if result.get("interval"):
+        persisted_params["_resolved_interval"] = result["interval"]
+    if result.get("klineCount") is not None:
+        persisted_params["_kline_count"] = result["klineCount"]
     record = BacktestResult(
         user_id=user_id,
         template_id=template_id,

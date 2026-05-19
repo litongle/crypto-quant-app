@@ -371,6 +371,12 @@ class BacktestService:
             "analysisWindow": (
                 json.loads(record.params).get("backtest_analysis_window") if record.params else None
             ),
+            "interval": (
+                json.loads(record.params).get("_resolved_interval") if record.params else None
+            ),
+            "klineCount": (
+                json.loads(record.params).get("_kline_count") if record.params else None
+            ),
             # 元数据 perp 历史回看
             "market": getattr(record, "market", None),
             "dataSource": getattr(record, "data_source", None),
