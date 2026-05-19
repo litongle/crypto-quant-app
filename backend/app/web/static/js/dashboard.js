@@ -147,7 +147,12 @@ function renderInstanceList(instances) {
   const container = document.getElementById('dashboard-instance-list');
   if (!container) return;
   if (!instances.length) {
-    container.innerHTML = '<div class="cq-empty-state cq-empty-state--compact"><h3>还没有策略实例</h3><p>去策略页创建并启动一个实例，这里就会亮起来。</p></div>';
+    // 空状态加 CTA button — 之前只文字「去策略页创建...」用户得自己去找侧栏入口
+    container.innerHTML = `<div class="cq-empty-state cq-empty-state--compact">
+      <h3>还没有策略实例</h3>
+      <p>去策略页创建并启动一个实例，这里就会亮起来。</p>
+      <button class="cq-btn cq-btn--primary cq-btn--sm" onclick="navigate('strategy')">去策略中心</button>
+    </div>`;
     return;
   }
 

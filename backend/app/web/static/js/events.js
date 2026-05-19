@@ -124,7 +124,12 @@
     const container = document.getElementById('events-list');
     if (!container) return;
     if (!items.length) {
-      container.innerHTML = '<div class="cq-empty-state"><h3>没有匹配的事件</h3><p>换个筛选条件试试。</p></div>';
+      // 用户能否判断"没有匹配"是因为筛选太严？显示「清空筛选」CTA 一键复位
+      container.innerHTML = `<div class="cq-empty-state">
+        <h3>没有匹配的事件</h3>
+        <p>换个筛选条件试试，或一键清空所有筛选。</p>
+        <button class="cq-btn cq-btn--secondary cq-btn--sm" onclick="clearEventsFilters()">清空筛选</button>
+      </div>`;
       return;
     }
     container.innerHTML = `
