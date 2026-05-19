@@ -483,27 +483,22 @@ async function runBacktest() {
       const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${esText}秒${awHint})` : '';
       showToast('回测完成！' + extra, 'success');
     } else if (finalState.status === 'cancelled') {
+      // 取消后保留之前的回测结果显示, toast 提示即可 — 用户取消是"放弃这次新跑",
+      // 不应该让之前成功的结果消失
       showToast('回测已取消', 'warn');
-      document.getElementById('backtest-results').innerHTML = '';
     } else {
-      // failed
+      // failed — 错误信息走 toast, 保留之前的结果区, 用户能继续看上次的数据
       const msg = finalState.error || '回测失败';
       showToast('回测失败: ' + msg, 'error');
-      document.getElementById('backtest-results').innerHTML = `
-        <div class="cq-card cq-empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          <h3>${escapeHtml(msg)}</h3>
-        </div>`;
     }
   } catch (err) {
+    // 网络错误等异常,toast 提示后保留结果区
     showToast('回测失败: ' + err.message, 'error');
-    document.getElementById('backtest-results').innerHTML = `
-      <div class="cq-card cq-empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-        <h3>${escapeHtml(err.message)}</h3>
-      </div>`;
   } finally {
     resetBtn();
+    // 进度面板用完即弃 — 不论 completed/failed/cancelled/exception 都清,
+    // 避免"回测运行中..."一直留在页面上让用户以为还在跑
+    _clearBacktestProgress();
   }
 }
 
