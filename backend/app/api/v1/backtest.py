@@ -19,8 +19,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import backtest_tasks
 from app.core.schemas import APIResponse
-from app.services.backtest_service import BacktestService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -67,13 +67,14 @@ class BacktestRequest(BaseModel):
 async def run_backtest(
     request: BacktestRequest,
     current_user: CurrentUser,
-    session: DbSession,
 ) -> APIResponse:
     """
-    运行回测
+    提交后台回测任务（非阻塞）
 
-    基于给定的策略参数和时间范围，运行历史数据回测并返回绩效指标。
-    使用真实策略引擎（StrategyFactory）+ Binance 公开 API K线数据。
+    立刻返回 {taskId, status:"pending"}，前端轮询 GET /backtest/run/{taskId}
+    拿进度和结果。原同步 30s-3min hang 死被改造掉。
+
+    历史保存 / 错误检查在后台任务里做。
     """
     # 解析日期 — 用 UTC 当系统"今天"，最大允许日期再 +1 天容差，
     # 让客户端在 UTC+1 ~ UTC+14 时区时本地"今天"不会被误判为 future
@@ -88,52 +89,70 @@ async def run_backtest(
     if request.start_date > end_date:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
 
-    # 执行回测
-    service = BacktestService()
-    result = await service.execute_backtest(
-        template_id=request.template_id,
-        symbol=request.symbol,
-        exchange=request.exchange,
-        market=request.market,
-        start_date=request.start_date,
-        end_date=end_date,
-        initial_capital=request.initial_capital,
-        params=request.params,
-        analysis_window=request.analysis_window,
+    task_id = backtest_tasks.submit(
+        user_id=current_user.id,
+        payload={
+            "template_id": request.template_id,
+            "symbol": request.symbol,
+            "exchange": request.exchange,
+            "market": request.market,
+            "start_date": request.start_date,
+            "end_date": end_date,
+            "initial_capital": request.initial_capital,
+            "params": request.params,
+            "analysis_window": request.analysis_window,
+        },
     )
 
-    # 检查错误
-    if "error" in result:
-        raise HTTPException(
-            status_code=400,
-            detail=result["error"],
-        )
+    return APIResponse(data={"taskId": task_id, "status": "pending"})
 
-    # 存储回测历史（异步，不阻塞返回）
-    try:
-        await _save_backtest_history(
-            session=session,
-            user_id=current_user.id,
-            template_id=request.template_id,
-            symbol=request.symbol,
-            exchange=request.exchange,
-            start_date=request.start_date,
-            end_date=end_date,
-            initial_capital=request.initial_capital,
-            params=request.params,
-            result=result,
-        )
-    except (ConnectionError, TimeoutError, OSError) as e:
-        # 可恢复的临时性错误（网络抖动、数据库连接），记录但不惊慌
-        logger.warning("保存回测历史临时失败（网络/数据库连接）: %s", e)
-    except ValueError as e:
-        # 数据校验错误（如 equityCurve 过长），需要告警
-        logger.error("保存回测历史失败（数据格式错误）: %s", e)
-    except Exception as e:
-        # 未预期错误，保留完整堆栈
-        logger.exception("保存回测历史失败（未预期错误）: %s", e)
 
-    return APIResponse(data=result)
+@router.get("/run/{task_id}")
+async def get_backtest_task(
+    task_id: str,
+    current_user: CurrentUser,
+) -> APIResponse:
+    """查询后台回测任务状态。
+
+    返回字段：status / progress / stage / result（仅 completed 时）/ error。
+    """
+    state = backtest_tasks.get(task_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    if state.get("user_id") != current_user.id:
+        # 越权防护：不暴露存在性，直接 404
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+
+    # datetime → ISO 字符串，方便前端直接显示
+    payload = {
+        "taskId": task_id,
+        "status": state["status"],
+        "progress": state.get("progress", 0),
+        "stage": state.get("stage"),
+        "result": state.get("result"),
+        "error": state.get("error"),
+        "startedAt": (state["started_at"].isoformat() + "Z" if state.get("started_at") else None),
+        "completedAt": (
+            state["completed_at"].isoformat() + "Z" if state.get("completed_at") else None
+        ),
+    }
+    return APIResponse(data=payload)
+
+
+@router.delete("/run/{task_id}")
+async def cancel_backtest_task(
+    task_id: str,
+    current_user: CurrentUser,
+) -> APIResponse:
+    """取消后台回测任务。"""
+    state = backtest_tasks.get(task_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    if state.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+
+    cancelled = backtest_tasks.cancel(task_id)
+    return APIResponse(data={"cancelled": cancelled})
 
 
 @router.get("/history")

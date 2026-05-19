@@ -337,6 +337,23 @@ class ApiClient {
     return json.data || json;
   }
 
+  // 异步回测三件套（新版前端用，旧版 runBacktest 保留兼容）
+  // 后端改成后台任务后,POST 立即返 {taskId},前端轮询 GET /run/{id}。
+  async runBacktestAsync(params) {
+    const json = await this.post('/backtest/run', params);
+    return json.data || json; // { taskId, status }
+  }
+
+  async getBacktestTask(taskId) {
+    const json = await this.get(`/backtest/run/${encodeURIComponent(taskId)}`);
+    return json.data || json;
+  }
+
+  async cancelBacktestTask(taskId) {
+    const json = await this.del(`/backtest/run/${encodeURIComponent(taskId)}`);
+    return json.data || json;
+  }
+
   async getBacktestResults(backtestId) {
     const json = await this.get(`/backtest/${backtestId}`);
     return json.data || json;

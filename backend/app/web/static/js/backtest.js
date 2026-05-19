@@ -421,8 +421,13 @@ async function runBacktest() {
   }
 
   const btn = document.getElementById('run-backtest-btn');
+  const resetBtn = () => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> 开始回测';
+    _clearBacktestProgress();
+  };
   btn.disabled = true;
-  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 回测运行中' + intervalHint + '...';
+  btn.innerHTML = '<svg class="cq-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> 提交回测' + intervalHint + '...';
 
   try {
     const runPayload = {
@@ -436,12 +441,36 @@ async function runBacktest() {
     };
     if (analysisWindow !== undefined) runPayload.analysisWindow = analysisWindow;
 
-    const result = await api.runBacktest(runPayload);
+    // 1. 提交后台任务，立刻拿 taskId
+    const submission = await api.runBacktestAsync(runPayload);
+    const taskId = submission?.taskId;
+    if (!taskId) throw new Error('后端未返回 taskId');
 
-    renderBacktestResults(result);
-    const awHint = result.analysisWindow != null ? `, 窗口${result.analysisWindow}根` : ', 全量窗口';
-    const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒${awHint})` : '';
-    showToast('回测完成！' + extra, 'success');
+    // 2. 渲染进度面板（含取消按钮）
+    _renderBacktestProgress({ taskId, intervalHint });
+
+    // 3. 轮询直到 completed / failed / cancelled
+    const finalState = await _pollBacktestTask(taskId);
+
+    if (finalState.status === 'completed') {
+      const result = finalState.result || {};
+      renderBacktestResults(result);
+      const awHint = result.analysisWindow != null ? `, 窗口${result.analysisWindow}根` : ', 全量窗口';
+      const extra = result.interval ? ` (${result.interval}级别, ${result.klineCount}根K线, ${result.elapsedSeconds || '?'}秒${awHint})` : '';
+      showToast('回测完成！' + extra, 'success');
+    } else if (finalState.status === 'cancelled') {
+      showToast('回测已取消', 'warn');
+      document.getElementById('backtest-results').innerHTML = '';
+    } else {
+      // failed
+      const msg = finalState.error || '回测失败';
+      showToast('回测失败: ' + msg, 'error');
+      document.getElementById('backtest-results').innerHTML = `
+        <div class="cq-card cq-empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-loss)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <h3>${escapeHtml(msg)}</h3>
+        </div>`;
+    }
   } catch (err) {
     showToast('回测失败: ' + err.message, 'error');
     document.getElementById('backtest-results').innerHTML = `
@@ -450,9 +479,96 @@ async function runBacktest() {
         <h3>${escapeHtml(err.message)}</h3>
       </div>`;
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> 开始回测';
+    resetBtn();
   }
+}
+
+// ===== 异步回测：进度 UI + 轮询 =====
+// 进度面板 DOM 直接挂在 #backtest-results 上方,不另起容器,简单也好清。
+const _BACKTEST_POLL_INTERVAL_MS = 800;
+const _STAGE_LABEL = {
+  queued: '排队中',
+  fetching_klines: '拉取 K 线数据',
+  running_engine: '策略引擎运行中',
+  saving: '保存结果',
+  done: '完成',
+};
+
+function _renderBacktestProgress({ taskId, intervalHint }) {
+  const host = document.getElementById('backtest-progress');
+  if (!host) return;
+  host.style.display = '';
+  host.innerHTML = `
+    <div class="cq-card" style="display:flex;flex-direction:column;gap:var(--cq-space-2);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--cq-space-3);">
+        <div style="display:flex;align-items:center;gap:var(--cq-space-2);">
+          <svg class="cq-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cq-color-primary)" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+          <span id="backtest-progress-label" style="font-size:var(--cq-text-sm);font-weight:600;">回测运行中${escapeHtml(intervalHint || '')}</span>
+        </div>
+        <button type="button" id="backtest-cancel-btn" class="cq-btn cq-btn--ghost" style="padding:4px 12px;font-size:var(--cq-text-sm);">取消</button>
+      </div>
+      <progress id="backtest-progress-bar" value="0" max="100" style="width:100%;height:6px;"></progress>
+      <div id="backtest-progress-stage" style="font-size:var(--cq-text-xs);color:var(--cq-text-secondary);">${escapeHtml(_STAGE_LABEL.queued)}</div>
+    </div>
+  `;
+  const cancelBtn = document.getElementById('backtest-cancel-btn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = '取消中...';
+      try {
+        await api.cancelBacktestTask(taskId);
+      } catch (e) {
+        // 取消失败也让 poller 自己继续观察 — 状态会停在原样
+        showToast('取消请求失败: ' + e.message, 'warn');
+      }
+    });
+  }
+}
+
+function _updateBacktestProgress(state) {
+  const bar = document.getElementById('backtest-progress-bar');
+  const stage = document.getElementById('backtest-progress-stage');
+  if (bar) bar.value = Number(state.progress || 0);
+  if (stage) stage.textContent = _STAGE_LABEL[state.stage] || state.stage || '';
+}
+
+function _clearBacktestProgress() {
+  const host = document.getElementById('backtest-progress');
+  if (host) {
+    host.innerHTML = '';
+    host.style.display = 'none';
+  }
+}
+
+async function _pollBacktestTask(taskId) {
+  const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+  // 兜底超时：服务端 service 自带 _BACKTEST_TIMEOUT (~120s)；前端给 5min 上限,
+  // 跑过它直接当 failed 处理(避免 poller 永不退出)。
+  const POLL_MAX_MS = 5 * 60 * 1000;
+  const startedAt = Date.now();
+  let lastState = null;
+
+  // 立即拉一次,然后进入间隔轮询(用户体感快)
+  while (true) {
+    let state;
+    try {
+      state = await api.getBacktestTask(taskId);
+    } catch (e) {
+      // 404 / 网络瞬断 → 当作 failed 退出,避免死循环
+      throw new Error(e.message || '查询任务状态失败');
+    }
+    lastState = state;
+    _updateBacktestProgress(state);
+    if (TERMINAL.has(state.status)) return state;
+    if (Date.now() - startedAt > POLL_MAX_MS) {
+      return { status: 'failed', error: '轮询超时(>5min),请稍后查看回测历史' };
+    }
+    await new Promise(r => setTimeout(r, _BACKTEST_POLL_INTERVAL_MS));
+  }
+  // unreachable
+  // eslint-disable-next-line no-unreachable
+  return lastState;
 }
 
 function renderBacktestResults(result) {
