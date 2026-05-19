@@ -383,6 +383,11 @@ class ApiClient {
     return json.data || [];
   }
 
+  async deleteBacktestResult(backtestId) {
+    const json = await this.del(`/backtest/${backtestId}`);
+    return json.data || json;
+  }
+
   // ===== 行情数据 =====
   // market: 'spot' | 'perp'(永续合约)
   async getTicker(symbol, exchange = 'binance', market = 'spot', fresh = false) {

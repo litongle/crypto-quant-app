@@ -191,6 +191,22 @@ async def get_backtest_result(
     return APIResponse(data=result)
 
 
+@router.delete("/{backtest_id}")
+async def delete_backtest_result(
+    backtest_id: int,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> APIResponse:
+    """删除单条回测历史记录 (用户只能删自己的)。"""
+    from app.services.backtest_service import BacktestService
+
+    service = BacktestService(session)
+    ok = await service.delete_result_by_id(backtest_id, current_user.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="回测记录不存在")
+    return APIResponse(data={"deleted": True})
+
+
 # ============ 内部辅助 ============
 
 

@@ -956,6 +956,7 @@ function renderBacktestHistory(history) {
             <th style="text-align:right;">胜率</th>
             <th style="text-align:right;">交易数</th>
             <th style="text-align:right;">时间</th>
+            <th style="text-align:right;width:42px;"></th>
           </tr>
         </thead>
         <tbody>
@@ -975,6 +976,11 @@ function renderBacktestHistory(history) {
               <td class="cq-num" style="text-align:right;color:var(--cq-color-profit);">${wr.toFixed(1)}%</td>
               <td class="cq-num" style="text-align:right;color:var(--cq-text-secondary);">${trades}</td>
               <td style="text-align:right;color:var(--cq-text-tertiary);">${h.createdAt ? h.createdAt.substring(0, 10) : ''}</td>
+              <td style="text-align:right;" onclick="event.stopPropagation();">
+                <button class="cq-icon-btn" title="删除该回测记录" aria-label="删除" onclick="deleteBacktestRow(${h.id}, event)" style="padding:4px;color:var(--cq-text-tertiary);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -1001,6 +1007,21 @@ async function viewBacktestDetail(id) {
 }
 
 window.viewBacktestDetail = viewBacktestDetail;
+
+async function deleteBacktestRow(id, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (!confirm(`确定删除回测记录 #${id}? 不可恢复`)) return;
+  try {
+    await api.deleteBacktestResult(id);
+    showToast('已删除', 'success');
+    // 重新拉历史刷新列表
+    const history = await api.getBacktestHistory(20).catch(() => []);
+    renderBacktestHistory(history);
+  } catch (err) {
+    showToast('删除失败: ' + (err.message || String(err)), 'error');
+  }
+}
+window.deleteBacktestRow = deleteBacktestRow;
 
 /**
  * 渲染回测参数控件,与 strategy.js 的 renderParamSliders 同套类型支持。

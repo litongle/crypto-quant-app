@@ -214,6 +214,25 @@ class BacktestService:
             )
         return history
 
+    async def delete_result_by_id(self, backtest_id: int, user_id: int) -> bool:
+        """删除单条回测历史记录 (校验 user_id 防越权)。返回 True 即删除成功。"""
+        if not self.session:
+            return False
+        from app.models.backtest import BacktestResult
+
+        result = await self.session.execute(
+            select(BacktestResult).where(
+                BacktestResult.id == backtest_id,
+                BacktestResult.user_id == user_id,
+            )
+        )
+        record = result.scalar_one_or_none()
+        if not record:
+            return False
+        await self.session.delete(record)
+        await self.session.commit()
+        return True
+
     async def get_result_by_id(self, backtest_id: int, user_id: int) -> dict | None:
         """获取回测详情 (P2-17)"""
         if not self.session:
