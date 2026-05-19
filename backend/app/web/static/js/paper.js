@@ -33,7 +33,7 @@ function renderPaperPage() {
           <div style="font-size:var(--cq-text-lg);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-1);">模拟盘账户管理</div>
           <div style="font-size:var(--cq-text-sm);color:var(--cq-text-tertiary);line-height:1.6;">后端会为每个模拟盘账户分配虚拟资金和重置能力，适合联调策略和演练下单链路。</div>
         </div>
-        <button class="cq-btn cq-btn--primary" onclick="createPaperAccount()">
+        <button class="cq-btn cq-btn--primary" onclick="createPaperAccount(this)" id="paper-create-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           新建模拟盘账户
         </button>
@@ -75,13 +75,19 @@ function renderPaperPage() {
     </div>`;
 }
 
-async function createPaperAccount() {
+async function createPaperAccount(btn) {
+  // 防连点：快速双击会发多个请求，按钮 disabled 直到完成
+  const targetBtn = btn || document.getElementById('paper-create-btn');
+  if (targetBtn) targetBtn.disabled = true;
   try {
     await api.createPaperAccount();
     showToast('模拟盘账户已创建', 'success');
     await refreshPaperAccounts();
   } catch (err) {
     showToast(err.message || '创建模拟盘账户失败', 'error');
+  } finally {
+    // refreshPaperAccounts 会全量重建 DOM，btn 通常已被替换；这里给个兜底
+    if (targetBtn && document.contains(targetBtn)) targetBtn.disabled = false;
   }
 }
 
