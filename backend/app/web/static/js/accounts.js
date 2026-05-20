@@ -212,7 +212,9 @@ function formatBalance(n) {
 
 function timeAgo(date) {
   const now = new Date();
-  const diff = Math.floor((now - date) / 1000);
+  // 防时钟漂移：服务器 / 客户端时钟差 last_sync_at 可能在「未来」,diff < 0
+  // 时显示「刚刚」最贴近用户认知
+  const diff = Math.max(0, Math.floor((now - date) / 1000));
   if (diff < 60) return '刚刚';
   if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
   if (diff < 86400) return Math.floor(diff / 3600) + '小时前';

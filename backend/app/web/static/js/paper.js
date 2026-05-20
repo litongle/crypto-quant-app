@@ -81,7 +81,8 @@ async function createPaperAccount(btn) {
   if (targetBtn) targetBtn.disabled = true;
   try {
     await api.createPaperAccount();
-    showToast('模拟盘账户已创建', 'success');
+    // toast 含引导 — 首次创建的用户不知道下一步去哪用,提示去策略中心
+    showToast('模拟盘账户已创建，可在策略中心选作「交易账户」', 'success');
     await refreshPaperAccounts();
   } catch (err) {
     showToast(err.message || '创建模拟盘账户失败', 'error');
