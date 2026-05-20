@@ -181,7 +181,7 @@ function renderInstanceList(instances) {
         }
         return `
           <button class="cq-instance-row" type="button" onclick="openInstanceDrawer(${item.id})" aria-label="查看实例 ${escapeHtml(item.name || `#${item.id}`)}">
-            <span class="cq-instance-row__status cq-instance-row__status--${escapeHtml(item.status)}"></span>
+            <span class="cq-instance-row__status cq-instance-row__status--${escapeHtml(item.status)}${isZombie ? ' is-zombie' : ''}"></span>
             <span class="cq-instance-row__main">
               <span class="cq-instance-row__title">${escapeHtml(item.name || item.templateName || `实例 #${item.id}`)}</span>
               <span class="cq-instance-row__meta">${escapeHtml(item.symbol || '--')} · ${escapeHtml(getInstanceStatusLabel(item.status))}</span>

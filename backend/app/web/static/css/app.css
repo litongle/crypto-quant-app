@@ -2674,6 +2674,8 @@ input[type="week"].cq-input::-webkit-date-and-time-value {
 .cq-instance-row__status--running { background: var(--cq-color-profit); }
 .cq-instance-row__status--paused { background: var(--cq-color-warning); }
 .cq-instance-row__status--stopped { background: var(--cq-text-disabled); }
+/* zombie = status=running 但 runtimeActive=false，dot 也要红示警 */
+.cq-instance-row__status.is-zombie { background: var(--cq-color-loss); }
 .cq-instance-row__status--draft { background: var(--cq-color-info); }
 
 .cq-instance-row__main,
