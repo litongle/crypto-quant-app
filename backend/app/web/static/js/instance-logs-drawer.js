@@ -151,6 +151,7 @@
           : escapeHtml(value);
         return `<div class="cq-log-card__kv"><span class="cq-log-card__k">${escapeHtml(label)}</span><span class="cq-log-card__v">${valueHtml}</span></div>`;
       }).join('');
+    const hasDetail = detailRows.length > 0;
 
     return `
       <article class="cq-log-card cq-log-card--sev-${escapeHtml(severity)}">
@@ -162,7 +163,10 @@
           <time datetime="${escapeHtml(String(item.at || ''))}" class="cq-log-card__time" title="${escapeHtml(String(item.at || ''))}">${escapeHtml(formatEventDateTime(item.at))}</time>
         </header>
         <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
-        ${detailRows ? `<div class="cq-log-card__detail">${detailRows}</div>` : ''}
+        ${hasDetail ? `
+          <button class="cq-log-card__toggle" type="button" aria-expanded="false" onclick="_instanceLogsToggleDetail(this)">展开详情</button>
+          <div class="cq-log-card__detail-wrap" hidden>${detailRows}</div>
+        ` : ''}
       </article>
     `;
   }
@@ -190,10 +194,24 @@
     refreshInstanceLogs().catch((err) => console.error('[instance-logs] pagination refresh failed:', err));
   }
 
+  // 单实例日志卡 detail 展开/折叠 — 跟 events.js 一致体验,detail 默认折叠,
+  // 否则 20 张卡 metrics 大对象同时展开屏幕被刷爆
+  function _toggleDetail(btn) {
+    const card = btn.closest('article');
+    if (!card) return;
+    const wrap = card.querySelector('.cq-log-card__detail-wrap');
+    if (!wrap) return;
+    const willExpand = wrap.hidden;
+    wrap.hidden = !willExpand;
+    btn.textContent = willExpand ? '收起' : '展开详情';
+    btn.setAttribute('aria-expanded', String(willExpand));
+  }
+
   // ───── public API ─────
   window.openInstanceLogsDrawer = openInstanceLogsDrawer;
   window.openInstanceLogsDrawerFromBtn = openInstanceLogsDrawerFromBtn;
   window.closeInstanceLogsDrawer = closeInstanceLogsDrawer;
   window.reloadInstanceLogs = reloadInstanceLogs;
   window.changeInstanceLogsPage = changeInstanceLogsPage;
+  window._instanceLogsToggleDetail = _toggleDetail;
 })();
