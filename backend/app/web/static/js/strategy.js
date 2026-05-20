@@ -121,12 +121,13 @@ function formatTimestamp(ts) {
   if (!ts) return '--';
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return '--';
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // 跨年时带年份，本年时省略年份保紧凑
+  // 旧实现永远「05/19 17:34」— 跨年策略显示「12/31 23:45」不知是哪年
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleString('zh-CN', sameYear
+    ? { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+    : { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function stableStringify(value) {

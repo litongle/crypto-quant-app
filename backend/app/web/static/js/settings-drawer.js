@@ -79,9 +79,29 @@ async function renderNotificationsPane() {
     container.innerHTML = `<p class="cq-settings-error">加载失败：${escapeHtml(err.message)}</p>`;
     return;
   }
-  container.innerHTML = renderTelegramSection(tg) + renderSmtpSection(smtp);
+  container.innerHTML = renderNotificationScopeHelp() + renderTelegramSection(tg) + renderSmtpSection(smtp);
   bindTelegramForm(container);
   bindSmtpForm(container);
+}
+
+// 通知场景说明卡 — 用户反馈「不知道通知什么」: 列后端 notification_service
+// 真正会推送的 5 类事件,顺便指引去事件页查历史(通知只发 push,本地没存)
+function renderNotificationScopeHelp() {
+  return `
+    <div class="cq-card" style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3) var(--cq-space-4);background:var(--cq-bg-l2);border:1px solid var(--cq-border-subtle);">
+      <div style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-2);">配置后会自动推送以下事件</div>
+      <ul style="margin:0;padding-left:var(--cq-space-4);font-size:var(--cq-text-xs);color:var(--cq-text-secondary);line-height:1.8;">
+        <li>📊 策略信号 — 策略产生新信号（开仓 / 平仓 / 加仓）</li>
+        <li>🎯 止盈触发 — 策略平仓盈利</li>
+        <li>🛑 止损触发 — 策略平仓亏损</li>
+        <li>💰 大额成交 — 单笔订单价值超阈值</li>
+        <li>⚠️ 风控告警 — 自停 / 持仓漂移 / 连续异常等</li>
+      </ul>
+      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:var(--cq-space-2);">
+        通知是单向 push，前端不存历史。要追溯发过哪些通知，去 <a href="/web/events" onclick="event.preventDefault();navigate('events');" style="color:var(--cq-color-primary);">事件页</a> 看对应类型的事件流。
+      </div>
+    </div>
+  `;
 }
 
 function renderTelegramSection(data) {
