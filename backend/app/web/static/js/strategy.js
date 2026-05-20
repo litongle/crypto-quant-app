@@ -1259,6 +1259,9 @@ async function persistWorkbenchStrategy({ startAfterSave }) {
 
     deselectTemplate({ keepSelection: false, silent: true });
     await loadStrategyPage();
+    // 保存/启动成功后自动 scroll 到仓库 section — 用户看到刚保存的策略
+    // 卡片，不用自己翻找。错误分支已在各自 return 前 scroll 过。
+    document.getElementById('strategy-library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     showToast((startAfterSave ? '启动失败: ' : '保存失败: ') + err.message, 'error');
   } finally {
