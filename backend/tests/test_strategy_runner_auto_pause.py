@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -22,11 +23,13 @@ def reset_runner_singleton():
     r._runners.clear()
     r._strategies.clear()
     r._last_signal_at.clear()
+    r._auto_paused_pending.clear()
     yield r
     r._auto_pause = StrategyRunner._auto_pause.__get__(r, StrategyRunner)
     r._running = False
     r._consecutive_errors.clear()
     r._consecutive_order_failures.clear()
+    r._auto_paused_pending.clear()
 
 
 @pytest.fixture
@@ -442,6 +445,114 @@ async def test_mark_instance_stopped_no_alert_when_already_stopped(
 
     notify_mock.assert_not_awaited()
     fake_session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_task_done_skips_mark_when_auto_pause_pending(
+    reset_runner_singleton,
+):
+    """回归 — watchdog 触发 _auto_pause 的瞬间,task 因 cancel 提前 done。
+    _handle_task_done 必须看到 _auto_paused_pending 标记后跳过 _mark_instance_stopped,
+    否则 stopped 会覆盖 paused、双告警齐发(策略自停 + 策略崩溃)。
+    """
+    runner = reset_runner_singleton
+    runner._running = True
+    runner._auto_paused_pending.add(99)
+
+    task = MagicMock(spec=asyncio.Task)
+    task.cancelled.return_value = False
+    task.exception.return_value = None
+
+    created_tasks: list = []
+    original_create_task = asyncio.create_task
+
+    def capture(coro, **kwargs):
+        created_tasks.append(coro)
+        coro.close()
+        return MagicMock()
+
+    import app.core.strategy_runner as runner_mod
+
+    runner_mod.asyncio.create_task = capture
+    try:
+        runner._handle_task_done(99, task)
+    finally:
+        runner_mod.asyncio.create_task = original_create_task
+
+    # 关键断言:没有触发 _mark_instance_stopped 协程
+    assert created_tasks == []
+
+
+@pytest.mark.asyncio
+async def test_auto_pause_manages_pending_marker(
+    reset_runner_singleton, fake_settings, monkeypatch
+):
+    """_auto_pause 进入即加 _auto_paused_pending,完成后清掉。"""
+    runner = reset_runner_singleton
+
+    fake_inst = MagicMock()
+    fake_inst.id = 77
+    fake_inst.name = "竞态测试"
+    fake_session = AsyncMock()
+    fake_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=fake_inst))
+    )
+    fake_session.commit = AsyncMock()
+    fake_session_cm = MagicMock()
+    fake_session_cm.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_session_cm.__aexit__ = AsyncMock(return_value=None)
+    runner._session_maker = MagicMock(return_value=fake_session_cm)
+
+    captured: dict[str, bool] = {}
+
+    async def capture_pending(*args, **kwargs):
+        captured["in_pending_during_notify"] = 77 in runner._auto_paused_pending
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "app.services.notification_service.notify_risk_alert",
+        capture_pending,
+    )
+
+    assert 77 not in runner._auto_paused_pending
+    await runner._auto_pause(77, reason="auto:x", detail="d")
+
+    assert captured["in_pending_during_notify"] is True
+    assert 77 not in runner._auto_paused_pending
+
+
+@pytest.mark.asyncio
+async def test_run_loop_propagates_cancellation(reset_runner_singleton, fake_settings, monkeypatch):
+    """回归 — _run_loop 被外部 cancel 时,CancelledError 必须传播到 task,
+    否则 task.cancelled() == False 会让 done_callback 误判为崩溃。
+    """
+    runner = reset_runner_singleton
+    runner._running = True
+
+    started = asyncio.Event()
+
+    async def fake_fetch(*args, **kwargs):
+        started.set()
+        await asyncio.sleep(60)  # 阻塞直到被 cancel
+        return []
+
+    runner._fetch_klines_cached = fake_fetch
+    runner._handle_signal = AsyncMock()
+    runner._update_position_prices = AsyncMock()
+    runner._update_last_run_and_state = AsyncMock()
+
+    task = asyncio.create_task(
+        runner._run_loop(
+            1, MagicMock(analyze=AsyncMock(return_value=None)), _make_config(interval=1)
+        )
+    )
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled() is True
 
 
 @pytest.mark.asyncio

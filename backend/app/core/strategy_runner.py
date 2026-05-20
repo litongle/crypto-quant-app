@@ -189,6 +189,9 @@ class StrategyRunner:
         self._last_signal_at: dict[int, datetime] = {}
         self._last_runtime_error: dict[int, str] = {}
         self._last_runtime_error_at: dict[int, datetime] = {}
+        # _auto_pause 处理中 / 刚处理完的 instance — done_callback 据此跳过 _mark_instance_stopped,
+        # 避免 paused 被 stopped 覆盖、双重告警(策略自停 + 策略崩溃)
+        self._auto_paused_pending: set[int] = set()
         self._running = False
         self._session_maker = None
         # K线请求去重: (exchange, symbol, interval, is_perp) → (timestamp, klines)
@@ -311,6 +314,10 @@ class StrategyRunner:
     def _handle_task_done(self, instance_id: int, task: asyncio.Task) -> None:
         self._forget_instance(instance_id, task)
 
+        # _auto_pause 已经/正在处理 — 跳过崩溃路径,否则 stopped 会覆盖 paused、双告警齐发
+        if instance_id in self._auto_paused_pending:
+            return
+
         if task.cancelled():
             return
 
@@ -407,6 +414,9 @@ class StrategyRunner:
         if not self._session_maker:
             return
 
+        # 加标记,让 task done_callback 跳过崩溃路径(避免 stopped 覆盖 paused、双告警)
+        self._auto_paused_pending.add(instance_id)
+
         # 1. 取消 task + 清理内存态
         task = self._runners.pop(instance_id, None)
         current_task = asyncio.current_task()
@@ -483,6 +493,13 @@ class StrategyRunner:
         finally:
             if cancel_current_task and task and not task.done():
                 task.cancel()
+            # 让 done_callback 读到标记后再清理 — _handle_task_done 是 call_soon 异步调度的。
+            # 自调场景下 sleep(0) 可能抛 CancelledError(因为上面 task.cancel() 已发出),
+            # 用 inner try/finally 保证标记一定被移除,CancelledError 继续向 _run_loop 传播。
+            try:
+                await asyncio.sleep(0)
+            finally:
+                self._auto_paused_pending.discard(instance_id)
 
     async def _heartbeat_watchdog_loop(self) -> None:
         """周期扫描 running 实例，检测 last_run_at 过旧。
@@ -782,8 +799,10 @@ class StrategyRunner:
                 await asyncio.sleep(interval)
 
             except asyncio.CancelledError:
+                # 必须 re-raise — 吞掉会让 task.cancelled() 返回 False,
+                # _handle_task_done 误判为崩溃,跑出 stopped 覆盖 paused、双告警的 bug
                 logger.info("[StrategyRunner] 策略 #%d 运行任务被取消", instance_id)
-                break
+                raise
             except Exception as exc:
                 logger.error("[StrategyRunner] 策略 #%d 运行异常: %s", instance_id, exc)
                 self._consecutive_errors[instance_id] = (
