@@ -123,7 +123,7 @@ function renderSmtpSection(data) {
           <input name="smtp_host" value="${escapeHtml(data.smtp_host || '')}" placeholder="smtp.qq.com">
         </label>
         <label>端口
-          <input name="smtp_port" type="number" value="${escapeHtml(String(data.smtp_port ?? 465))}" min="1" max="65535">
+          <input name="smtp_port" type="number" value="${escapeHtml(String(data.smtp_port ?? 465))}" min="1" max="65535" step="1">
           <small>465 = SSL（推荐）；587 = STARTTLS</small>
         </label>
         <label class="cq-checkbox">
@@ -272,23 +272,23 @@ async function renderRiskSettingsPane() {
   container.innerHTML = `
     <form class="cq-settings-form" data-form="risk">
       <label>连续异常阈值
-        <input name="consecutive_errors" type="number" value="${data.consecutive_errors}" min="1" max="100">
+        <input name="consecutive_errors" type="number" value="${data.consecutive_errors}" min="1" max="100" step="1">
         <small>策略循环连续抛错多少次后自停（防卡死）</small>
       </label>
       <label>连续下单失败阈值
-        <input name="consecutive_order_failures" type="number" value="${data.consecutive_order_failures}" min="1" max="100">
+        <input name="consecutive_order_failures" type="number" value="${data.consecutive_order_failures}" min="1" max="100" step="1">
         <small>同一实例下单连续失败多少次后自停</small>
       </label>
       <label>心跳倍数
-        <input name="heartbeat_multiplier" type="number" value="${data.heartbeat_multiplier}" min="1" max="100">
+        <input name="heartbeat_multiplier" type="number" value="${data.heartbeat_multiplier}" min="1" max="100" step="1">
         <small>心跳超时阈值 = poll_interval × 这个倍数，与「最小心跳秒数」取较大</small>
       </label>
       <label>最小心跳秒数
-        <input name="heartbeat_min_seconds" type="number" value="${data.heartbeat_min_seconds}" min="10" max="3600">
+        <input name="heartbeat_min_seconds" type="number" value="${data.heartbeat_min_seconds}" min="10" max="3600" step="1">
         <small>心跳超时阈值的下限秒数</small>
       </label>
       <label>守护扫描间隔（秒）
-        <input name="watchdog_interval_seconds" type="number" value="${data.watchdog_interval_seconds}" min="5" max="600">
+        <input name="watchdog_interval_seconds" type="number" value="${data.watchdog_interval_seconds}" min="5" max="600" step="1">
         <small>守护扫描周期，越短发现卡死越快</small>
       </label>
       <div class="cq-settings-form__actions">
