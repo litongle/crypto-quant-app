@@ -167,7 +167,7 @@
             ${severity !== 'info' ? `<span class="cq-log-card__sev cq-log-card__sev--${escapeHtml(severity)}">${escapeHtml(getEventSeverityLabel(severity))}</span>` : ''}
             ${item.instance_id ? `<button class="cq-log-card__link" type="button" data-instance-id="${escapeHtml(String(item.instance_id))}" onclick="event.stopPropagation();openInstanceDrawerFromBtn(this)">#${escapeHtml(String(item.instance_id))}</button>` : ''}
           </div>
-          <time class="cq-log-card__time">${escapeHtml(formatEventDateTime(item.at))}</time>
+          <time datetime="${escapeHtml(String(item.at || ''))}" class="cq-log-card__time" title="${escapeHtml(String(item.at || ''))}">${escapeHtml(formatEventDateTime(item.at))}</time>
         </header>
         <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
         ${hasDetail ? `

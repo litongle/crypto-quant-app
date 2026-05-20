@@ -159,7 +159,7 @@
             <span class="cq-log-card__type cq-log-card__type--${escapeHtml(item.type)}">${escapeHtml(getEventTypeLabel(item.type))}</span>
             ${severity !== 'info' ? `<span class="cq-log-card__sev cq-log-card__sev--${escapeHtml(severity)}">${escapeHtml(getEventSeverityLabel(severity))}</span>` : ''}
           </div>
-          <time class="cq-log-card__time">${escapeHtml(formatEventDateTime(item.at))}</time>
+          <time datetime="${escapeHtml(String(item.at || ''))}" class="cq-log-card__time" title="${escapeHtml(String(item.at || ''))}">${escapeHtml(formatEventDateTime(item.at))}</time>
         </header>
         <p class="cq-log-card__summary">${escapeHtml(item.summary || '--')}</p>
         ${detailRows ? `<div class="cq-log-card__detail">${detailRows}</div>` : ''}
