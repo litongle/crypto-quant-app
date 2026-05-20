@@ -2794,6 +2794,17 @@ button.cq-event-list__item {
   border-radius: 999px;
   padding: 8px 12px;
   font-size: var(--cq-text-sm);
+  cursor: pointer;
+  transition: background-color var(--cq-duration-fast) var(--cq-ease-default),
+              border-color var(--cq-duration-fast) var(--cq-ease-default),
+              color var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-drawer__tab:hover:not(.is-active),
+.cq-segmented__item:hover:not(.is-active) {
+  background: var(--cq-bg-l2);
+  color: var(--cq-text-primary);
+  border-color: var(--cq-border-strong, var(--cq-text-tertiary));
 }
 
 .cq-drawer__tab.is-active,
