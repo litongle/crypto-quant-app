@@ -259,6 +259,32 @@ class NotificationService:
         if not results["telegram"] and not results["email"]:
             logger.info("[Notification] 未配置通知渠道，仅记录日志: %s - %s", title, message[:200])
 
+        # 通知有错误时落 audit event — 用户在前端事件页（type=system, sev=warning）
+        # 能看到通知失败记录,而不是只能 docker logs 才能查。用户反馈「前端
+        # 也看不见」的核心痛点之一。
+        if results["errors"]:
+            try:
+                from app.database import get_session_maker
+                from app.services import audit_service
+
+                session_maker = await get_session_maker()
+                await audit_service.log_system(
+                    session_maker,
+                    event="notification.failed",
+                    summary=f"通知发送失败: {title}",
+                    severity="warning",
+                    detail={
+                        "notification_type": notification_type,
+                        "title": title,
+                        "errors": results["errors"],
+                        "telegram_sent": results["telegram"],
+                        "email_sent": results["email"],
+                    },
+                )
+            except Exception as audit_exc:
+                # 审计失败不能阻塞主流程（也别 cascade 触发通知,会无限循环）
+                logger.warning("[Notification] audit log 失败: %s", audit_exc)
+
         return results
 
     async def _send_telegram(self, message: str, bot_token: str, chat_id: str) -> None:
