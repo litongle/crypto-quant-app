@@ -37,11 +37,27 @@ _NOTIFICATION_KEYS: list[str] = [
     "SMTP_FROM",
     "SMTP_TO",
     "SMTP_USE_TLS",
+    # 事件类型订阅开关 — 默认全开（None 视为 true）,显式 "false" 才禁用
+    # system 类型不在订阅范围（应用启停/通知失败等关键审计事件,强制发）
+    "NOTIFY_SUBSCRIBE_SIGNAL",
+    "NOTIFY_SUBSCRIBE_STOP_LOSS",
+    "NOTIFY_SUBSCRIBE_TAKE_PROFIT",
+    "NOTIFY_SUBSCRIBE_LARGE_TRADE",
+    "NOTIFY_SUBSCRIBE_RISK_ALERT",
 ]
 
 NotificationType = Literal[
     "signal", "stop_loss", "take_profit", "large_trade", "risk_alert", "system"
 ]
+
+# notification_type → runtime_config key 映射；system 不可关
+_SUBSCRIBE_KEY: dict[str, str] = {
+    "signal": "NOTIFY_SUBSCRIBE_SIGNAL",
+    "stop_loss": "NOTIFY_SUBSCRIBE_STOP_LOSS",
+    "take_profit": "NOTIFY_SUBSCRIBE_TAKE_PROFIT",
+    "large_trade": "NOTIFY_SUBSCRIBE_LARGE_TRADE",
+    "risk_alert": "NOTIFY_SUBSCRIBE_RISK_ALERT",
+}
 
 
 class NotificationService:
@@ -232,6 +248,17 @@ class NotificationService:
         """发送通知到所有已配置的渠道"""
         results: dict = {"telegram": False, "email": False, "errors": []}
         cfg = await self._load_config()
+
+        # 订阅开关检查：用户在设置中可勾选启用/禁用某类通知。默认全启用
+        # （runtime_config 没值时视为 true）,显式存 "false" 才禁用。system
+        # 类型不在 _SUBSCRIBE_KEY 表里, 强制发（应用启停/通知失败审计要保留）。
+        sub_key = _SUBSCRIBE_KEY.get(notification_type)
+        if sub_key is not None:
+            sub_val = cfg.get(sub_key)
+            if sub_val is not None and str(sub_val).lower() == "false":
+                logger.info("[Notification] %s 已禁用订阅,跳过: %s", notification_type, title)
+                results["skipped"] = True
+                return results
 
         # Telegram
         token = cfg.get("TELEGRAM_BOT_TOKEN")

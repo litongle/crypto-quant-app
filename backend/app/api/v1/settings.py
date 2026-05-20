@@ -19,18 +19,29 @@ MASK = "••••••"
 
 
 class NotificationsIn(BaseModel):
-    """None=不修改；""=清空；其他字符串=覆盖。"""
+    """None=不修改；""=清空；其他字符串=覆盖。bool 字段 None=不变。"""
 
     model_config = ConfigDict(extra="forbid")
 
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    # 5 类事件订阅开关 — 默认全开,可独立勾选关闭
+    subscribe_signal: bool | None = None
+    subscribe_stop_loss: bool | None = None
+    subscribe_take_profit: bool | None = None
+    subscribe_large_trade: bool | None = None
+    subscribe_risk_alert: bool | None = None
 
 
 class NotificationsOut(BaseModel):
     telegram_bot_token: str | None
     telegram_bot_token_is_set: bool
     telegram_chat_id: str | None
+    subscribe_signal: bool
+    subscribe_stop_loss: bool
+    subscribe_take_profit: bool
+    subscribe_large_trade: bool
+    subscribe_risk_alert: bool
 
 
 class SmtpIn(BaseModel):
@@ -104,17 +115,35 @@ async def _put_plain(svc: RuntimeConfigService, key: str, value: str | None):
 # ── 通知通道（Telegram）────────────────────────────────────────
 
 
+_SUBSCRIBE_KEYS = {
+    "subscribe_signal": "NOTIFY_SUBSCRIBE_SIGNAL",
+    "subscribe_stop_loss": "NOTIFY_SUBSCRIBE_STOP_LOSS",
+    "subscribe_take_profit": "NOTIFY_SUBSCRIBE_TAKE_PROFIT",
+    "subscribe_large_trade": "NOTIFY_SUBSCRIBE_LARGE_TRADE",
+    "subscribe_risk_alert": "NOTIFY_SUBSCRIBE_RISK_ALERT",
+}
+
+
+def _parse_bool(val: str | None, default: bool = True) -> bool:
+    """runtime_config 存 'true'/'false' 字符串，None 走 default。"""
+    if val is None:
+        return default
+    return str(val).lower() != "false"
+
+
 @router.get(
     "/notifications",
     response_model=NotificationsOut,
     dependencies=[Depends(get_current_user)],
 )
 async def get_notifications(db: AsyncSession = Depends(get_db)):
-    cfg = await RuntimeConfigService(db).get_many(["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"])
+    keys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] + list(_SUBSCRIBE_KEYS.values())
+    cfg = await RuntimeConfigService(db).get_many(keys)
     return NotificationsOut(
         telegram_bot_token=MASK if cfg["TELEGRAM_BOT_TOKEN"] else None,
         telegram_bot_token_is_set=bool(cfg["TELEGRAM_BOT_TOKEN"]),
         telegram_chat_id=cfg["TELEGRAM_CHAT_ID"],
+        **{k: _parse_bool(cfg[v]) for k, v in _SUBSCRIBE_KEYS.items()},
     )
 
 
@@ -127,6 +156,11 @@ async def put_notifications(body: NotificationsIn, db: AsyncSession = Depends(ge
     svc = RuntimeConfigService(db)
     await _put_secret(svc, "TELEGRAM_BOT_TOKEN", body.telegram_bot_token, encrypt=True)
     await _put_plain(svc, "TELEGRAM_CHAT_ID", body.telegram_chat_id)
+    # 订阅开关：None 不变；True/False 写 "true"/"false" 字符串到 runtime_config
+    for field, key in _SUBSCRIBE_KEYS.items():
+        val = getattr(body, field)
+        if val is not None:
+            await svc.set(key, "true" if val else "false", encrypt=False)
     return await get_notifications(db=db)
 
 

@@ -317,6 +317,47 @@ body.is-drawer-open {
   overflow: hidden;
 }
 
+/* 通知订阅 checkbox 组 */
+.cq-subscribe-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cq-space-2);
+}
+
+.cq-subscribe-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--cq-space-2) var(--cq-space-3);
+  padding: 8px 10px;
+  border: 1px solid var(--cq-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--cq-bg-l2);
+  transition: background-color var(--cq-duration-fast) var(--cq-ease-default);
+}
+
+.cq-subscribe-row:hover {
+  background: var(--cq-bg-l3, var(--cq-bg-l4));
+}
+
+.cq-subscribe-row input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+.cq-subscribe-row__label {
+  font-size: var(--cq-text-sm);
+  color: var(--cq-text-primary);
+  font-weight: 500;
+}
+
+.cq-subscribe-row__hint {
+  font-size: var(--cq-text-xs);
+  color: var(--cq-text-tertiary);
+}
+
 /* ── 3. Login Page ───────────────────────────────────────────── */
 .login-wrap {
   display: flex;

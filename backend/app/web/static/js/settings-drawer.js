@@ -79,29 +79,67 @@ async function renderNotificationsPane() {
     container.innerHTML = `<p class="cq-settings-error">加载失败：${escapeHtml(err.message)}</p>`;
     return;
   }
-  container.innerHTML = renderNotificationScopeHelp() + renderTelegramSection(tg) + renderSmtpSection(smtp);
+  container.innerHTML = renderSubscriptionsSection(tg) + renderTelegramSection(tg) + renderSmtpSection(smtp);
+  bindSubscriptionsForm(container);
   bindTelegramForm(container);
   bindSmtpForm(container);
 }
 
-// 通知场景说明卡 — 用户反馈「不知道通知什么」: 列后端 notification_service
-// 真正会推送的 5 类事件,顺便指引去事件页查历史(通知只发 push,本地没存)
-function renderNotificationScopeHelp() {
+// 订阅类型 form — 用户反馈「能不能通过勾选设置哪些通知」
+// 5 个 checkbox 控制哪类事件会真推送。跨渠道（Telegram + Email 同步遵循）。
+// system 类型（应用启停/通知失败审计等）不可关,所以不在 form 里。
+const _SUBSCRIBE_FIELDS = [
+  { key: 'subscribe_signal', label: '📊 策略信号', hint: '策略产生新信号（开仓 / 平仓 / 加仓）' },
+  { key: 'subscribe_take_profit', label: '🎯 止盈触发', hint: '策略平仓盈利' },
+  { key: 'subscribe_stop_loss', label: '🛑 止损触发', hint: '策略平仓亏损' },
+  { key: 'subscribe_large_trade', label: '💰 大额成交', hint: '单笔订单价值超阈值' },
+  { key: 'subscribe_risk_alert', label: '⚠️ 风控告警', hint: '自停 / 持仓漂移 / 连续异常等' },
+];
+
+function renderSubscriptionsSection(data) {
+  const rows = _SUBSCRIBE_FIELDS.map((f) => {
+    const checked = data[f.key] !== false ? 'checked' : '';
+    return `
+      <label class="cq-subscribe-row">
+        <input type="checkbox" name="${f.key}" ${checked}>
+        <span class="cq-subscribe-row__label">${f.label}</span>
+        <small class="cq-subscribe-row__hint">${escapeHtml(f.hint)}</small>
+      </label>`;
+  }).join('');
   return `
-    <div class="cq-card" style="margin-bottom:var(--cq-space-4);padding:var(--cq-space-3) var(--cq-space-4);background:var(--cq-bg-l2);border:1px solid var(--cq-border-subtle);">
-      <div style="font-size:var(--cq-text-sm);font-weight:600;color:var(--cq-text-primary);margin-bottom:var(--cq-space-2);">配置后会自动推送以下事件</div>
-      <ul style="margin:0;padding-left:var(--cq-space-4);font-size:var(--cq-text-xs);color:var(--cq-text-secondary);line-height:1.8;">
-        <li>📊 策略信号 — 策略产生新信号（开仓 / 平仓 / 加仓）</li>
-        <li>🎯 止盈触发 — 策略平仓盈利</li>
-        <li>🛑 止损触发 — 策略平仓亏损</li>
-        <li>💰 大额成交 — 单笔订单价值超阈值</li>
-        <li>⚠️ 风控告警 — 自停 / 持仓漂移 / 连续异常等</li>
-      </ul>
-      <div style="font-size:var(--cq-text-xs);color:var(--cq-text-tertiary);margin-top:var(--cq-space-2);">
-        通知是单向 push，前端不存历史。要追溯发过哪些通知，去 <a href="/web/events" onclick="event.preventDefault();navigate('events');" style="color:var(--cq-color-primary);">事件页</a> 看对应类型的事件流。
+    <form class="cq-settings-form" data-form="subscriptions">
+      <h3 class="cq-settings-section-title">订阅事件类型</h3>
+      <div class="cq-subscribe-grid">${rows}</div>
+      <div class="cq-settings-form__actions">
+        <button type="submit" class="cq-btn cq-btn--primary">保存订阅</button>
       </div>
-    </div>
+      <div class="cq-settings-form__status" data-status></div>
+      <small style="display:block;color:var(--cq-text-tertiary);margin-top:var(--cq-space-2);">
+        取消勾选的类型不会推送到 Telegram / 邮箱；想追溯发过哪些通知,去
+        <a href="/web/events" onclick="event.preventDefault();navigate('events');" style="color:var(--cq-color-primary);">事件页</a> 按对应类型筛。
+      </small>
+    </form>
   `;
+}
+
+function bindSubscriptionsForm(container) {
+  const form = container.querySelector('form[data-form="subscriptions"]');
+  if (!form) return;
+  const status = form.querySelector('[data-status]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const f of _SUBSCRIBE_FIELDS) {
+      body[f.key] = form.querySelector(`[name="${f.key}"]`).checked;
+    }
+    status.textContent = '保存中…';
+    try {
+      await api.putNotificationsSettings(body);
+      status.textContent = '✅ 已保存（即时生效）';
+    } catch (err) {
+      status.textContent = `❌ 保存失败：${err.message}`;
+    }
+  });
 }
 
 function renderTelegramSection(data) {
