@@ -179,15 +179,20 @@ function renderInstanceOrders(events) {
         <table class="cq-table">
           <thead><tr><th>时间</th><th>方向</th><th>数量</th><th>成交价</th><th>状态</th></tr></thead>
           <tbody>
-            ${events.map((item) => `
+            ${events.map((item) => {
+              const at = item.createdAt;
+              const timeCell = at
+                ? `<time datetime="${escapeHtml(String(at))}" title="${escapeHtml(String(at))}">${escapeHtml(formatEventDateTime(at))}</time>`
+                : '--';
+              return `
               <tr>
-                <td>${escapeHtml(item.createdAt ? formatEventDateTime(item.createdAt) : '--')}</td>
+                <td>${timeCell}</td>
                 <td>${escapeHtml(getOrderSideLabel(item.side))}</td>
                 <td class="cq-num">${escapeHtml(_fmtNum(item.filledQuantity || item.quantity))}</td>
                 <td class="cq-num">${escapeHtml(_fmtNum(item.avgFillPrice || item.price))}</td>
                 <td>${escapeHtml(getOrderStatusLabel(item.status))}</td>
-              </tr>
-            `).join('')}
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>` : '<div class="cq-empty-inline">暂无相关订单</div>'}
