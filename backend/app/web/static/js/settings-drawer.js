@@ -86,6 +86,10 @@ async function renderNotificationsPane() {
 
 function renderTelegramSection(data) {
   const tokenPh = data.telegram_bot_token_is_set ? '已设置（输入新值覆盖；输入 - 清空）' : '未设置';
+  // 未配置 token 或 chat_id 时禁用「发送测试」按钮 + tooltip 说明,避免
+  // 用户白点一次看到「token 未配置」error 再去填配置
+  const tgReady = Boolean(data.telegram_bot_token_is_set) && Boolean(data.telegram_chat_id);
+  const tgTestAttr = tgReady ? '' : 'disabled title="先填好 Bot Token + Chat ID 并保存后再测试"';
   return `
     <form class="cq-settings-form" data-form="telegram">
       <h3 class="cq-settings-section-title">Telegram</h3>
@@ -98,7 +102,7 @@ function renderTelegramSection(data) {
       </label>
       <div class="cq-settings-form__actions">
         <button type="submit" class="cq-btn cq-btn--primary">保存</button>
-        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-telegram">发送测试通知</button>
+        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-telegram" ${tgTestAttr}>发送测试通知</button>
       </div>
       <div class="cq-settings-form__status" data-status></div>
     </form>
@@ -107,6 +111,9 @@ function renderTelegramSection(data) {
 
 function renderSmtpSection(data) {
   const passPh = data.smtp_password_is_set ? '已设置（输入新值覆盖；输入 - 清空）' : '未设置';
+  // 未配置 SMTP host/username/password/收件人时禁用「发送测试邮件」
+  const smtpReady = Boolean(data.smtp_host) && Boolean(data.smtp_username) && Boolean(data.smtp_password_is_set) && Boolean(data.smtp_to);
+  const smtpTestAttr = smtpReady ? '' : 'disabled title="先填好 Host / 用户名 / 密码 / 收件人并保存后再测试"';
   return `
     <form class="cq-settings-form" data-form="smtp">
       <h3 class="cq-settings-section-title cq-settings-section-title--divider">邮箱 SMTP</h3>
@@ -148,7 +155,7 @@ function renderSmtpSection(data) {
 
       <div class="cq-settings-form__actions">
         <button type="submit" class="cq-btn cq-btn--primary">保存</button>
-        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-email">发送测试邮件</button>
+        <button type="button" class="cq-btn cq-btn--secondary" data-action="test-email" ${smtpTestAttr}>发送测试邮件</button>
       </div>
       <div class="cq-settings-form__status" data-status></div>
     </form>
